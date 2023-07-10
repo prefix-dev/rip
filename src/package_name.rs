@@ -53,13 +53,8 @@ impl FromStr for PackageName {
             return Err(ParsePackageNameError::InvalidPackageName(s.into()));
         }
 
-        static NAME_NORMALIZE: OnceLock<Regex> = OnceLock::new();
-        let name_normalize = NAME_VALIDATE.get_or_init(|| {
-            // https://www.python.org/dev/peps/pep-0503/#normalized-names
-            Regex::new(r"[-_.]").unwrap()
-        });
-
-        let mut normalized = name_normalize.replace_all(s, "-").into_owned();
+        // https://www.python.org/dev/peps/pep-0503/#normalized-names
+        let mut normalized = s.replace(&['-', '_', '.'], "-");
         normalized.make_ascii_lowercase();
 
         Ok(PackageName {
@@ -99,5 +94,26 @@ impl Serialize for PackageName {
         S: Serializer,
     {
         self.source.as_ref().serialize(serializer)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_packagename_basics() {
+        let name1: PackageName = "Foo-Bar-Baz".parse().unwrap();
+        assert_eq!(name1.as_source_str(), "Foo-Bar-Baz");
+        assert_eq!(name1.as_str(), "foo-bar-baz");
+
+        let name2: PackageName = "foo_bar.baz".parse().unwrap();
+        assert_eq!(name2.as_source_str(), "foo_bar.baz");
+        assert_eq!(name2.as_str(), "foo-bar-baz");
+
+        assert_eq!(name1, name2);
+
+        let name3: PackageName = "foo-barbaz".parse().unwrap();
+        assert_ne!(name1, name3);
     }
 }

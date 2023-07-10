@@ -20,14 +20,14 @@ pub struct ProjectInfo {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub struct ArtifactInfo {
-    name: ArtifactName,
-    url: url::Url,
-    hashes: ArtifactHashes,
-    requires_python: Option<String>,
+    pub filename: ArtifactName,
+    pub url: url::Url,
+    pub hashes: ArtifactHashes,
+    pub requires_python: Option<String>,
     #[serde(default)]
-    dist_info_metadata: DistInfoMetadata,
+    pub dist_info_metadata: DistInfoMetadata,
     #[serde(default)]
-    yanked: Yanked,
+    pub yanked: Yanked,
 }
 
 /// Describes a set of hashes for a certain artifact. In theory all hash algorithms available via

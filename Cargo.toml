@@ -9,15 +9,19 @@ rust-version = "1.70"
 [dependencies]
 elsa = "1.8.1"
 fs4 = "0.6.6"
+futures = "0.3.28"
 indexmap = "2.0.0"
 pep440 = "0.2.0"
 rattler_digest = { version = "0.6.0", features = ["serde"] }
 regex = "1.9.1"
-reqwest = { version = "0.11.18" }
+reqwest = { version = "0.11.18", features = ["json"] }
 serde = "1.0.171"
 serde_json = "1.0.100"
 serde_with = "3.0.0"
 tempfile = "3.6.0"
 thiserror = "1.0.43"
+tokio = "1.29.1"
 url = { version = "2.4.0", features = ["serde"] }
 
+[dev-dependencies]
+tokio = { version = "1.29.1", features = ["rt", "macros"] }

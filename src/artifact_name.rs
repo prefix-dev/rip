@@ -29,6 +29,16 @@ pub enum ArtifactName {
     SDist(SDistName),
 }
 
+impl ArtifactName {
+    /// Returns the version of the artifact
+    pub fn version(&self) -> &Version {
+        match self {
+            ArtifactName::Wheel(name) => &name.version,
+            ArtifactName::SDist(name) => &name.version
+        }
+    }
+}
+
 impl Display for ArtifactName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
