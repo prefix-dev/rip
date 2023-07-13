@@ -1,7 +1,8 @@
 //! Structs that represent the response from the Simple API when using JSON (PEP 691).
 
+use crate::artifact::Artifact;
 use crate::artifact_name::ArtifactName;
-use rattler_digest::{serde::SerializableHash, Md5, Sha256};
+use rattler_digest::{serde::SerializableHash, Sha256};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, skip_serializing_none};
 
@@ -22,12 +23,19 @@ pub struct ProjectInfo {
 pub struct ArtifactInfo {
     pub filename: ArtifactName,
     pub url: url::Url,
-    pub hashes: ArtifactHashes,
+    pub hashes: Option<ArtifactHashes>,
     pub requires_python: Option<String>,
     #[serde(default)]
     pub dist_info_metadata: DistInfoMetadata,
     #[serde(default)]
     pub yanked: Yanked,
+}
+
+impl ArtifactInfo {
+    /// Returns true if this artifact describes an instance of `T`.
+    pub fn is<T: Artifact>(&self) -> bool {
+        self.filename.as_inner::<T::Name>().is_some()
+    }
 }
 
 /// Describes a set of hashes for a certain artifact. In theory all hash algorithms available via
@@ -37,16 +45,13 @@ pub struct ArtifactInfo {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 pub struct ArtifactHashes {
     #[serde_as(as = "Option<SerializableHash<Sha256>>")]
-    sha256: Option<rattler_digest::Sha256Hash>,
-
-    #[serde_as(as = "Option<SerializableHash<Md5>>")]
-    md5: Option<rattler_digest::Md5Hash>,
+    pub sha256: Option<rattler_digest::Sha256Hash>,
 }
 
 impl ArtifactHashes {
     /// Returns true if this instance does not contain a single hash.
     pub fn is_empty(&self) -> bool {
-        self.sha256.is_none() && self.md5.is_none()
+        self.sha256.is_none()
     }
 }
 

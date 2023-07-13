@@ -34,8 +34,29 @@ impl ArtifactName {
     pub fn version(&self) -> &Version {
         match self {
             ArtifactName::Wheel(name) => &name.version,
-            ArtifactName::SDist(name) => &name.version
+            ArtifactName::SDist(name) => &name.version,
         }
+    }
+
+    /// Returns this name as a wheel name
+    pub fn as_wheel(&self) -> Option<&WheelName> {
+        match self {
+            ArtifactName::Wheel(wheel) => Some(wheel),
+            ArtifactName::SDist(_) => None,
+        }
+    }
+
+    /// Returns this name as a wheel name
+    pub fn as_sdist(&self) -> Option<&SDistName> {
+        match self {
+            ArtifactName::Wheel(_) => None,
+            ArtifactName::SDist(sdist) => Some(sdist),
+        }
+    }
+
+    /// Tries to convert the specialized instance
+    pub fn as_inner<T: InnerAsArtifactName>(&self) -> Option<&T> {
+        T::try_as(self)
     }
 }
 
@@ -259,6 +280,24 @@ impl FromStr for ArtifactName {
         } else {
             Err(ParseArtifactNameError::InvalidExtension)
         }
+    }
+}
+
+/// A trait to convert the general [`ArtifactName`] into a specialized artifact name. This is useful
+/// to generically fetch the underlying specialized name.
+pub trait InnerAsArtifactName {
+    fn try_as(name: &ArtifactName) -> Option<&Self>;
+}
+
+impl InnerAsArtifactName for WheelName {
+    fn try_as(name: &ArtifactName) -> Option<&Self> {
+        name.as_wheel()
+    }
+}
+
+impl InnerAsArtifactName for SDistName {
+    fn try_as(name: &ArtifactName) -> Option<&Self> {
+        name.as_sdist()
     }
 }
 

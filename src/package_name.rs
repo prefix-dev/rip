@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::sync::OnceLock;
+use miette::Diagnostic;
 use thiserror::Error;
 
 /// A representation of a python package name. This struct both stores the source string from which
@@ -33,7 +34,7 @@ impl PackageName {
     }
 }
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, Error, Diagnostic)]
 pub enum ParsePackageNameError {
     #[error("invalid package name '{0}'")]
     InvalidPackageName(String),

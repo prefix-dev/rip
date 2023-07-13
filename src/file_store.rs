@@ -1,3 +1,7 @@
+// Implementation comes from https://github.com/njsmith/posy/blob/main/src/kvstore.rs
+// Licensed under MIT or Apache-2.0
+
+use crate::project_info::ArtifactHashes;
 use crate::utils::retry_interrupted;
 use fs4::FileExt;
 use std::{
@@ -17,6 +21,43 @@ pub trait CacheKey {
 impl<T: CacheKey + ?Sized> CacheKey for &T {
     fn key(&self) -> PathBuf {
         (*self).key()
+    }
+}
+
+impl CacheKey for [u8] {
+    fn key(&self) -> PathBuf {
+        let hash = rattler_digest::compute_bytes_digest::<rattler_digest::Sha256>(self);
+        bytes_to_path_suffix(hash.as_slice())
+    }
+}
+
+// Some filesystems don't cope well with a single directory containing lots of files. So
+// we disperse our files over multiple nested directories. This is the nesting depth, so
+// "3" means our paths will look like:
+//   ${BASE}/${CHAR}/${CHAR}/${CHAR}/${ENTRY}
+// And our fanout is 64, so this would split our files over 64**3 = 262144 directories.
+const DIR_NEST_DEPTH: usize = 3;
+
+fn bytes_to_path_suffix(bytes: &[u8]) -> PathBuf {
+    let mut path = PathBuf::new();
+    let enc = data_encoding::BASE64URL_NOPAD.encode(bytes);
+    for i in 0..DIR_NEST_DEPTH {
+        path.push(&enc[i..i + 1]);
+    }
+    path.push(&enc[DIR_NEST_DEPTH..]);
+    path
+}
+
+impl CacheKey for ArtifactHashes {
+    fn key(&self) -> PathBuf {
+        let mut path = PathBuf::new();
+        if let Some(sha256) = &self.sha256 {
+            path.push("sha256");
+            path.push(bytes_to_path_suffix(sha256.as_slice()))
+        } else {
+            unreachable!("should never have an artifact hash without any hashes")
+        }
+        path
     }
 }
 
@@ -73,7 +114,7 @@ impl FileStore {
     }
 
     /// Locks a certain file in the cache for exclusive access.
-    fn lock<K: CacheKey>(&self, key: &K) -> io::Result<FileLock> {
+    pub fn lock<K: CacheKey>(&self, key: &K) -> io::Result<FileLock> {
         let path = self.base.join(key.key());
         let lock = lock(&path, LockMode::Lock)?;
         Ok(FileLock {
@@ -87,7 +128,7 @@ impl FileStore {
     ///
     /// This function exists to ensure that we don't create tons of directories just to check if an
     /// entry exists or not.
-    fn lock_if_exists<K: CacheKey>(&self, key: &K) -> Option<FileLock> {
+    pub fn lock_if_exists<K: CacheKey>(&self, key: &K) -> Option<FileLock> {
         let path = self.base.join(key.key());
         lock(&path, LockMode::IfExists).ok().map(|lock| FileLock {
             tmp: self.tmp.clone(),
@@ -240,14 +281,6 @@ fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    impl CacheKey for [u8] {
-        fn key(&self) -> PathBuf {
-            let hash = rattler_digest::compute_bytes_digest::<rattler_digest::Sha256>(self);
-            let path = format!("{:x}", hash);
-            PathBuf::from(format!("{}/{}", &path[0..2], path))
-        }
-    }
 
     #[test]
     fn test_file_store() {
