@@ -205,7 +205,7 @@ impl<'a> LockedReader<'a> {
 }
 
 /// Holds a lock to a file in the [`FileStore`], can be used get a readable or writeable instance.
-struct FileLock {
+pub struct FileLock {
     /// The path to a directory that will contain temporary files.
     tmp: PathBuf,
 

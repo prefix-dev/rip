@@ -33,6 +33,20 @@ pin_project! {
     }
 }
 
+impl ReadMaybeSeek {
+    pub fn from_seekable<T: AsyncReadAndSeek + Unpin + Send>(inner: T) -> ReadMaybeSeek {
+        ReadMaybeSeek::Seekable {
+            inner: Box::new(inner),
+        }
+    }
+
+    pub fn from_read_only<T: AsyncRead + Unpin + Send>(inner: T) -> ReadMaybeSeek {
+        ReadMaybeSeek::ReadOnly {
+            inner: Box::new(inner),
+        }
+    }
+}
+
 pub trait AsyncReadAndSeek: AsyncRead + AsyncSeek {}
 impl<T> AsyncReadAndSeek for T where T: AsyncRead + AsyncSeek {}
 

@@ -663,7 +663,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14246388577086faaaa56fb59f0b94e288800fecfff75918a237813297cdda17"
 dependencies = [
  "http",
+ "http-serde",
+ "reqwest",
+ "serde",
  "time",
+]
+
+[[package]]
+name = "http-serde"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e272971f774ba29341db2f686255ff8a979365a26fb9e4277f6b6d9ec0cdd5e"
+dependencies = [
+ "http",
+ "serde",
 ]
 
 [[package]]

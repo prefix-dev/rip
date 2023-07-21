@@ -18,6 +18,7 @@ use reqwest::{
     Client, StatusCode,
 };
 use std::borrow::Borrow;
+use std::fmt::Display;
 use std::io::Read;
 use std::path::PathBuf;
 use url::Url;
@@ -301,3 +302,14 @@ mod test {
         dbg!(metadata);
     }
 }
+
+#[derive(Debug)]
+pub struct NotCached;
+
+impl Display for NotCached {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "request not in cache, and cache_mode=OnlyIfCached")
+    }
+}
+
+impl std::error::Error for NotCached {}
