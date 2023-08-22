@@ -1,4 +1,5 @@
 use crate::artifact::MetadataArtifact;
+use crate::http::HttpError;
 use crate::{
     artifact::Artifact,
     artifact_name::InnerAsArtifactName,
@@ -8,10 +9,10 @@ use crate::{
     FileStore,
 };
 use elsa::FrozenMap;
-use futures::{pin_mut, stream, AsyncReadExt, StreamExt};
+use futures::{pin_mut, stream, StreamExt};
 use http::{HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
-use miette::{self, IntoDiagnostic};
+use miette::{self, Diagnostic, IntoDiagnostic};
 use pep440::Version;
 use reqwest::{
     header::{ACCEPT, CACHE_CONTROL},
@@ -141,13 +142,13 @@ impl PackageDb {
                 Ok(artifact) => {
                     // Apparently the artifact has been downloaded, but its metadata has not been
                     // cached yet. Lets store it there.
-                    let (blob, metadata) = artifact.metadata().await?;
+                    let (blob, metadata) = artifact.metadata()?;
                     self.put_metadata_in_cache(artifact_info, &blob)?;
                     return Ok((artifact_info, metadata));
                 }
-                Err(err) => match err.downcast_ref::<NotCached>() {
-                    Some(_) => continue,
-                    None => return Err(err),
+                Err(err) => match err.downcast_ref::<HttpError>() {
+                    Some(HttpError::NotCached(_)) => continue,
+                    _ => return Err(err),
                 },
             }
         }
@@ -169,9 +170,10 @@ impl PackageDb {
                     CacheMode::Default,
                 )
                 .await?
-                .body()
-                .force_seek()
-                .await?;
+                .into_body()
+                .force_local()
+                .await
+                .into_diagnostic()?;
             let artifact = A::new(
                 artifact_info
                     .filename
@@ -179,9 +181,8 @@ impl PackageDb {
                     .expect("this should never happen because we filter on matching artifacts only")
                     .clone(),
                 body,
-            )
-            .await?;
-            let (blob, metadata) = artifact.metadata().await?;
+            )?;
+            let (blob, metadata) = artifact.metadata()?;
             self.put_metadata_in_cache(artifact_info, &blob)?;
             return Ok((artifact_info, metadata));
         }
@@ -219,8 +220,12 @@ impl PackageDb {
             .await?;
 
         // Turn the response into a seekable response.
-        let bytes = artifact_bytes.into_body().force_seek().await?;
-        A::new(name.clone(), bytes).await
+        let bytes = artifact_bytes
+            .into_body()
+            .force_local()
+            .await
+            .into_diagnostic()?;
+        A::new(name.clone(), bytes)
     }
 
     /// Opens the specified artifact info. Downloads the artifact data from the remote location if
@@ -266,7 +271,7 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::artifact::{MetadataArtifact, Wheel};
+    use crate::artifact::{Wheel};
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -281,7 +286,7 @@ mod test {
 
         // Get all the artifacts
         let artifacts = package_db
-            .available_artifacts(&"flask".parse().unwrap())
+            .available_artifacts(&"django".parse().unwrap())
             .await
             .unwrap();
 
@@ -289,21 +294,18 @@ mod test {
         let artifact_info = artifacts
             .iter()
             .flat_map(|(_, artifacts)| artifacts.iter())
-            .filter(|artifact| artifact.filename.as_wheel().is_some())
-            .next()
-            .unwrap();
+            .collect::<Vec<_>>();
 
-        let artifact = package_db
-            .get_artifact::<Wheel>(artifact_info)
+        let (_artifact, metadata) = package_db
+            .get_metadata::<Wheel, _>(&artifact_info)
             .await
             .unwrap();
-        let (_, metadata) = artifact.metadata().await.unwrap();
 
         dbg!(metadata);
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Diagnostic)]
 pub struct NotCached;
 
 impl Display for NotCached {

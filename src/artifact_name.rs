@@ -146,6 +146,10 @@ impl Display for SDistName {
             format = match self.format {
                 SDistFormat::Zip => ".zip",
                 SDistFormat::TarGz => ".tar.gz",
+                SDistFormat::TarBz2 => ".tar.bz2",
+                SDistFormat::TarXz => ".tar.xz",
+                SDistFormat::TarZ => ".tar.Z",
+                SDistFormat::Tar => ".tar",
             }
         )
     }
@@ -156,6 +160,10 @@ impl Display for SDistName {
 pub enum SDistFormat {
     Zip,
     TarGz,
+    TarBz2,
+    TarXz,
+    TarZ,
+    Tar,
 }
 
 #[derive(Debug, Clone, Error)]
@@ -163,8 +171,8 @@ pub enum ParseArtifactNameError {
     #[error("invalid artifact name")]
     InvalidName,
 
-    #[error("invalid artifact extension. Must be either .whl, .tar.gz, or .zip.")]
-    InvalidExtension,
+    #[error("invalid artifact extension. Must be either .whl, .tar.gz, or .zip (filename='{0}')")]
+    InvalidExtension(String),
 
     #[error(transparent)]
     InvalidPackageName(#[from] ParsePackageNameError),
@@ -172,20 +180,20 @@ pub enum ParseArtifactNameError {
     #[error("invalid version: '{0}'")]
     InvalidVersion(String),
 
-    #[error("build tag must start with a digit")]
-    BuildTagMustStartWithDigit,
+    #[error("build tag '{0}' must start with a digit")]
+    BuildTagMustStartWithDigit(String),
 }
 
 impl FromStr for BuildTag {
     type Err = ParseArtifactNameError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let first_alpha_idx = s.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(0);
+        let first_alpha_idx = s.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(s.len());
         let (digits, name) = s.split_at(first_alpha_idx);
         Ok(Self {
             number: digits
                 .parse()
-                .map_err(|_| ParseArtifactNameError::BuildTagMustStartWithDigit)?,
+                .map_err(|_| ParseArtifactNameError::BuildTagMustStartWithDigit(s.to_owned()))?,
             name: name.to_owned(),
         })
     }
@@ -204,8 +212,16 @@ impl FromStr for SDistName {
             (rest, SDistFormat::Zip)
         } else if let Some(rest) = rest.strip_suffix(".tar.gz") {
             (rest, SDistFormat::TarGz)
+        } else if let Some(rest) = rest.strip_suffix(".tar.bz2") {
+            (rest, SDistFormat::TarBz2)
+        } else if let Some(rest) = rest.strip_suffix(".tar.xz") {
+            (rest, SDistFormat::TarXz)
+        } else if let Some(rest) = rest.strip_suffix(".tar.Z") {
+            (rest, SDistFormat::TarZ)
+        } else if let Some(rest) = rest.strip_suffix(".tar") {
+            (rest, SDistFormat::Tar)
         } else {
-            return Err(ParseArtifactNameError::InvalidExtension);
+            return Err(ParseArtifactNameError::InvalidExtension(rest.to_string()));
         };
 
         // Parse the package name
@@ -228,7 +244,7 @@ impl FromStr for WheelName {
     type Err = ParseArtifactNameError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Some(file_stem) = s.strip_suffix(".whl") else { return Err(ParseArtifactNameError::InvalidExtension) };
+        let Some(file_stem) = s.strip_suffix(".whl") else { return Err(ParseArtifactNameError::InvalidExtension(s.to_string())) };
 
         // Parse the distribution
         let Some((distribution, rest)) = file_stem.split_once('-') else { return Err(ParseArtifactNameError::InvalidName) };
@@ -275,10 +291,16 @@ impl FromStr for ArtifactName {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.ends_with(".whl") {
             Ok(ArtifactName::Wheel(WheelName::from_str(s)?))
-        } else if s.ends_with(".zip") || s.ends_with(".tar.gz") {
+        } else if s.ends_with(".zip")
+            || s.ends_with(".tar.gz")
+            || s.ends_with(".tar.bz2")
+            || s.ends_with(".tar.xz")
+            || s.ends_with(".tar.Z")
+            || s.ends_with(".tar")
+        {
             Ok(ArtifactName::SDist(SDistName::from_str(s)?))
         } else {
-            Err(ParseArtifactNameError::InvalidExtension)
+            Err(ParseArtifactNameError::InvalidExtension(s.to_string()))
         }
     }
 }

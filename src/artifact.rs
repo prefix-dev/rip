@@ -1,14 +1,15 @@
 use crate::artifact_name::{InnerAsArtifactName, WheelName};
 use crate::core_metadata::WheelCoreMetadata;
 use crate::package_name::PackageName;
-use crate::utils::AsyncReadAndSeek;
+use crate::utils::ReadAndSeek;
 use async_trait::async_trait;
-use async_zip::base::read::seek::ZipFileReader;
-use futures::lock::Mutex;
 use miette::IntoDiagnostic;
+use parking_lot::Mutex;
 use pep440::Version;
 use std::collections::HashSet;
+use std::io::Read;
 use std::str::FromStr;
+use zip::ZipArchive;
 
 #[async_trait]
 pub trait Artifact: Sized {
@@ -19,10 +20,7 @@ pub trait Artifact: Sized {
     type Name: Clone + InnerAsArtifactName;
 
     /// Construct a new artifact from the given bytes
-    async fn new(
-        name: Self::Name,
-        bytes: Box<dyn AsyncReadAndSeek + Unpin + Send>,
-    ) -> miette::Result<Self>;
+    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self>;
 
     /// Returns the name of this instance
     fn name(&self) -> &Self::Name;
@@ -30,20 +28,17 @@ pub trait Artifact: Sized {
 
 pub struct Wheel {
     name: WheelName,
-    archive: Mutex<ZipFileReader<Box<dyn AsyncReadAndSeek + Unpin + Send>>>,
+    archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
 }
 
 #[async_trait]
 impl Artifact for Wheel {
     type Name = WheelName;
 
-    async fn new(
-        name: Self::Name,
-        bytes: Box<dyn AsyncReadAndSeek + Unpin + Send>,
-    ) -> miette::Result<Self> {
+    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
             name,
-            archive: Mutex::new(ZipFileReader::new(bytes).await.into_diagnostic()?),
+            archive: Mutex::new(ZipArchive::new(bytes).into_diagnostic()?),
         })
     }
 
@@ -61,7 +56,7 @@ pub trait MetadataArtifact: Artifact {
 
     /// Parses the metadata from the artifact itself. Also returns the metadata bytes so we can
     /// cache it for later.
-    async fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)>;
+    fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)>;
 }
 
 impl Wheel {
@@ -123,15 +118,12 @@ impl MetadataArtifact for Wheel {
         WheelCoreMetadata::try_from(bytes)
     }
 
-    async fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)> {
-        let mut archive = self.archive.lock().await;
+    fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)> {
+        let mut archive = self.archive.lock();
 
         // Determine the top level filenames in the wheel
         let top_level_names = archive
-            .file()
-            .entries()
-            .iter()
-            .filter_map(|entry| entry.entry().filename().as_str().ok())
+            .file_names()
             .map(|filename| {
                 filename
                     .split_once(['/', '\\'])
@@ -167,7 +159,7 @@ impl MetadataArtifact for Wheel {
         // // TODO: Verify integrity of wheel metadata
 
         let metadata_path = format!("{dist_info}/METADATA");
-        let metadata_bytes = read_entry_to_end(&mut archive, &metadata_path).await?;
+        let metadata_bytes = read_entry_to_end(&mut archive, &metadata_path)?;
         let metadata = Self::parse_metadata(&metadata_bytes)?;
 
         Ok((metadata_bytes, metadata))
@@ -175,32 +167,15 @@ impl MetadataArtifact for Wheel {
 }
 
 /// Helper method to read a particular file from a zip archive.
-async fn read_entry_to_end<T: AsyncReadAndSeek + Unpin + Send>(
-    archive: &mut ZipFileReader<T>,
+fn read_entry_to_end<R: ReadAndSeek>(
+    archive: &mut ZipArchive<R>,
     name: &str,
 ) -> miette::Result<Vec<u8>> {
-    // Locate the entry in the zip archive
-    let entry_idx = archive
-        .file()
-        .entries()
-        .iter()
-        .enumerate()
-        .find_map(|(idx, entry)| {
-            if entry.entry().filename().as_str().ok() == Some(&name) {
-                Some(idx)
-            } else {
-                None
-            }
-        })
-        .ok_or_else(|| miette::miette!("could not find {name} in wheel file"))?;
-
     let mut bytes = Vec::new();
     archive
-        .reader_with_entry(entry_idx)
-        .await
-        .into_diagnostic()?
-        .read_to_end_checked(&mut bytes)
-        .await
+        .by_name(name)
+        .map_err(|_| miette::miette!("could not find {name} in wheel file"))?
+        .read_to_end(&mut bytes)
         .into_diagnostic()?;
 
     Ok(bytes)

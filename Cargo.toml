@@ -8,7 +8,8 @@ rust-version = "1.70"
 
 [dependencies]
 async-trait = "0.1.71"
-async_zip = { version = "0.0.15", features = ["bzip2", "deflate"] }
+bytes = "1.4.0"
+zip = "0.6.6"
 ciborium = "0.2.1"
 data-encoding = "2.4.0"
 elsa = "1.8.1"
@@ -34,6 +35,7 @@ thiserror = "1.0.43"
 tokio = "1.29.1"
 tokio-util = { version = "0.7.8", features = ["compat"] }
 url = { version = "2.4.0", features = ["serde"] }
+parking_lot = "0.12.1"
 
 [dev-dependencies]
 tokio = { version = "1.29.1", features = ["rt", "macros"] }

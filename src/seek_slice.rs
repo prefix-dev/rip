@@ -34,10 +34,10 @@ impl<T: Seek> Seek for SeekSlice<T> {
         };
         match maybe_goal_idx {
             Some(goal_idx) => {
-                if goal_idx < self.start || goal_idx >= self.end {
+                if goal_idx < self.start || goal_idx > self.end {
                     Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        "invalid seek to a negative or overflowing position",
+                        format!("invalid seek to a negative or overflowing position (goal: {}, start: {}, end: {})", goal_idx, self.start, self.end),
                     ))
                 } else {
                     self.current = self.inner.seek(SeekFrom::Start(goal_idx))?;

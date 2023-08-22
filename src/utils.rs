@@ -1,9 +1,5 @@
-use futures::{AsyncRead, AsyncSeek, AsyncSeekExt};
-use miette::IntoDiagnostic;
-use pin_project_lite::pin_project;
-use std::io::SeekFrom;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use futures::{AsyncRead, AsyncReadExt,  AsyncSeekExt};
+use std::io::{Read, Seek, SeekFrom};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 /// Keep retrying a certain IO function until it either succeeds or until it doesnt return
@@ -25,60 +21,57 @@ where
     }
 }
 
-pin_project! {
-    #[project = ReadMaybeSeekProj]
-    pub enum ReadMaybeSeek {
-       ReadOnly { #[pin] inner: Box<dyn AsyncRead + Unpin + Send> },
-       Seekable { #[pin] inner: Box<dyn AsyncReadAndSeek + Unpin + Send> }
-    }
+/// Represents either data coming from the network in an async fashion or a local thing on disk.
+/// We only use async for the network stuff, the local filesystem doesn't really benefit from it.
+pub enum StreamingOrLocal {
+    Streaming(Box<dyn AsyncRead + Unpin + Send>),
+    Local(Box<dyn ReadAndSeek + Send>),
 }
 
-impl ReadMaybeSeek {
-    pub fn from_seekable<T: AsyncReadAndSeek + Unpin + Send>(inner: T) -> ReadMaybeSeek {
-        ReadMaybeSeek::Seekable {
-            inner: Box::new(inner),
-        }
-    }
+pub trait ReadAndSeek: Read + Seek {}
+impl<T> ReadAndSeek for T where T: Read + Seek {}
 
-    pub fn from_read_only<T: AsyncRead + Unpin + Send>(inner: T) -> ReadMaybeSeek {
-        ReadMaybeSeek::ReadOnly {
-            inner: Box::new(inner),
-        }
-    }
-}
-
-pub trait AsyncReadAndSeek: AsyncRead + AsyncSeek {}
-impl<T> AsyncReadAndSeek for T where T: AsyncRead + AsyncSeek {}
-
-impl AsyncRead for ReadMaybeSeek {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
-        let project = self.project();
-        match project {
-            ReadMaybeSeekProj::ReadOnly { inner } => inner.poll_read(cx, buf),
-            ReadMaybeSeekProj::Seekable { inner } => inner.poll_read(cx, buf),
-        }
-    }
-}
-
-impl ReadMaybeSeek {
+impl StreamingOrLocal {
     /// Returns an instance that is both readable and seekable by first streaming the contents to
     /// disk if required.
-    pub async fn force_seek(self) -> miette::Result<Box<dyn AsyncReadAndSeek + Unpin + Send>> {
+    pub async fn force_local(self) -> std::io::Result<Box<dyn ReadAndSeek + Send>> {
         Ok(match self {
-            ReadMaybeSeek::Seekable { inner } => inner,
-            ReadMaybeSeek::ReadOnly { mut inner } => {
+            StreamingOrLocal::Local(stream) => stream,
+            StreamingOrLocal::Streaming(mut stream) => {
                 let mut tmp =
-                    tokio::fs::File::from(tempfile::tempfile().into_diagnostic()?).compat();
-                futures::io::copy(&mut inner, &mut tmp)
+                    tokio::fs::File::from(tempfile::tempfile()?).compat();
+                futures::io::copy(&mut stream, &mut tmp)
                     .await
-                    .into_diagnostic()?;
-                tmp.seek(SeekFrom::Start(0)).await.into_diagnostic()?;
-                Box::new(tmp)
+                    ?;
+                tmp.seek(SeekFrom::Start(0)).await?;
+                Box::new(tmp.into_inner().into_std().await)
             }
         })
+    }
+
+    pub async fn read_to_end(self, bytes: &mut Vec<u8>) -> std::io::Result<usize> {
+        match self {
+            StreamingOrLocal::Streaming(mut streaming) => streaming.read_to_end(bytes).await,
+            StreamingOrLocal::Local(mut local) => {
+                match tokio::task::spawn_blocking(move || {
+                    let mut bytes = Vec::new();
+                    local.read_to_end(&mut bytes).map(|_| bytes)
+                })
+                .await
+                {
+                    Ok(Ok(result)) => {
+                        *bytes = result;
+                        Ok(bytes.len())
+                    }
+                    Ok(Err(err)) => Err(err),
+                    Err(err) => {
+                        if let Ok(panic) = err.try_into_panic() {
+                            std::panic::resume_unwind(panic)
+                        }
+                        Err(std::io::ErrorKind::Interrupted.into())
+                    }
+                }
+            }
+        }
     }
 }

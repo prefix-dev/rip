@@ -143,7 +143,7 @@ impl FileStore {
 ///
 /// Internally the writer writes to a temporary file that is persisted to the final location to
 /// ensure that the final path is never corrupted.
-struct LockedWriter<'a> {
+pub struct LockedWriter<'a> {
     path: &'a Path,
     f: tempfile::NamedTempFile,
 }
@@ -180,7 +180,7 @@ impl<'a> LockedWriter<'a> {
 
 /// A [`LockedReader`] is created from a [`FileLock`]. It holds a lifetime to the lock to ensure the
 /// lock is not dropped before the file itself.
-struct LockedReader<'a> {
+pub struct LockedReader<'a> {
     file: File,
     _data: PhantomData<&'a ()>,
 }
