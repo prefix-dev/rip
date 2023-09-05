@@ -103,7 +103,9 @@ impl Wheel {
         let candidate_version = Version::parse(candidate_version)
             .ok_or_else(|| miette::miette!("failed to parse version {version}"))?;
         if &candidate_version != version {
-            miette::bail!("wrong version in {candidate}{suffix}, expected {version}");
+            miette::bail!(
+                "wrong version in {candidate}{suffix}, expected {version} got {candidate_version}"
+            );
         }
 
         Ok(Some(candidate))

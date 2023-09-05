@@ -1,0 +1,19 @@
+[package]
+name = "rip"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.29.1", features = ["rt", "macros", "rt-multi-thread"] }
+rattler_libsolv_rs = { version = "0.8.0", git = "https://github.com/mamba-org/rattler", branch = "feat/generic-pool" }
+rattler_installs_packages = { path = "../rattler_installs_packages" }
+clap = { version = "4.3.23", features = ["derive"] }
+reqwest = "0.11.19"
+url = "2.4.0"
+dirs = "5.0.1"
+miette = { version = "5.10.0", features = ["fancy"] }
+tracing-subscriber = "0.3.17"
+tracing = "0.1.37"
+indexmap = "2.0.0"

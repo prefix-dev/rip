@@ -251,6 +251,7 @@ fn fill_cache<R: Read>(
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let body_start = cache_writer.stream_position()?;
     std::io::copy(&mut body, &mut cache_writer)?;
+    drop(body);
     let body_end = cache_writer.stream_position()?;
     let cache_entry = cache_writer.commit()?.detach_unlocked();
     Ok(SeekSlice::new(cache_entry, body_start, body_end)?)

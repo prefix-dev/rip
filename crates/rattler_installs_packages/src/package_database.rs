@@ -271,7 +271,7 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::artifact::{Wheel};
+    use crate::artifact::Wheel;
     use tempfile::TempDir;
 
     #[tokio::test]
