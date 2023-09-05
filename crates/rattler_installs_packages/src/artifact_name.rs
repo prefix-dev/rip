@@ -1,6 +1,7 @@
 use crate::package_name::{PackageName, ParsePackageNameError};
 use pep440::Version;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use thiserror::Error;
@@ -87,6 +88,20 @@ pub struct WheelName {
     pub abi_tags: Vec<String>,
 
     pub arch_tags: Vec<String>,
+}
+
+impl WheelName {
+    pub fn all_tags(&self) -> HashSet<String> {
+        let mut retval = HashSet::new();
+        for py in &self.py_tags {
+            for abi in &self.abi_tags {
+                for arch in &self.arch_tags {
+                    retval.insert(format!("{}-{}-{}", py, abi, arch));
+                }
+            }
+        }
+        retval
+    }
 }
 
 impl Display for WheelName {

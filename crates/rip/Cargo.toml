@@ -17,3 +17,7 @@ miette = { version = "5.10.0", features = ["fancy"] }
 tracing-subscriber = "0.3.17"
 tracing = "0.1.37"
 indexmap = "2.0.0"
+tabwriter = { version = "1.2.1", features = ["ansi_formatting"] }
+console = { version = "0.15.7", features = ["windows-console-colors"] }
+indicatif = "0.17.6"
+itertools = "0.11.0"

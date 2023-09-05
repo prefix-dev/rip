@@ -157,7 +157,7 @@ pub mod marker {
                             // be parsed as a wildcard with a wildcard-accepting op),
                             // then we do a version comparison
                             if let Ok(lhs_ver) = lhs_val.parse() {
-                                if let Ok(rhs_ranges) = op.to_ranges(rhs_val) {
+                                if let Ok(rhs_ranges) = op.ranges(rhs_val) {
                                     return Ok(rhs_ranges
                                         .into_iter()
                                         .any(|r| r.contains(&lhs_ver)));
@@ -274,6 +274,16 @@ impl Display for Requirement {
 
 #[derive(Debug, Clone, PartialEq, Eq, DeserializeFromStr, SerializeDisplay)]
 pub struct PackageRequirement(Requirement);
+
+impl PackageRequirement {
+    pub fn into_inner(self) -> Requirement {
+        self.0
+    }
+
+    pub fn as_inner(&self) -> &Requirement {
+        &self.0
+    }
+}
 
 impl Display for PackageRequirement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

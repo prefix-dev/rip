@@ -2,7 +2,6 @@
 // Licensed under MIT or Apache-2.0
 
 use miette::IntoDiagnostic;
-use serde::Deserialize;
 use std::collections::HashMap;
 
 pub type Fields = HashMap<String, Vec<String>>;
@@ -90,7 +89,7 @@ peg::parser! {
 
 impl RFC822ish {
     pub fn parse(input: &str) -> miette::Result<RFC822ish> {
-        Ok(rfc822ish_parser::rfc822ish(input).into_diagnostic()?)
+        rfc822ish_parser::rfc822ish(input).into_diagnostic()
     }
 
     pub fn take_all(&mut self, key: &str) -> Vec<String> {

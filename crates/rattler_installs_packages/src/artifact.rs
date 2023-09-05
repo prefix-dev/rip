@@ -71,7 +71,15 @@ impl Wheel {
         // Find all directories that end in the suffix
         let mut candidates = top_level_names
             .into_iter()
-            .filter(|name| name.ends_with(suffix));
+            .filter(|dir_name| {
+                let Some(candidate) = dir_name.strip_suffix(suffix) else { return false };
+                let Some((candidate_name, candidate_version)) = candidate.rsplit_once('-') else { return false };
+
+                let Ok(candidate_name) = PackageName::from_str(candidate_name) else { return false };
+                let Some(candidate_version) = Version::parse(candidate_version) else { return false };
+
+                &candidate_name == name && &candidate_version == version
+            });
 
         // Get the first candidate
         let candidate = match candidates.next() {
@@ -82,30 +90,6 @@ impl Wheel {
         // Error out if there are multiple directories
         if candidates.next().is_some() {
             miette::bail!("found multiple {suffix}/ directories in wheel");
-        }
-
-        // Make sure that the candidate has the right format.
-        let (candidate_package_name, candidate_version) = candidate
-            .strip_suffix(suffix)
-            .unwrap()
-            .rsplit_once('-')
-            .ok_or_else(|| {
-                miette::miette!("invalid {suffix} name: could not find name and/or version")
-            })?;
-        let candidate_package_name = PackageName::from_str(candidate_package_name)?;
-        if &candidate_package_name != name {
-            miette::bail!(
-                "wrong name in {candidate}{suffix}, expected {name}",
-                name = name.as_str()
-            );
-        }
-
-        let candidate_version = Version::parse(candidate_version)
-            .ok_or_else(|| miette::miette!("failed to parse version {version}"))?;
-        if &candidate_version != version {
-            miette::bail!(
-                "wrong version in {candidate}{suffix}, expected {version} got {candidate_version}"
-            );
         }
 
         Ok(Some(candidate))

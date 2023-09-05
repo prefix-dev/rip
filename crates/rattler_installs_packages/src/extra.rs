@@ -31,7 +31,6 @@
 use miette::Diagnostic;
 use serde::{Serialize, Serializer};
 use serde_with::DeserializeFromStr;
-use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
@@ -68,7 +67,7 @@ impl FromStr for Extra {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // https://www.python.org/dev/peps/pep-0503/#normalized-names
-        let mut normalized = s.replace(&['-', '_', '.'], "-");
+        let mut normalized = s.replace(['-', '_', '.'], "-");
         normalized.make_ascii_lowercase();
 
         Ok(Self {

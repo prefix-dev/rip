@@ -11,7 +11,7 @@ use std::{fmt::Display, ops::Range, str::FromStr};
 // TODO: See if we can parse this a little better than just an operator and a string. Everytime
 //  `satisfied_by` is called `to_ranges` is called. We can probably cache that.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Specifier {
     pub op: CompareOp,
     pub value: String,
@@ -23,7 +23,7 @@ impl Specifier {
     }
 
     pub fn to_ranges(&self) -> miette::Result<SmallVec<[Range<Version>; 1]>> {
-        self.op.to_ranges(&self.value)
+        self.op.ranges(&self.value)
     }
 }
 
@@ -33,7 +33,7 @@ impl Display for Specifier {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, SerializeDisplay, DeserializeFromStr, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, SerializeDisplay, DeserializeFromStr, Default, Hash)]
 pub struct Specifiers(pub Vec<Specifier>);
 
 impl Specifiers {
@@ -137,7 +137,7 @@ fn parse_version_wildcard(input: &str) -> miette::Result<(Version, bool)> {
 /// Has to take a string, not a Version, because == and != can take "wildcards", which
 /// are not valid versions.
 impl CompareOp {
-    pub fn to_ranges(&self, rhs: &str) -> miette::Result<smallvec::SmallVec<[Range<Version>; 1]>> {
+    pub fn ranges(&self, rhs: &str) -> miette::Result<SmallVec<[Range<Version>; 1]>> {
         use CompareOp::*;
         let (version, wildcard) = parse_version_wildcard(rhs)?;
         Ok(if wildcard {

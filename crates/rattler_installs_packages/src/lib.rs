@@ -19,7 +19,8 @@ pub use package_database::PackageDb;
 
 pub use artifact::{Artifact, MetadataArtifact, Wheel};
 pub use artifact_name::ArtifactName;
-pub use package_name::{PackageName, ParsePackageNameError};
+pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError};
 pub use pep440::Version;
 pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, Yanked};
-pub use requirement::{PackageRequirement} ;
+pub use requirement::PackageRequirement;
+pub use specifier::{Specifier, Specifiers};

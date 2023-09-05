@@ -1,4 +1,4 @@
-use futures::{AsyncRead, AsyncReadExt,  AsyncSeekExt};
+use futures::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 use std::io::{Read, Seek, SeekFrom};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
@@ -38,11 +38,8 @@ impl StreamingOrLocal {
         Ok(match self {
             StreamingOrLocal::Local(stream) => stream,
             StreamingOrLocal::Streaming(mut stream) => {
-                let mut tmp =
-                    tokio::fs::File::from(tempfile::tempfile()?).compat();
-                futures::io::copy(&mut stream, &mut tmp)
-                    .await
-                    ?;
+                let mut tmp = tokio::fs::File::from(tempfile::tempfile()?).compat();
+                futures::io::copy(&mut stream, &mut tmp).await?;
                 tmp.seek(SeekFrom::Start(0)).await?;
                 Box::new(tmp.into_inner().into_std().await)
             }

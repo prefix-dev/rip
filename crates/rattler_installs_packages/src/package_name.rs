@@ -1,11 +1,12 @@
+use miette::Diagnostic;
 use regex::Regex;
 use serde::{Serialize, Serializer};
 use serde_with::DeserializeFromStr;
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::sync::OnceLock;
-use miette::Diagnostic;
 use thiserror::Error;
 
 /// A representation of a python package name. This struct both stores the source string from which
@@ -55,7 +56,7 @@ impl FromStr for PackageName {
         }
 
         // https://www.python.org/dev/peps/pep-0503/#normalized-names
-        let mut normalized = s.replace(&['-', '_', '.'], "-");
+        let mut normalized = s.replace(['-', '_', '.'], "-");
         normalized.make_ascii_lowercase();
 
         Ok(PackageName {
@@ -95,6 +96,22 @@ impl Serialize for PackageName {
         S: Serializer,
     {
         self.source.as_ref().serialize(serializer)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct NormalizedPackageName(Box<str>);
+
+impl From<PackageName> for NormalizedPackageName {
+    fn from(value: PackageName) -> Self {
+        Self(value.normalized)
+    }
+}
+
+impl Display for NormalizedPackageName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::artifact::MetadataArtifact;
-use crate::http::HttpError;
+use crate::http::HttpRequestError;
 use crate::{
     artifact::Artifact,
     artifact_name::InnerAsArtifactName,
@@ -108,7 +108,7 @@ impl PackageDb {
     fn put_metadata_in_cache(&self, ai: &ArtifactInfo, blob: &[u8]) -> miette::Result<()> {
         if let Some(hash) = &ai.hashes {
             self.metadata_cache
-                .get_or_set(&hash, |w| Ok(w.write_all(blob)?))
+                .get_or_set(&hash, |w| w.write_all(blob))
                 .into_diagnostic()?;
         }
         Ok(())
@@ -146,8 +146,8 @@ impl PackageDb {
                     self.put_metadata_in_cache(artifact_info, &blob)?;
                     return Ok((artifact_info, metadata));
                 }
-                Err(err) => match err.downcast_ref::<HttpError>() {
-                    Some(HttpError::NotCached(_)) => continue,
+                Err(err) => match err.downcast_ref::<HttpRequestError>() {
+                    Some(HttpRequestError::NotCached(_)) => continue,
                     _ => return Err(err),
                 },
             }

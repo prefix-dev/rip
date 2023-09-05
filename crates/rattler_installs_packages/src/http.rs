@@ -41,11 +41,11 @@ pub enum CacheMode {
 pub struct Http {
     client: Client,
     http_cache: Arc<FileStore>,
-    hash_cache: Arc<FileStore>,
+    _hash_cache: Arc<FileStore>,
 }
 
 #[derive(Debug, Error, Diagnostic)]
-pub enum HttpError {
+pub enum HttpRequestError {
     #[error(transparent)]
     HttpError(#[from] reqwest::Error),
 
@@ -63,7 +63,7 @@ impl Http {
         Http {
             client,
             http_cache: Arc::new(http_cache),
-            hash_cache: Arc::new(hash_cache),
+            _hash_cache: Arc::new(hash_cache),
         }
     }
 
@@ -74,11 +74,8 @@ impl Http {
         method: Method,
         headers: HeaderMap,
         cache_mode: CacheMode,
-    ) -> Result<http::Response<StreamingOrLocal>, HttpError> {
-        println!(
-            "Executing request for {} (cache_mode={:?})",
-            &url, &cache_mode
-        );
+    ) -> Result<http::Response<StreamingOrLocal>, HttpRequestError> {
+        tracing::info!(url=%url, cache_mode=?cache_mode, "executing request");
 
         // Construct a request using the reqwest client.
         let request = self
@@ -254,7 +251,7 @@ fn fill_cache<R: Read>(
     drop(body);
     let body_end = cache_writer.stream_position()?;
     let cache_entry = cache_writer.commit()?.detach_unlocked();
-    Ok(SeekSlice::new(cache_entry, body_start, body_end)?)
+    SeekSlice::new(cache_entry, body_start, body_end)
 }
 
 /// Fill the cache with the
@@ -269,7 +266,7 @@ async fn fill_cache_async(
     let body_start = cache_writer.stream_position()?;
 
     while let Some(bytes) = body.next().await {
-        cache_writer.write(
+        cache_writer.write_all(
             bytes
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
                 .as_ref(),
@@ -278,7 +275,7 @@ async fn fill_cache_async(
 
     let body_end = cache_writer.stream_position()?;
     let cache_entry = cache_writer.commit()?.detach_unlocked();
-    Ok(SeekSlice::new(cache_entry, body_start, body_end)?)
+    SeekSlice::new(cache_entry, body_start, body_end)
 }
 
 /// Converts from a `http::request::Parts` into a `reqwest::Request`.
