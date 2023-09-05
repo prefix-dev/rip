@@ -4,7 +4,7 @@ use crate::artifact::Artifact;
 use crate::artifact_name::ArtifactName;
 use rattler_digest::{serde::SerializableHash, Sha256};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, skip_serializing_none};
+use serde_with::{serde_as, skip_serializing_none, VecSkipError};
 
 /// Represents the result of the response from the Simple API.
 #[serde_as]
@@ -14,6 +14,7 @@ pub struct ProjectInfo {
     pub meta: Meta,
 
     /// All the available files for this project
+    #[serde_as(as = "VecSkipError<_>")]
     pub files: Vec<ArtifactInfo>,
 }
 

@@ -286,7 +286,7 @@ mod test {
 
         // Get all the artifacts
         let artifacts = package_db
-            .available_artifacts(&"django".parse().unwrap())
+            .available_artifacts(&"scikit-learn".parse().unwrap())
             .await
             .unwrap();
 
