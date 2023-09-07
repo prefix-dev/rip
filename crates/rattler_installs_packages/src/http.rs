@@ -9,6 +9,7 @@ use http::header::{ACCEPT, CACHE_CONTROL};
 use http_cache_semantics::{AfterResponse, BeforeRequest, CachePolicy};
 use miette::Diagnostic;
 use reqwest::{header::HeaderMap, Client, Method};
+use serde::{Deserialize, Serialize};
 use std::io;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::str::FromStr;
@@ -97,8 +98,10 @@ impl Http {
             let key = key_for_request(&url, method, &headers);
             let lock = self.http_cache.lock(&key.as_slice())?;
 
-            if let Some(reader) = lock.reader() {
-                let (old_policy, old_body) = read_cache(reader.detach_unlocked())?;
+            if let Some((old_policy, final_url, old_body)) = lock
+                .reader()
+                .and_then(|reader| read_cache(reader.detach_unlocked()).ok())
+            {
                 match old_policy.before_request(&request, SystemTime::now()) {
                     BeforeRequest::Fresh(parts) => {
                         let mut response = http::Response::from_parts(
@@ -106,6 +109,7 @@ impl Http {
                             StreamingOrLocal::Local(Box::new(old_body)),
                         );
                         response.extensions_mut().insert(CacheStatus::Fresh);
+                        response.extensions_mut().insert(final_url);
                         Ok(response)
                     }
                     BeforeRequest::Stale {
@@ -123,15 +127,17 @@ impl Http {
                             .client
                             .execute(request.try_clone().expect("clone of request cannot fail"))
                             .await?;
+                        let final_url = response.url().clone();
 
                         // Determine what to do based on the response headers.
                         match old_policy.after_response(&request, &response, SystemTime::now()) {
                             AfterResponse::NotModified(new_policy, new_parts) => {
-                                let new_body = fill_cache(&new_policy, old_body, lock)?;
+                                let new_body = fill_cache(&new_policy, &final_url, old_body, lock)?;
                                 Ok(make_response(
                                     new_parts,
                                     StreamingOrLocal::Local(Box::new(new_body)),
                                     CacheStatus::StaleButValidated,
+                                    final_url,
                                 ))
                             }
                             AfterResponse::Modified(new_policy, parts) => {
@@ -139,6 +145,7 @@ impl Http {
                                 let new_body = if new_policy.is_storable() {
                                     let new_body = fill_cache_async(
                                         &new_policy,
+                                        &final_url,
                                         response.bytes_stream(),
                                         lock,
                                     )
@@ -148,7 +155,12 @@ impl Http {
                                     lock.remove()?;
                                     body_to_streaming_or_local(response.bytes_stream())
                                 };
-                                Ok(make_response(parts, new_body, CacheStatus::StaleAndChanged))
+                                Ok(make_response(
+                                    parts,
+                                    new_body,
+                                    CacheStatus::StaleAndChanged,
+                                    final_url,
+                                ))
                             }
                         }
                     }
@@ -158,24 +170,25 @@ impl Http {
                     return Err(NotCached.into());
                 }
 
-                let response = convert_response(
-                    self.client
-                        .execute(request.try_clone().expect("failed to clone request?"))
-                        .await?
-                        .error_for_status()?,
-                );
+                let response = self
+                    .client
+                    .execute(request.try_clone().expect("failed to clone request?"))
+                    .await?
+                    .error_for_status()?;
+                let final_url = response.url().clone();
+                let response = convert_response(response);
 
                 let new_policy = CachePolicy::new(&request, &response);
                 let (parts, body) = response.into_parts();
 
                 let new_body = if new_policy.is_storable() {
-                    let new_body = fill_cache_async(&new_policy, body, lock).await?;
+                    let new_body = fill_cache_async(&new_policy, &final_url, body, lock).await?;
                     StreamingOrLocal::Local(Box::new(new_body))
                 } else {
                     lock.remove()?;
                     body_to_streaming_or_local(body)
                 };
-                Ok(make_response(parts, new_body, CacheStatus::Miss))
+                Ok(make_response(parts, new_body, CacheStatus::Miss, final_url))
             }
         }
     }
@@ -186,9 +199,11 @@ fn make_response(
     parts: http::response::Parts,
     body: StreamingOrLocal,
     cache_status: CacheStatus,
+    url: Url,
 ) -> http::Response<StreamingOrLocal> {
     let mut response = http::Response::from_parts(parts, body);
     response.extensions_mut().insert(cache_status);
+    response.extensions_mut().insert(url);
     response
 }
 
@@ -224,28 +239,41 @@ fn key_for_request(url: &Url, method: Method, headers: &HeaderMap) -> Vec<u8> {
 }
 
 /// Read a HTTP cached value from a readable stream.
-fn read_cache<R>(mut f: R) -> std::io::Result<(CachePolicy, impl ReadAndSeek)>
+fn read_cache<R>(mut f: R) -> std::io::Result<(CachePolicy, Url, impl ReadAndSeek)>
 where
     R: Read + Seek,
 {
-    let policy: CachePolicy = ciborium::de::from_reader(&mut f)
+    let data: CacheData = ciborium::de::from_reader(&mut f)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     let start = f.stream_position()?;
     let end = f.seek(SeekFrom::End(0))?;
     let mut body = SeekSlice::new(f, start, end)?;
     body.rewind()?;
-    Ok((policy, body))
+    Ok((data.policy, data.url, body))
+}
+
+#[derive(Serialize, Deserialize)]
+struct CacheData {
+    policy: CachePolicy,
+    url: Url,
 }
 
 /// Fill the cache with the
 fn fill_cache<R: Read>(
     policy: &CachePolicy,
+    url: &Url,
     mut body: R,
     handle: FileLock,
 ) -> Result<impl Read + Seek, std::io::Error> {
     let mut cache_writer = handle.begin()?;
-    ciborium::ser::into_writer(policy, &mut cache_writer)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    ciborium::ser::into_writer(
+        &CacheData {
+            policy: policy.clone(),
+            url: url.clone(),
+        },
+        &mut cache_writer,
+    )
+    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let body_start = cache_writer.stream_position()?;
     std::io::copy(&mut body, &mut cache_writer)?;
     drop(body);
@@ -257,12 +285,19 @@ fn fill_cache<R: Read>(
 /// Fill the cache with the
 async fn fill_cache_async(
     policy: &CachePolicy,
+    url: &Url,
     mut body: impl Stream<Item = reqwest::Result<Bytes>> + Send + Unpin,
     handle: FileLock,
 ) -> Result<impl Read + Seek, std::io::Error> {
     let mut cache_writer = handle.begin()?;
-    ciborium::ser::into_writer(policy, &mut cache_writer)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    ciborium::ser::into_writer(
+        &CacheData {
+            policy: policy.clone(),
+            url: url.clone(),
+        },
+        &mut cache_writer,
+    )
+    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let body_start = cache_writer.stream_position()?;
 
     while let Some(bytes) = body.next().await {
@@ -308,6 +343,7 @@ fn convert_response(
     // Take the extensions from the response
     let extensions = builder.extensions_mut().unwrap();
     *extensions = std::mem::take(response.extensions_mut());
+    extensions.insert(response.url().clone());
 
     builder
         .body(response.bytes_stream())

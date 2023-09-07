@@ -28,6 +28,11 @@ use url::Url;
 struct Args {
     #[clap(num_args=1.., required=true)]
     specs: Vec<PackageRequirement>,
+
+    /// Base URL of the Python Package Index (default https://pypi.org/simple). This should point
+    /// to a repository compliant with PEP 503 (the simple repository API).
+    #[clap(default_value = "https://pypi.org/simple/", long)]
+    index_url: Url,
 }
 
 async fn actual_main() -> miette::Result<()> {
@@ -50,7 +55,7 @@ async fn actual_main() -> miette::Result<()> {
     // Construct a package database
     let package_db = rattler_installs_packages::PackageDb::new(
         Default::default(),
-        &[Url::parse("https://pypi.org/simple/").unwrap()],
+        &[normalize_index_url(args.index_url)],
         cache_dir.clone(),
     )
     .into_diagnostic()?;
@@ -164,15 +169,16 @@ async fn recursively_get_metadata(
         let package_name_id = pool.intern_package_name(package.clone());
 
         // Get all the metadata for this package
-        let artifacts = package_db
-            .available_artifacts(&package)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to fetch available artifacts for {}",
+        let artifacts = match package_db.available_artifacts(&package).await {
+            Ok(artifacts) => artifacts,
+            Err(err) => {
+                tracing::error!(
+                    "failed to fetch artifacts of '{}': {err:?}, skipping..",
                     package.as_str()
-                )
-            })?;
+                );
+                continue;
+            }
+        };
 
         let mut num_solvables = 0;
 
@@ -248,7 +254,8 @@ async fn recursively_get_metadata(
                     name, specifiers, ..
                 } = requirement.into_inner();
                 let dependency_name_id = pool.intern_package_name(name);
-                pool.add_dependency(solvable_id, dependency_name_id, specifiers.into());
+                let version_set_id = pool.intern_version_set(dependency_name_id, specifiers.into());
+                pool.add_dependency(solvable_id, version_set_id);
             }
 
             num_solvables += 1;
@@ -351,6 +358,14 @@ impl DependencyProvider<PypiVersionSet> for PypiDependencyProvider {
             b.cmp(a)
         })
     }
+}
+
+fn normalize_index_url(mut url: Url) -> Url {
+    let path = url.path();
+    if !path.ends_with('/') {
+        url.set_path(&format!("{path}/"));
+    }
+    url
 }
 
 #[cfg(test)]

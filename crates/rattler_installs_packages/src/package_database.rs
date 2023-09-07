@@ -1,4 +1,5 @@
 use crate::artifact::MetadataArtifact;
+use crate::html::parse_html;
 use crate::http::HttpRequestError;
 use crate::{
     artifact::Artifact,
@@ -10,17 +11,15 @@ use crate::{
 };
 use elsa::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
+use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use pep440::Version;
-use reqwest::{
-    header::{ACCEPT, CACHE_CONTROL},
-    Client, StatusCode,
-};
+use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
 use std::borrow::Borrow;
 use std::fmt::Display;
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use url::Url;
 
@@ -66,7 +65,7 @@ impl PackageDb {
                 .map(|url| url.join(&format!("{}/", p.as_str())).expect("invalid url"))
                 .map(|url| fetch_simple_api(&http, url))
                 .buffer_unordered(10)
-                .filter_map(|result| async { result.map_or_else(|e| Some(Err(e)), |v| v.map(Ok)) });
+                .filter_map(|result| async { result.transpose() });
 
             pin_mut!(request_iter);
 
@@ -242,10 +241,6 @@ impl PackageDb {
 async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<ProjectInfo>> {
     let mut headers = HeaderMap::new();
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
-    headers.insert(
-        ACCEPT,
-        HeaderValue::from_static("application/vnd.pypi.simple.v1+json"),
-    );
 
     let response = http
         .request(url, Method::GET, headers, CacheMode::Default)
@@ -256,7 +251,16 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
         return Ok(None);
     }
 
-    // Convert the information from json
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("text/html")
+        .to_owned();
+
+    let url = response.extensions().get::<Url>().unwrap().to_owned();
+
+    // Convert the information from html
     let mut bytes = Vec::new();
     response
         .into_body()
@@ -264,8 +268,17 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
         .await
         .into_diagnostic()?;
 
-    // Deserialize the json
-    serde_json::from_slice(&bytes).map(Some).into_diagnostic()
+    let content_type: mime::Mime = content_type.parse().into_diagnostic()?;
+    match (
+        content_type.type_().as_str(),
+        content_type.subtype().as_str(),
+    ) {
+        ("text", "html") => parse_html(&url, Cursor::new(&bytes)).map(Some),
+        _ => miette::bail!(
+            "simple API page expected Content-Type: text/html, but got {}",
+            &content_type
+        ),
+    }
 }
 
 #[cfg(test)]
