@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.29.1", features = ["rt", "macros", "rt-multi-thread"] }
-rattler_libsolv_rs = { version = "0.8.0", git = "https://github.com/mamba-org/rattler", branch = "feat/generic-pool" }
+rattler_libsolv_rs = { version = "0.8.0", git = "https://github.com/mamba-org/rattler", branch = "main" }
 rattler_installs_packages = { path = "../rattler_installs_packages" }
 clap = { version = "4.3.23", features = ["derive"] }
 reqwest = "0.11.19"
