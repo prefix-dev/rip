@@ -14,7 +14,7 @@ indicatif = "0.17.6"
 itertools = "0.11.0"
 miette = { version = "5.10.0", features = ["fancy"] }
 rattler_installs_packages = { path = "../rattler_installs_packages" }
-rattler_libsolv_rs = { version = "0.8.0", git = "https://github.com/mamba-org/rattler", branch = "main" }
+rattler_libsolv_rs = { git = "https://github.com/baszalmstra/rattler", branch = "refactor/lazy_solver" }
 reqwest = "0.11.19"
 tabwriter = { version = "1.2.1", features = ["ansi_formatting"] }
 tokio = { version = "1.29.1", features = ["rt", "macros", "rt-multi-thread"] }

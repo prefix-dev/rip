@@ -9,10 +9,7 @@ use rattler_installs_packages::requirement::Requirement;
 use rattler_installs_packages::{
     NormalizedPackageName, PackageDb, PackageName, PackageRequirement, Specifiers, Version, Wheel,
 };
-use rattler_libsolv_rs::{
-    Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId,
-    Solver, VersionSet,
-};
+use rattler_libsolv_rs::{Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId, Solver, SolverCache, VersionSet};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Write;
@@ -88,7 +85,7 @@ impl DependencyProvider<PypiVersionSet, NormalizedPackageName> for PypiDependenc
 
     fn sort_candidates(
         &self,
-        solver: &Solver<PypiVersionSet, NormalizedPackageName, Self>,
+        solver: &SolverCache<PypiVersionSet, NormalizedPackageName, Self>,
         solvables: &mut [SolvableId],
     ) {
         solvables.sort_by(|&a, &b| {
@@ -153,23 +150,10 @@ impl DependencyProvider<PypiVersionSet, NormalizedPackageName> for PypiDependenc
                 tracing::info!("{package_name} {version} was yanked (skipping)");
                 continue;
             }
-
-            let result = task::block_in_place(move || {
-                Handle::current().block_on(self.package_db.get_metadata::<Wheel, _>(artifacts))
-            });
-            match result {
-                Ok((_, metadata)) => {
-                    let solvable_id = self
-                        .pool
-                        .intern_solvable(name, PypiVersion(version.clone()));
-                    candidates.candidates.push(solvable_id);
-                }
-                Err(err) => {
-                    tracing::error!(
-                        "failed to fetch artifacts of '{package_name}': {err:?}, skipping.."
-                    );
-                }
-            }
+            let solvable_id = self
+                .pool
+                .intern_solvable(name, PypiVersion(version.clone()));
+            candidates.candidates.push(solvable_id);
         }
         Some(candidates)
     }
