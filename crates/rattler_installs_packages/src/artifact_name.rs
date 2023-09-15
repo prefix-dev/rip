@@ -259,24 +259,34 @@ impl FromStr for WheelName {
     type Err = ParseArtifactNameError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Some(file_stem) = s.strip_suffix(".whl") else { return Err(ParseArtifactNameError::InvalidExtension(s.to_string())) };
+        let Some(file_stem) = s.strip_suffix(".whl") else {
+            return Err(ParseArtifactNameError::InvalidExtension(s.to_string()));
+        };
 
         // Parse the distribution
-        let Some((distribution, rest)) = file_stem.split_once('-') else { return Err(ParseArtifactNameError::InvalidName) };
+        let Some((distribution, rest)) = file_stem.split_once('-') else {
+            return Err(ParseArtifactNameError::InvalidName);
+        };
         let distribution = PackageName::from_str(distribution)
             .map_err(ParseArtifactNameError::InvalidPackageName)?;
 
         // Parse the version
-        let Some((version, rest)) = rest.split_once('-') else { return Err(ParseArtifactNameError::InvalidName) };
+        let Some((version, rest)) = rest.split_once('-') else {
+            return Err(ParseArtifactNameError::InvalidName);
+        };
         let version = Version::from_str(version)
             .map_err(|e| ParseArtifactNameError::InvalidVersion(e.to_string()))?;
 
         // Parse the platform tag
-        let Some((rest, platform_tags)) = rest.rsplit_once('-') else { return Err(ParseArtifactNameError::InvalidName) };
+        let Some((rest, platform_tags)) = rest.rsplit_once('-') else {
+            return Err(ParseArtifactNameError::InvalidName);
+        };
         let arch_tags = platform_tags.split('.').map(ToOwned::to_owned).collect();
 
         // Parse the abi tag
-        let Some((rest, abi_tag)) = rest.rsplit_once('-') else { return Err(ParseArtifactNameError::InvalidName) };
+        let Some((rest, abi_tag)) = rest.rsplit_once('-') else {
+            return Err(ParseArtifactNameError::InvalidName);
+        };
         let abi_tags = abi_tag.split('.').map(ToOwned::to_owned).collect();
 
         // Parse the python tag

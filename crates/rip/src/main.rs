@@ -17,6 +17,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Write;
 use std::time::Duration;
+use tokio::runtime::Handle;
+use tokio::task;
 use tracing::Level;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -33,7 +35,6 @@ struct Args {
     #[clap(default_value = "https://pypi.org/simple/", long)]
     index_url: Url,
 }
-
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -77,8 +78,7 @@ impl Display for PypiVersion {
 
 struct PypiDependencyProvider {
     pool: Pool<PypiVersionSet, NormalizedPackageName>,
-    candidates: HashMap<NameId, Candidates>,
-    dependencies: HashMap<SolvableId, Dependencies>,
+    package_db: PackageDb,
 }
 
 impl DependencyProvider<PypiVersionSet, NormalizedPackageName> for PypiDependencyProvider {
@@ -104,76 +104,26 @@ impl DependencyProvider<PypiVersionSet, NormalizedPackageName> for PypiDependenc
     }
 
     fn get_candidates(&self, name: NameId) -> Option<Candidates> {
-        self.candidates.get(&name).cloned()
-    }
-
-    fn get_dependencies(&self, solvable: SolvableId) -> Dependencies {
-        self.dependencies.get(&solvable).cloned().unwrap_or_default()
-    }
-}
-
-/// Download all metadata needed to solve the specified packages.
-async fn recursively_get_metadata(
-    package_db: &PackageDb,
-    packages: Vec<PackageName>,
-    multi_progress: MultiProgress,
-) -> miette::Result<PypiDependencyProvider> {
-    let mut queue = VecDeque::from_iter(packages.into_iter());
-    let mut seen = HashSet::<PackageName>::from_iter(queue.iter().cloned());
-
-    let progress_bar = multi_progress.add(ProgressBar::new(0));
-    progress_bar.set_style(
-        ProgressStyle::with_template("{spinner:.green} fetching metadata ({pos}/{len}) {wide_msg}")
-            .unwrap(),
-    );
-    progress_bar.enable_steady_tick(Duration::from_millis(100));
-
-    // TODO: https://peps.python.org/pep-0508/#environment-markers
-    let env = HashMap::from_iter([
-        // TODO: We should add some proper values here.
-        // See: https://peps.python.org/pep-0508/#environment-markers
-        ("os_name", ""),
-        ("sys_platform", ""),
-        ("platform_machine", ""),
-        ("platform_python_implementation", ""),
-        ("platform_release", ""),
-        ("platform_system", ""),
-        ("platform_version", ""),
-        ("python_version", "3.9"),
-        ("python_full_version", ""),
-        ("implementation_name", ""),
-        ("implementation_version", ""),
-        // TODO: Add support for extras
-        ("extra", ""),
-    ]);
-
-    let pool = Pool::new();
-    let mut candidates: HashMap<_, Candidates> = HashMap::new();
-    let mut dependencies: HashMap<_, Dependencies> = HashMap::new();
-
-    progress_bar.set_length(seen.len() as u64);
-
-    while let Some(package) = queue.pop_front() {
-        tracing::info!("Fetching metadata for {}", package.as_str());
-
-        let package_name_id =
-            pool.intern_package_name::<NormalizedPackageName>(package.clone().into());
+        let package_name = self.pool.resolve_package_name(name);
+        tracing::info!("Fetching metadata for {}", package_name.as_str());
 
         // Get all the metadata for this package
-        let artifacts = match package_db.available_artifacts(&package).await {
+        let result = task::block_in_place(move || {
+            Handle::current().block_on(
+                self.package_db
+                    .available_artifacts(&package_name.clone().into()),
+            )
+        });
+        let artifacts = match result {
             Ok(artifacts) => artifacts,
             Err(err) => {
                 tracing::error!(
-                    "failed to fetch artifacts of '{}': {err:?}, skipping..",
-                    package.as_str()
+                    "failed to fetch artifacts of '{package_name}': {err:?}, skipping.."
                 );
-                continue;
+                return None;
             }
         };
-
-        let mut num_solvables = 0;
-
-        // Fetch metadata per version
+        let mut candidates = Candidates::default();
         for (version, artifacts) in artifacts.iter() {
             // Filter only artifacts we can work with
             let available_artifacts = artifacts
@@ -189,10 +139,7 @@ async fn recursively_get_metadata(
             // Check if there are wheel artifacts for this version
             if available_artifacts.is_empty() {
                 // If there are no wheel artifacts, we're just gonna skip it
-                tracing::warn!(
-                    "No available wheel artifact {} {version} (skipping)",
-                    package.as_str()
-                );
+                tracing::warn!("No available wheel artifact {package_name} {version} (skipping)");
                 continue;
             }
 
@@ -203,80 +150,114 @@ async fn recursively_get_metadata(
                 .collect::<Vec<_>>();
 
             if non_yanked_artifacts.is_empty() {
-                tracing::info!("{} {version} was yanked (skipping)", package.as_str());
+                tracing::info!("{package_name} {version} was yanked (skipping)");
                 continue;
             }
 
-            let (_, metadata) = package_db
-                .get_metadata::<Wheel, _>(artifacts)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to download metadata for {} {version}",
-                        package.as_str(),
-                    )
-                })?;
-
-            // let solvable_id = pool.add_package(package_name_id, PypiVersion(version.clone()));
-            let solvable_id = pool.intern_solvable(package_name_id, PypiVersion(version.clone()));
-            candidates.entry(package_name_id).or_default().candidates.push(solvable_id);
-
-            // Iterate over all requirements and add them to the queue if we don't have information on them yet.
-            for requirement in metadata.requires_dist {
-                // Evaluate environment markers
-                if let Some(env_marker) = &requirement.env_marker_expr {
-                    if !env_marker.eval(&env)? {
-                        // tracing::info!("skipping dependency {requirement}");
-                        continue;
-                    }
+            let result = task::block_in_place(move || {
+                Handle::current().block_on(self.package_db.get_metadata::<Wheel, _>(artifacts))
+            });
+            match result {
+                Ok((_, metadata)) => {
+                    let solvable_id = self
+                        .pool
+                        .intern_solvable(name, PypiVersion(version.clone()));
+                    candidates.candidates.push(solvable_id);
                 }
-
-                // Add the package if we didnt see it yet.
-                if !seen.contains(&requirement.name) {
-                    println!(
-                        "adding {} from requirement: {requirement}",
-                        requirement.name.as_str()
+                Err(err) => {
+                    tracing::error!(
+                        "failed to fetch artifacts of '{package_name}': {err:?}, skipping.."
                     );
-                    queue.push_back(requirement.name.clone());
-                    seen.insert(requirement.name.clone());
                 }
-
-                // Add the dependency to the pool
-                let Requirement {
-                    name, specifiers, ..
-                } = requirement.into_inner();
-                let dependency_name_id = pool.intern_package_name(name);
-                let version_set_id = pool.intern_version_set(dependency_name_id, specifiers.into());
-                dependencies
-                    .entry(solvable_id)
-                    .or_default()
-                    .requirements
-                    .push(version_set_id);
-                // pool.add_dependency(solvable_id, version_set_id);
             }
-
-            num_solvables += 1;
         }
-
-        if num_solvables == 0 {
-            tracing::error!(
-                "could not find any suitable artifact for {}, does the package provide any wheels?",
-                package.as_str()
-            );
-        }
-
-        progress_bar.set_length(seen.len() as u64);
-        progress_bar.set_position(seen.len().saturating_sub(queue.len()) as u64);
-        progress_bar.set_message(format!(
-            "{}..",
-            queue
-                .iter()
-                .take(10)
-                .format_with(",", |p, f| f(&p.as_str()))
-        ))
+        Some(candidates)
     }
 
-    Ok(PypiDependencyProvider { pool, candidates, dependencies })
+    fn get_dependencies(&self, solvable: SolvableId) -> Dependencies {
+        // TODO: https://peps.python.org/pep-0508/#environment-markers
+        let env = HashMap::from_iter([
+            // TODO: We should add some proper values here.
+            // See: https://peps.python.org/pep-0508/#environment-markers
+            ("os_name", ""),
+            ("sys_platform", ""),
+            ("platform_machine", ""),
+            ("platform_python_implementation", ""),
+            ("platform_release", ""),
+            ("platform_system", ""),
+            ("platform_version", ""),
+            ("python_version", "3.9"),
+            ("python_full_version", ""),
+            ("implementation_name", ""),
+            ("implementation_version", ""),
+            // TODO: Add support for extras
+            ("extra", ""),
+        ]);
+
+        let solvable = self.pool.resolve_solvable(solvable);
+        let package_name = self.pool.resolve_package_name(solvable.name_id());
+
+        let mut dependencies = Dependencies::default();
+        let result = task::block_in_place(move || {
+            Handle::current().block_on(
+                self.package_db
+                    .available_artifacts(&package_name.clone().into()),
+            )
+        });
+
+        let artifacts_per_version = match result {
+            Ok(artifacts) => artifacts,
+            Err(e) => {
+                tracing::error!("failed to fetch artifacts of '{package_name}': {e:?}, skipping..");
+                return dependencies;
+            }
+        };
+
+        let artifacts = artifacts_per_version
+            .get(&solvable.inner().0.clone())
+            .expect("strange, no artificats are available");
+
+        // Filter yanked artifacts
+        let non_yanked_artifacts = artifacts
+            .iter()
+            .filter(|a| !a.yanked.yanked)
+            .collect::<Vec<_>>();
+
+        if non_yanked_artifacts.is_empty() {
+            panic!("no artifacts are available after removing yanked artifacts");
+        }
+
+        let (_, metadata) = task::block_in_place(|| {
+            Handle::current()
+                .block_on(
+                    self.package_db
+                        .get_metadata::<Wheel, _>(&non_yanked_artifacts),
+                )
+                .unwrap()
+        });
+
+        for requirement in metadata.requires_dist {
+            // Evaluate environment markers
+            if let Some(env_marker) = &requirement.env_marker_expr {
+                if !env_marker.eval(&env).unwrap() {
+                    // tracing::info!("skipping dependency {requirement}");
+                    continue;
+                }
+            }
+
+            // Add the dependency to the pool
+            let Requirement {
+                name, specifiers, ..
+            } = requirement.into_inner();
+
+            let dependency_name_id = self.pool.intern_package_name(name);
+            let version_set_id = self
+                .pool
+                .intern_version_set(dependency_name_id, specifiers.into());
+            dependencies.requirements.push(version_set_id)
+        }
+        dependencies
+    }
 }
 
 async fn actual_main() -> miette::Result<()> {
@@ -304,13 +285,10 @@ async fn actual_main() -> miette::Result<()> {
     )
     .into_diagnostic()?;
 
-    // Get metadata for all the packages
-    let provider = recursively_get_metadata(
-        &package_db,
-        args.specs.iter().map(|spec| spec.name.clone()).collect(),
-        global_multi_progress(),
-    )
-    .await?;
+    let provider = PypiDependencyProvider {
+        pool: Pool::new(),
+        package_db,
+    };
 
     // Create a task to solve the specs passed on the command line.
     let mut root_requirements = Vec::with_capacity(args.specs.len());
@@ -370,14 +348,12 @@ async fn actual_main() -> miette::Result<()> {
     Ok(())
 }
 
-
 #[tokio::main]
 async fn main() {
     if let Err(e) = actual_main().await {
         eprintln!("{e:?}");
     }
 }
-
 
 fn normalize_index_url(mut url: Url) -> Url {
     let path = url.path();

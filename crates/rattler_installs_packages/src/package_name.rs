@@ -109,9 +109,25 @@ impl From<PackageName> for NormalizedPackageName {
     }
 }
 
+impl From<NormalizedPackageName> for PackageName {
+    fn from(value: NormalizedPackageName) -> Self {
+        Self {
+            source: value.0.clone(),
+            normalized: value.0,
+        }
+    }
+}
+
 impl Display for NormalizedPackageName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl NormalizedPackageName {
+    /// Returns a string reference
+    pub fn as_str(&self) -> &str {
+        self.0.as_ref()
     }
 }
 

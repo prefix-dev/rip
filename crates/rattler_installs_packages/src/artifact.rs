@@ -69,17 +69,23 @@ impl Wheel {
         suffix: &str,
     ) -> miette::Result<Option<&'a str>> {
         // Find all directories that end in the suffix
-        let mut candidates = top_level_names
-            .into_iter()
-            .filter(|dir_name| {
-                let Some(candidate) = dir_name.strip_suffix(suffix) else { return false };
-                let Some((candidate_name, candidate_version)) = candidate.rsplit_once('-') else { return false };
+        let mut candidates = top_level_names.into_iter().filter(|dir_name| {
+            let Some(candidate) = dir_name.strip_suffix(suffix) else {
+                return false;
+            };
+            let Some((candidate_name, candidate_version)) = candidate.rsplit_once('-') else {
+                return false;
+            };
 
-                let Ok(candidate_name) = PackageName::from_str(candidate_name) else { return false };
-                let Some(candidate_version) = Version::parse(candidate_version) else { return false };
+            let Ok(candidate_name) = PackageName::from_str(candidate_name) else {
+                return false;
+            };
+            let Some(candidate_version) = Version::parse(candidate_version) else {
+                return false;
+            };
 
-                &candidate_name == name && &candidate_version == version
-            });
+            &candidate_name == name && &candidate_version == version
+        });
 
         // Get the first candidate
         let candidate = match candidates.next() {
