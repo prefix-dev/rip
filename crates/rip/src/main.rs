@@ -10,10 +10,9 @@ use rattler_installs_packages::{
     NormalizedPackageName, PackageDb, PackageName, PackageRequirement, Specifiers, Version, Wheel,
 };
 use rattler_libsolv_rs::{
-    DependencyProvider, Mapping, Pool, SolvableId, SolveJobs, Solver, VersionSet, VersionSetId,
-    VersionTrait,
+    Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId,
+    Solver, VersionSet,
 };
-use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Write;
@@ -35,92 +34,82 @@ struct Args {
     index_url: Url,
 }
 
-async fn actual_main() -> miette::Result<()> {
-    let args = Args::parse();
 
-    // Setup tracing subscriber
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .with_span_events(FmtSpan::ENTER)
-        .with_writer(IndicatifWriter::new(global_multi_progress()))
-        .finish()
-        .init();
+#[repr(transparent)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+struct PypiVersionSet(Specifiers);
 
-    // Determine cache directory
-    let cache_dir = dirs::cache_dir()
-        .ok_or_else(|| miette::miette!("failed to determine cache directory"))?
-        .join("rattler/pypi");
-    tracing::info!("cache directory: {}", cache_dir.display());
-
-    // Construct a package database
-    let package_db = rattler_installs_packages::PackageDb::new(
-        Default::default(),
-        &[normalize_index_url(args.index_url)],
-        cache_dir.clone(),
-    )
-    .into_diagnostic()?;
-
-    // Get metadata for all the packages
-    let mut pool = recursively_get_metadata(
-        &package_db,
-        args.specs.iter().map(|spec| spec.name.clone()).collect(),
-        global_multi_progress(),
-    )
-    .await?;
-
-    // Create a task to solve the specs passed on the command line.
-    let mut jobs = SolveJobs::default();
-    for Requirement {
-        name, specifiers, ..
-    } in args.specs.iter().map(PackageRequirement::as_inner)
-    {
-        let dependency_package_name = pool.intern_package_name(name.clone());
-        let version_set_id =
-            pool.intern_version_set(dependency_package_name, specifiers.clone().into());
-        jobs.install(version_set_id);
+impl From<Specifiers> for PypiVersionSet {
+    fn from(value: Specifiers) -> Self {
+        Self(value)
     }
+}
 
-    // Solve the jobs
-    let mut solver = Solver::new(pool, PypiDependencyProvider {});
-    let result = solver.solve(jobs);
-    let artifacts = match result {
-        Err(e) => {
-            eprintln!("Could not solve:\n{}", e.display_user_friendly(&solver));
-            return Ok(());
+impl Display for PypiVersionSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+struct PypiVersion(Version);
+
+impl VersionSet for PypiVersionSet {
+    type V = PypiVersion;
+
+    fn contains(&self, v: &Self::V) -> bool {
+        match self.0.satisfied_by(&v.0) {
+            Err(e) => {
+                tracing::error!("failed to determine if '{}' contains '{}': {e}", &self.0, v);
+                false
+            }
+            Ok(result) => result,
         }
-        Ok(transaction) => transaction
-            .steps
-            .into_iter()
-            .map(|result| {
-                let pool = solver.pool();
-                let solvable = pool.resolve_solvable(result);
-                let name = pool.resolve_package_name(solvable.name_id());
-                (name.clone(), solvable.inner().0.clone())
-            })
-            .collect::<Vec<_>>(),
-    };
+    }
+}
 
-    // Output the selected versions
-    println!("{}:", console::style("Resolved environment").bold());
-    for spec in args.specs.iter() {
-        println!("- {}", spec);
+impl Display for PypiVersion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.0)
+    }
+}
+
+struct PypiDependencyProvider {
+    pool: Pool<PypiVersionSet, NormalizedPackageName>,
+    candidates: HashMap<NameId, Candidates>,
+    dependencies: HashMap<SolvableId, Dependencies>,
+}
+
+impl DependencyProvider<PypiVersionSet, NormalizedPackageName> for PypiDependencyProvider {
+    fn pool(&self) -> &Pool<PypiVersionSet, NormalizedPackageName> {
+        &self.pool
     }
 
-    println!();
-    let mut tabbed_stdout = tabwriter::TabWriter::new(std::io::stdout());
-    writeln!(
-        tabbed_stdout,
-        "{}\t{}",
-        console::style("Name").bold(),
-        console::style("Version").bold()
-    )
-    .into_diagnostic()?;
-    for (name, artifact) in artifacts {
-        writeln!(tabbed_stdout, "{name}\t{artifact}").into_diagnostic()?;
-    }
-    tabbed_stdout.flush().unwrap();
+    fn sort_candidates(
+        &self,
+        solver: &Solver<PypiVersionSet, NormalizedPackageName, Self>,
+        solvables: &mut [SolvableId],
+    ) {
+        solvables.sort_by(|&a, &b| {
+            let solvable_a = solver.pool().resolve_solvable(a);
+            let solvable_b = solver.pool().resolve_solvable(b);
 
-    Ok(())
+            let a = &solvable_a.inner().0;
+            let b = &solvable_b.inner().0;
+
+            // Sort in reverse order from highest to lowest.
+            b.cmp(a)
+        })
+    }
+
+    fn get_candidates(&self, name: NameId) -> Option<Candidates> {
+        self.candidates.get(&name).cloned()
+    }
+
+    fn get_dependencies(&self, solvable: SolvableId) -> Dependencies {
+        self.dependencies.get(&solvable).cloned().unwrap_or_default()
+    }
 }
 
 /// Download all metadata needed to solve the specified packages.
@@ -128,7 +117,7 @@ async fn recursively_get_metadata(
     package_db: &PackageDb,
     packages: Vec<PackageName>,
     multi_progress: MultiProgress,
-) -> miette::Result<Pool<PypiVersionSet>> {
+) -> miette::Result<PypiDependencyProvider> {
     let mut queue = VecDeque::from_iter(packages.into_iter());
     let mut seen = HashSet::<PackageName>::from_iter(queue.iter().cloned());
 
@@ -158,15 +147,17 @@ async fn recursively_get_metadata(
         ("extra", ""),
     ]);
 
-    let mut pool = Pool::new();
-    let repo = pool.new_repo();
+    let pool = Pool::new();
+    let mut candidates: HashMap<_, Candidates> = HashMap::new();
+    let mut dependencies: HashMap<_, Dependencies> = HashMap::new();
 
     progress_bar.set_length(seen.len() as u64);
 
     while let Some(package) = queue.pop_front() {
         tracing::info!("Fetching metadata for {}", package.as_str());
 
-        let package_name_id = pool.intern_package_name(package.clone());
+        let package_name_id =
+            pool.intern_package_name::<NormalizedPackageName>(package.clone().into());
 
         // Get all the metadata for this package
         let artifacts = match package_db.available_artifacts(&package).await {
@@ -226,8 +217,9 @@ async fn recursively_get_metadata(
                     )
                 })?;
 
-            // TODO: Can we get rid of this clone?
-            let solvable_id = pool.add_package(repo, package_name_id, PypiVersion(version.clone()));
+            // let solvable_id = pool.add_package(package_name_id, PypiVersion(version.clone()));
+            let solvable_id = pool.intern_solvable(package_name_id, PypiVersion(version.clone()));
+            candidates.entry(package_name_id).or_default().candidates.push(solvable_id);
 
             // Iterate over all requirements and add them to the queue if we don't have information on them yet.
             for requirement in metadata.requires_dist {
@@ -255,7 +247,12 @@ async fn recursively_get_metadata(
                 } = requirement.into_inner();
                 let dependency_name_id = pool.intern_package_name(name);
                 let version_set_id = pool.intern_version_set(dependency_name_id, specifiers.into());
-                pool.add_dependency(solvable_id, version_set_id);
+                dependencies
+                    .entry(solvable_id)
+                    .or_default()
+                    .requirements
+                    .push(version_set_id);
+                // pool.add_dependency(solvable_id, version_set_id);
             }
 
             num_solvables += 1;
@@ -279,8 +276,100 @@ async fn recursively_get_metadata(
         ))
     }
 
-    Ok(pool)
+    Ok(PypiDependencyProvider { pool, candidates, dependencies })
 }
+
+async fn actual_main() -> miette::Result<()> {
+    let args = Args::parse();
+
+    // Setup tracing subscriber
+    tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .with_span_events(FmtSpan::ENTER)
+        .with_writer(IndicatifWriter::new(global_multi_progress()))
+        .finish()
+        .init();
+
+    // Determine cache directory
+    let cache_dir = dirs::cache_dir()
+        .ok_or_else(|| miette::miette!("failed to determine cache directory"))?
+        .join("rattler/pypi");
+    tracing::info!("cache directory: {}", cache_dir.display());
+
+    // Construct a package database
+    let package_db = rattler_installs_packages::PackageDb::new(
+        Default::default(),
+        &[normalize_index_url(args.index_url)],
+        cache_dir.clone(),
+    )
+    .into_diagnostic()?;
+
+    // Get metadata for all the packages
+    let provider = recursively_get_metadata(
+        &package_db,
+        args.specs.iter().map(|spec| spec.name.clone()).collect(),
+        global_multi_progress(),
+    )
+    .await?;
+
+    // Create a task to solve the specs passed on the command line.
+    let mut root_requirements = Vec::with_capacity(args.specs.len());
+    for Requirement {
+        name, specifiers, ..
+    } in args.specs.iter().map(PackageRequirement::as_inner)
+    {
+        let dependency_package_name = provider.pool().intern_package_name(name.clone());
+        let version_set_id = provider
+            .pool()
+            .intern_version_set(dependency_package_name, specifiers.clone().into());
+        root_requirements.push(version_set_id);
+    }
+
+    // Solve the jobs
+    let mut solver = Solver::new(provider);
+    let result = solver.solve(root_requirements);
+    let artifacts = match result {
+        Err(e) => {
+            eprintln!(
+                "Could not solve:\n{}",
+                e.display_user_friendly(&solver, &DefaultSolvableDisplay)
+            );
+            return Ok(());
+        }
+        Ok(transaction) => transaction
+            .into_iter()
+            .map(|result| {
+                let pool = solver.pool();
+                let solvable = pool.resolve_solvable(result);
+                let name = pool.resolve_package_name(solvable.name_id());
+                (name.clone(), solvable.inner().0.clone())
+            })
+            .collect::<Vec<_>>(),
+    };
+
+    // Output the selected versions
+    println!("{}:", console::style("Resolved environment").bold());
+    for spec in args.specs.iter() {
+        println!("- {}", spec);
+    }
+
+    println!();
+    let mut tabbed_stdout = tabwriter::TabWriter::new(std::io::stdout());
+    writeln!(
+        tabbed_stdout,
+        "{}\t{}",
+        console::style("Name").bold(),
+        console::style("Version").bold()
+    )
+    .into_diagnostic()?;
+    for (name, artifact) in artifacts {
+        writeln!(tabbed_stdout, "{name}\t{artifact}").into_diagnostic()?;
+    }
+    tabbed_stdout.flush().unwrap();
+
+    Ok(())
+}
+
 
 #[tokio::main]
 async fn main() {
@@ -289,76 +378,6 @@ async fn main() {
     }
 }
 
-#[repr(transparent)]
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-struct PypiVersionSet(Specifiers);
-
-impl From<Specifiers> for PypiVersionSet {
-    fn from(value: Specifiers) -> Self {
-        Self(value)
-    }
-}
-
-impl Display for PypiVersionSet {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[repr(transparent)]
-#[derive(Clone, Debug)]
-struct PypiVersion(Version);
-
-impl VersionSet for PypiVersionSet {
-    type V = PypiVersion;
-
-    fn contains(&self, v: &Self::V) -> bool {
-        match self.0.satisfied_by(&v.0) {
-            Err(e) => {
-                tracing::error!("failed to determine if '{}' contains '{}': {e}", &self.0, v);
-                false
-            }
-            Ok(result) => result,
-        }
-    }
-}
-
-impl VersionTrait for PypiVersion {
-    type Name = NormalizedPackageName;
-    type Version = Version;
-
-    fn version(&self) -> Self::Version {
-        self.0.clone()
-    }
-}
-
-impl Display for PypiVersion {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.0)
-    }
-}
-
-struct PypiDependencyProvider {}
-
-impl DependencyProvider<PypiVersionSet> for PypiDependencyProvider {
-    fn sort_candidates(
-        &mut self,
-        pool: &Pool<PypiVersionSet>,
-        solvables: &mut [SolvableId],
-        _match_spec_to_candidates: &Mapping<VersionSetId, OnceCell<Vec<SolvableId>>>,
-    ) {
-        solvables.sort_by(|&a, &b| {
-            let solvable_a = pool.resolve_solvable(a);
-            let solvable_b = pool.resolve_solvable(b);
-
-            let a = &solvable_a.inner().0;
-            let b = &solvable_b.inner().0;
-
-            // Sort in reverse order from highest to lowest.
-            b.cmp(a)
-        })
-    }
-}
 
 fn normalize_index_url(mut url: Url) -> Url {
     let path = url.path();
