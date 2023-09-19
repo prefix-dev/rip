@@ -2,8 +2,14 @@
 name = "rip"
 version = "0.1.0"
 edition = "2021"
+default-run = "rip"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "extras"
+path = "src/extras.rs"
+
 
 [dependencies]
 clap = { version = "4.3.23", features = ["derive"] }
@@ -19,5 +25,5 @@ reqwest = "0.11.19"
 tabwriter = { version = "1.2.1", features = ["ansi_formatting"] }
 tokio = { version = "1.29.1", features = ["rt", "macros", "rt-multi-thread"] }
 tracing = "0.1.37"
-tracing-subscriber = "0.3.17"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"]}
 url = "2.4.0"

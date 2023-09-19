@@ -2,13 +2,16 @@ mod writer;
 
 use crate::writer::{global_multi_progress, IndicatifWriter};
 use clap::Parser;
-use miette::{IntoDiagnostic};
+use miette::IntoDiagnostic;
 use rattler_installs_packages::requirement::Requirement;
 use rattler_installs_packages::{
     NormalizedPackageName, PackageDb, PackageRequirement, Specifiers, Version, Wheel,
 };
-use rattler_libsolv_rs::{Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId, Solver, SolverCache, VersionSet};
-use std::collections::{HashMap};
+use rattler_libsolv_rs::{
+    Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId,
+    Solver, SolverCache, VersionSet,
+};
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::Write;
 use tokio::runtime::Handle;

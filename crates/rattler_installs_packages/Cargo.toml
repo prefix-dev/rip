@@ -40,6 +40,8 @@ tokio-util = { version = "0.7.8", features = ["compat"] }
 tracing = { version = "0.1.37", default-features = false, features = ["attributes"] }
 url = { version = "2.4.0", features = ["serde"] }
 zip = "0.6.6"
+tl = "0.7.7"
+
 
 [dev-dependencies]
 tokio = { version = "1.29.1", features = ["rt", "macros"] }

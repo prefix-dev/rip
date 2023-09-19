@@ -38,7 +38,7 @@ static YANKED_ATTR: Lazy<Atom<LocalNameStaticSet>> = Lazy::new(|| Atom::from("da
 static DATA_DIST_INFO_METADATA: Lazy<Atom<LocalNameStaticSet>> =
     Lazy::new(|| Atom::from("data-dist-info-metadata"));
 
-struct Sink {
+struct ProjectInfoSink {
     next_id: usize,
     names: HashMap<usize, QualName>,
     base: Url,
@@ -46,7 +46,7 @@ struct Sink {
     project_info: ProjectInfo,
 }
 
-impl Sink {
+impl ProjectInfoSink {
     fn get_id(&mut self) -> usize {
         let id = self.next_id;
         self.next_id += 2;
@@ -73,7 +73,7 @@ fn parse_hash(s: &str) -> Option<ArtifactHashes> {
     }
 }
 
-impl Sink {
+impl ProjectInfoSink {
     fn try_parse_link(&self, url_str: &str, attrs: &Vec<Attribute>) -> Option<ArtifactInfo> {
         let url = self.base.join(url_str).ok()?;
         let filename: ArtifactName = url.path_segments()?.next_back()?.parse().ok()?;
@@ -117,7 +117,7 @@ impl Sink {
     }
 }
 
-impl TreeSink for Sink {
+impl TreeSink for ProjectInfoSink {
     type Handle = usize;
     type Output = Self;
 
@@ -210,11 +210,11 @@ impl TreeSink for Sink {
     fn mark_script_already_started(&mut self, _node: &usize) {}
 }
 
-pub fn parse_html<T>(url: &Url, mut body: T) -> miette::Result<ProjectInfo>
+pub fn parse_project_info_html<T>(url: &Url, mut body: T) -> miette::Result<ProjectInfo>
 where
     T: Read,
 {
-    let sink = Sink {
+    let sink = ProjectInfoSink {
         next_id: 1,
         base: url.clone(),
         changed_base: false,
@@ -232,13 +232,31 @@ where
         .project_info)
 }
 
+/// Parse package names from a pypyi repository index.
+#[tracing::instrument(level = "debug", skip(body))]
+pub fn parse_package_names_html(body: &str) -> miette::Result<Vec<String>> {
+    let dom = tl::parse(body, tl::ParserOptions::default()).into_diagnostic()?;
+    let names = dom
+        .query_selector("a");
+
+    if let Some(names) = names {
+        let names = names
+            .filter_map(|a| a.get(dom.parser()))
+            .map(|node| node.inner_text(dom.parser()).to_string())
+            .collect();
+        Ok(names)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
     fn test_sink_simple() {
-        let parsed = parse_html(
+        let parsed = parse_project_info_html(
             &Url::parse("https://example.com/old-base/").unwrap(),
             br#"<html>
                 <head>
@@ -306,6 +324,109 @@ mod test {
             ),
           ],
         )
+        "###);
+    }
+
+    #[test]
+    fn test_package_name_parsing() {
+        let html = r#"
+        <html>
+  <head>
+    <meta name="pypi:repository-version" content="1.1">
+    <title>Simple index</title>
+  </head>
+  <body>
+    <a href="/simple/0/">0</a>
+    <a href="/simple/0-0/">0-._.-._.-._.-._.-._.-._.-0</a>
+    <a href="/simple/000/">000</a>
+    <a href="/simple/0-0-1/">0.0.1</a>
+    <a href="/simple/00101s/">00101s</a>
+    <a href="/simple/00print-lol/">00print_lol</a>
+    <a href="/simple/00smalinux/">00SMALINUX</a>
+    <a href="/simple/0101/">0101</a>
+    <a href="/simple/01changer/">01changer</a>
+    <a href="/simple/01d61084-d29e-11e9-96d1-7c5cf84ffe8e/">01d61084-d29e-11e9-96d1-7c5cf84ffe8e</a>
+    <a href="/simple/01-distributions/">01-distributions</a>
+    <a href="/simple/021/">021</a>
+    <a href="/simple/024travis-test024/">024travis-test024</a>
+    <a href="/simple/02exercicio/">02exercicio</a>
+    <a href="/simple/0411-test/">0411-test</a>
+    <a href="/simple/0-618/">0.618</a>
+    <a href="/simple/0706xiaoye/">0706xiaoye</a>
+    <a href="/simple/0805nexter/">0805nexter</a>
+    <a href="/simple/090807040506030201testpip/">090807040506030201testpip</a>
+    <a href="/simple/0-core-client/">0-core-client</a>
+    <a href="/simple/0fela/">0FELA</a>
+    <a href="/simple/0html/">0html</a>
+    <a href="/simple/0imap/">0imap</a>
+    <a href="/simple/0lever-so/">0lever-so</a>
+    <a href="/simple/0lever-utils/">0lever-utils</a>
+    <a href="/simple/0-orchestrator/">0-orchestrator</a>
+    <a href="/simple/0proto/">0proto</a>
+    <a href="/simple/0rest/">0rest</a>
+    <a href="/simple/0rss/">0rss</a>
+    <a href="/simple/0wdg9nbmpm/">0wdg9nbmpm</a>
+    <a href="/simple/0wneg/">0wneg</a>
+    <a href="/simple/0x01-autocert-dns-aliyun/">0x01-autocert-dns-aliyun</a>
+    <a href="/simple/0x01-cubic-sdk/">0x01-cubic-sdk</a>
+    <a href="/simple/0x01-letsencrypt/">0x01-letsencrypt</a>
+    <a href="/simple/0x0-python/">0x0-python</a>
+    <a href="/simple/0x10c-asm/">0x10c-asm</a>
+    <a href="/simple/0x20bf/">0x20bf</a>
+    <a href="/simple/0x2nac0nda/">0x2nac0nda</a>
+    <a href="/simple/0x-contract-addresses/">0x-contract-addresses</a>
+    <a href="/simple/0x-contract-artifacts/">0x-contract-artifacts</a>
+    <a href="/simple/0x-contract-wrappers/">0x-contract-wrappers</a>
+   </body>
+   </html>
+        "#;
+
+        let names =
+            parse_package_names_html(&html).unwrap();
+        insta::assert_ron_snapshot!(names, @r###"
+        [
+          "0",
+          "0-._.-._.-._.-._.-._.-._.-0",
+          "000",
+          "0.0.1",
+          "00101s",
+          "00print_lol",
+          "00SMALINUX",
+          "0101",
+          "01changer",
+          "01d61084-d29e-11e9-96d1-7c5cf84ffe8e",
+          "01-distributions",
+          "021",
+          "024travis-test024",
+          "02exercicio",
+          "0411-test",
+          "0.618",
+          "0706xiaoye",
+          "0805nexter",
+          "090807040506030201testpip",
+          "0-core-client",
+          "0FELA",
+          "0html",
+          "0imap",
+          "0lever-so",
+          "0lever-utils",
+          "0-orchestrator",
+          "0proto",
+          "0rest",
+          "0rss",
+          "0wdg9nbmpm",
+          "0wneg",
+          "0x01-autocert-dns-aliyun",
+          "0x01-cubic-sdk",
+          "0x01-letsencrypt",
+          "0x0-python",
+          "0x10c-asm",
+          "0x20bf",
+          "0x2nac0nda",
+          "0x-contract-addresses",
+          "0x-contract-artifacts",
+          "0x-contract-wrappers",
+        ]
         "###);
     }
 }

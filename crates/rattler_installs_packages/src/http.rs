@@ -104,6 +104,7 @@ impl Http {
             {
                 match old_policy.before_request(&request, SystemTime::now()) {
                     BeforeRequest::Fresh(parts) => {
+                        tracing::debug!(url=%url, "is fresh");
                         let mut response = http::Response::from_parts(
                             parts,
                             StreamingOrLocal::Local(Box::new(old_body)),
@@ -132,6 +133,7 @@ impl Http {
                         // Determine what to do based on the response headers.
                         match old_policy.after_response(&request, &response, SystemTime::now()) {
                             AfterResponse::NotModified(new_policy, new_parts) => {
+                                tracing::debug!(url=%url, "stale, but not modified");
                                 let new_body = fill_cache(&new_policy, &final_url, old_body, lock)?;
                                 Ok(make_response(
                                     new_parts,
@@ -141,6 +143,7 @@ impl Http {
                                 ))
                             }
                             AfterResponse::Modified(new_policy, parts) => {
+                                tracing::debug!(url=%url, "stale, but *and* modified");
                                 drop(old_body);
                                 let new_body = if new_policy.is_storable() {
                                     let new_body = fill_cache_async(
@@ -270,6 +273,7 @@ fn fill_cache<R: Read>(
         &CacheData {
             policy: policy.clone(),
             url: url.clone(),
+
         },
         &mut cache_writer,
     )
