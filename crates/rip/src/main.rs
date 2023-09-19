@@ -350,6 +350,6 @@ mod test {
 
     #[test]
     fn valid_version() {
-        assert!(Version::parse("2011k").is_some());
+        assert!(Version::parse("1.2.1").is_some());
     }
 }

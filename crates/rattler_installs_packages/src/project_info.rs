@@ -8,7 +8,7 @@ use serde_with::{serde_as, skip_serializing_none, VecSkipError};
 
 /// Represents the result of the response from the Simple API.
 #[serde_as]
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ProjectInfo {
     /// Metadata describing the API.
     pub meta: Meta,
@@ -19,7 +19,7 @@ pub struct ProjectInfo {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub struct ArtifactInfo {
     pub filename: ArtifactName,
@@ -43,7 +43,7 @@ impl ArtifactInfo {
 /// Pythons `hashlib` are supported but we only support some common ones.
 #[serde_as]
 #[skip_serializing_none]
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ArtifactHashes {
     #[serde_as(as = "Option<SerializableHash<Sha256>>")]
     pub sha256: Option<rattler_digest::Sha256Hash>,
@@ -58,7 +58,7 @@ impl ArtifactHashes {
 
 /// Describes whether the metadata is available for download from the index as specified in PEP 658
 /// (`{file_url}.metadata`). An index might also include hashes of the metadata file.
-#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(from = "Option<RawDistInfoMetadata>")]
 pub struct DistInfoMetadata {
     pub available: bool,
@@ -117,7 +117,7 @@ enum RawYanked {
     WithReason(String),
 }
 
-#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
 #[serde(from = "RawYanked")]
 pub struct Yanked {
     pub yanked: bool,

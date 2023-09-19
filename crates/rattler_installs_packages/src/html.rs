@@ -240,7 +240,6 @@ mod test {
     fn test_sink_simple() {
         let parsed = parse_html(
             &Url::parse("https://example.com/old-base/").unwrap(),
-            "text/html",
             br#"<html>
                 <head>
                   <meta name="pypi:repository-version" content="1.0">
@@ -258,17 +257,19 @@ mod test {
         insta::assert_ron_snapshot!(parsed, @r###"
         ProjectInfo(
           meta: Meta(
-            version: "1.0",
+            r#api-version: "1.0",
           ),
-          artifacts: [
+          files: [
             ArtifactInfo(
-              name: "link1-1.0.tar.gz",
+              filename: "link1-1.0.tar.gz",
               url: "https://example.com/new-base/link1-1.0.tar.gz#sha256=0000000000000000000000000000000000000000000000000000000000000000",
-              hash: Some("sha256=0000000000000000000000000000000000000000000000000000000000000000"),
-              requires_python: None,
-              dist_info_metadata: DistInfoMetadata(
+              hashes: Some(ArtifactHashes(
+                sha256: Some("0000000000000000000000000000000000000000000000000000000000000000"),
+              )),
+              r#requires-python: None,
+              r#dist-info-metadata: DistInfoMetadata(
                 available: false,
-                hash: None,
+                hashes: ArtifactHashes(),
               ),
               yanked: Yanked(
                 yanked: false,
@@ -276,13 +277,13 @@ mod test {
               ),
             ),
             ArtifactInfo(
-              name: "link2-2.0.zip",
+              filename: "link2-2.0.zip",
               url: "https://example.com/elsewhere/link2-2.0.zip",
-              hash: None,
-              requires_python: None,
-              dist_info_metadata: DistInfoMetadata(
+              hashes: None,
+              r#requires-python: None,
+              r#dist-info-metadata: DistInfoMetadata(
                 available: false,
-                hash: None,
+                hashes: ArtifactHashes(),
               ),
               yanked: Yanked(
                 yanked: true,
@@ -290,13 +291,13 @@ mod test {
               ),
             ),
             ArtifactInfo(
-              name: "link3-3.0.tar.gz",
+              filename: "link3-3.0.tar.gz",
               url: "https://example.com/new-base/link3-3.0.tar.gz",
-              hash: None,
-              requires_python: Some(">= 3.17"),
-              dist_info_metadata: DistInfoMetadata(
+              hashes: None,
+              r#requires-python: Some(">= 3.17"),
+              r#dist-info-metadata: DistInfoMetadata(
                 available: false,
-                hash: None,
+                hashes: ArtifactHashes(),
               ),
               yanked: Yanked(
                 yanked: false,

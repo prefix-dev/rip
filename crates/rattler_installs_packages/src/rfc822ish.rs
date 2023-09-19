@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 pub type Fields = HashMap<String, Vec<String>>;
 
-#[cfg_attr(test, derive(Debug, Deserialize, PartialEq, Eq))]
+#[cfg_attr(test, derive(Debug, serde::Deserialize, PartialEq, Eq))]
 pub struct RFC822ish {
     pub fields: Fields,
     pub body: Option<String>,
