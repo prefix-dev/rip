@@ -1709,7 +1709,7 @@ dependencies = [
 [[package]]
 name = "rattler_libsolv_rs"
 version = "0.8.0"
-source = "git+https://github.com/baszalmstra/rattler?branch=refactor/lazy_solver#dd3147133d5bbd44b6cfa0954d11da67c7394770"
+source = "git+https://github.com/baszalmstra/rattler?branch=refactor/lazy_solver#2eb37cef21d3962005d3c4aa994655d724bc7790"
 dependencies = [
  "bitvec",
  "elsa",
