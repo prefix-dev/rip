@@ -8,11 +8,11 @@ use crate::{
     http::{CacheMode, Http},
     package_name::PackageName,
     project_info::{ArtifactInfo, ProjectInfo},
-    FileStore,
+    FileStore, NormalizedPackageName,
 };
 use elsa::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
-use http::header::{CONTENT_TYPE};
+use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
@@ -34,7 +34,7 @@ pub struct PackageDb {
     metadata_cache: FileStore,
 
     /// A cache of package name to version to artifacts.
-    artifacts: FrozenMap<PackageName, Box<IndexMap<Version, Vec<ArtifactInfo>>>>,
+    artifacts: FrozenMap<NormalizedPackageName, Box<IndexMap<Version, Vec<ArtifactInfo>>>>,
 }
 
 impl PackageDb {
@@ -53,11 +53,12 @@ impl PackageDb {
     }
 
     /// Downloads and caches information about available artifiacts of a package from the index.
-    pub async fn available_artifacts(
+    pub async fn available_artifacts<P: Into<NormalizedPackageName>>(
         &self,
-        p: &PackageName,
+        p: P,
     ) -> miette::Result<&IndexMap<Version, Vec<ArtifactInfo>>> {
-        if let Some(cached) = self.artifacts.get(p) {
+        let p = p.into();
+        if let Some(cached) = self.artifacts.get(&p) {
             Ok(cached)
         } else {
             // Start downloading the information for each url.
@@ -337,7 +338,6 @@ mod test {
             .get_metadata::<Wheel, _>(&artifact_info)
             .await
             .unwrap();
-
     }
 }
 
