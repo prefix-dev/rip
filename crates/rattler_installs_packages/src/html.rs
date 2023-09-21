@@ -236,8 +236,7 @@ where
 #[tracing::instrument(level = "debug", skip(body))]
 pub fn parse_package_names_html(body: &str) -> miette::Result<Vec<String>> {
     let dom = tl::parse(body, tl::ParserOptions::default()).into_diagnostic()?;
-    let names = dom
-        .query_selector("a");
+    let names = dom.query_selector("a");
 
     if let Some(names) = names {
         let names = names
@@ -381,8 +380,7 @@ mod test {
    </html>
         "#;
 
-        let names =
-            parse_package_names_html(&html).unwrap();
+        let names = parse_package_names_html(&html).unwrap();
         insta::assert_ron_snapshot!(names, @r###"
         [
           "0",

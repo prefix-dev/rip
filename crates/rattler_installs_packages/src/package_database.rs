@@ -1,10 +1,18 @@
 use crate::artifact::MetadataArtifact;
 use crate::html::parse_project_info_html;
 use crate::http::HttpRequestError;
-use crate::{artifact::Artifact, artifact_name::InnerAsArtifactName, http::{CacheMode, Http}, package_name::PackageName, project_info::{ArtifactInfo, ProjectInfo}, FileStore, html};
+use crate::{
+    artifact::Artifact,
+    artifact_name::InnerAsArtifactName,
+    html,
+    http::{CacheMode, Http},
+    package_name::PackageName,
+    project_info::{ArtifactInfo, ProjectInfo},
+    FileStore,
+};
 use elsa::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
-use http::header::{CONTENT_TYPE, IF_UNMODIFIED_SINCE};
+use http::header::{CONTENT_TYPE};
 use http::{HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
@@ -193,12 +201,15 @@ impl PackageDb {
     pub async fn get_package_names(&self) -> miette::Result<Vec<String>> {
         let index_url = self.index_urls.first();
         if let Some(url) = index_url {
-            let response = self.http.request(
-                url.clone(),
-                Method::GET,
-                HeaderMap::default(),
-                CacheMode::Default
-            ).await?;
+            let response = self
+                .http
+                .request(
+                    url.clone(),
+                    Method::GET,
+                    HeaderMap::default(),
+                    CacheMode::Default,
+                )
+                .await?;
 
             let mut bytes = response.into_body().force_local().await.into_diagnostic()?;
             let mut source = String::new();
@@ -207,7 +218,6 @@ impl PackageDb {
         } else {
             Ok(vec![])
         }
-
     }
 
     /// Opens the specified artifact info. Depending on the specified `cache_mode`, downloads the
@@ -328,7 +338,6 @@ mod test {
             .await
             .unwrap();
 
-        dbg!(metadata);
     }
 }
 

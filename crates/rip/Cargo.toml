@@ -7,8 +7,8 @@ default-run = "rip"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "extras"
-path = "src/extras.rs"
+name = "index"
+
 
 
 [dependencies]
@@ -27,3 +27,8 @@ tokio = { version = "1.29.1", features = ["rt", "macros", "rt-multi-thread"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"]}
 url = "2.4.0"
+rand = "0.8.4"
+serde = "1.0.188"
+serde_with = "3.0.0"
+serde_json = "1.0.107"
+rusqlite = { version = "0.29.0", features = ["bundled"] }

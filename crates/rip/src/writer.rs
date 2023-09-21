@@ -25,7 +25,7 @@ pub struct IndicatifWriter {
 }
 
 impl IndicatifWriter {
-    pub(crate) fn new(pb: MultiProgress) -> Self {
+    pub fn new(pb: MultiProgress) -> Self {
         Self { progress_bars: pb }
     }
 }

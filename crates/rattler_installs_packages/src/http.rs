@@ -273,7 +273,6 @@ fn fill_cache<R: Read>(
         &CacheData {
             policy: policy.clone(),
             url: url.clone(),
-
         },
         &mut cache_writer,
     )
