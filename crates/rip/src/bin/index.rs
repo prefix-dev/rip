@@ -14,9 +14,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-use rattler_installs_packages::{
-    Extra, PackageName, PackageRequirement, Wheel,
-};
+use rattler_installs_packages::{Extra, PackageName, PackageRequirement, Wheel};
 use rip::writer::{global_multi_progress, IndicatifWriter};
 
 #[derive(Parser)]
@@ -76,8 +74,10 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
     for n in names {
         bar.inc(1);
         let package_name = PackageName::from_str(&n)?;
-        let mut artifacts_per_version =
-            package_db.available_artifacts(&package_name).await?.clone();
+        let mut artifacts_per_version = package_db
+            .available_artifacts(package_name.clone())
+            .await?
+            .clone();
         artifacts_per_version.sort_keys();
 
         let (chosen_version, available_artifacts) =
@@ -127,12 +127,12 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
                 serde_json::to_string(&metadata.requires_dist)
                     .into_diagnostic()?
                     .as_str(),
-                (serde_json::to_string(&metadata.requires_python)
+                serde_json::to_string(&metadata.requires_python)
                     .into_diagnostic()?
-                    .as_str()),
-                (serde_json::to_string(&metadata.extras)
+                    .as_str(),
+                serde_json::to_string(&metadata.extras)
                     .into_diagnostic()?
-                    .as_str()),
+                    .as_str(),
             ])
             .into_diagnostic()?;
     }
@@ -176,15 +176,23 @@ pub fn query_extras() -> Result<(), miette::Error> {
             Ok(extras)
         })
         .into_diagnostic()?;
-    for requirement in iter
-    {
-        let requires_dist =
-            serde_json::from_str::<Vec<PackageRequirement>>(requirement.into_diagnostic()?.as_str())
-                .into_diagnostic()?;
+    for requirement in iter {
+        let requires_dist = serde_json::from_str::<Vec<PackageRequirement>>(
+            requirement.into_diagnostic()?.as_str(),
+        )
+        .into_diagnostic()?;
         total += requires_dist.len();
         for req in requires_dist {
             if !req.extras.is_empty() {
-                println!("{}: {}", req.name.as_str(), req.extras.iter().map(|e| e.as_str()).collect::<Vec<_>>().join(", "));
+                println!(
+                    "{}: {}",
+                    req.name.as_str(),
+                    req.extras
+                        .iter()
+                        .map(|e| e.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
                 count += 1;
             }
         }

@@ -6,9 +6,8 @@ use crate::{
     artifact_name::InnerAsArtifactName,
     html,
     http::{CacheMode, Http},
-    package_name::PackageName,
     project_info::{ArtifactInfo, ProjectInfo},
-    FileStore,
+    FileStore, NormalizedPackageName,
 };
 use elsa::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
@@ -34,7 +33,7 @@ pub struct PackageDb {
     metadata_cache: FileStore,
 
     /// A cache of package name to version to artifacts.
-    artifacts: FrozenMap<PackageName, Box<IndexMap<Version, Vec<ArtifactInfo>>>>,
+    artifacts: FrozenMap<NormalizedPackageName, Box<IndexMap<Version, Vec<ArtifactInfo>>>>,
 }
 
 impl PackageDb {
@@ -53,11 +52,12 @@ impl PackageDb {
     }
 
     /// Downloads and caches information about available artifiacts of a package from the index.
-    pub async fn available_artifacts(
+    pub async fn available_artifacts<P: Into<NormalizedPackageName>>(
         &self,
-        p: &PackageName,
+        p: P,
     ) -> miette::Result<&IndexMap<Version, Vec<ArtifactInfo>>> {
-        if let Some(cached) = self.artifacts.get(p) {
+        let p = p.into();
+        if let Some(cached) = self.artifacts.get(&p) {
             Ok(cached)
         } else {
             // Start downloading the information for each url.
@@ -312,6 +312,7 @@ mod test {
     use super::*;
     use crate::artifact::Wheel;
     use tempfile::TempDir;
+    use crate::PackageName;
 
     #[tokio::test]
     async fn test_available_packages() {
@@ -325,7 +326,7 @@ mod test {
 
         // Get all the artifacts
         let artifacts = package_db
-            .available_artifacts(&"scikit-learn".parse().unwrap())
+            .available_artifacts("scikit-learn".parse::<PackageName>().unwrap())
             .await
             .unwrap();
 

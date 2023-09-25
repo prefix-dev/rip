@@ -25,4 +25,4 @@ pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError
 pub use pep440::Version;
 pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, Yanked};
 pub use requirement::PackageRequirement;
-pub use specifier::{Specifier, Specifiers};
+pub use specifier::{CompareOp, Specifier, Specifiers};
