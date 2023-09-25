@@ -14,9 +14,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-use rattler_installs_packages::{
-    Extra, PackageName, PackageRequirement, Wheel,
-};
+use rattler_installs_packages::{Extra, NormalizedPackageName, PackageName, PackageRequirement, Wheel};
 use rip::writer::{global_multi_progress, IndicatifWriter};
 
 #[derive(Parser)]
@@ -77,7 +75,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
         bar.inc(1);
         let package_name = PackageName::from_str(&n)?;
         let mut artifacts_per_version =
-            package_db.available_artifacts(&package_name).await?.clone();
+            package_db.available_artifacts(package_name.clone()).await?.clone();
         artifacts_per_version.sort_keys();
 
         let (chosen_version, available_artifacts) =
@@ -176,15 +174,23 @@ pub fn query_extras() -> Result<(), miette::Error> {
             Ok(extras)
         })
         .into_diagnostic()?;
-    for requirement in iter
-    {
-        let requires_dist =
-            serde_json::from_str::<Vec<PackageRequirement>>(requirement.into_diagnostic()?.as_str())
-                .into_diagnostic()?;
+    for requirement in iter {
+        let requires_dist = serde_json::from_str::<Vec<PackageRequirement>>(
+            requirement.into_diagnostic()?.as_str(),
+        )
+        .into_diagnostic()?;
         total += requires_dist.len();
         for req in requires_dist {
             if req.extras.len() > 0 {
-                println!("{}: {}", req.name.as_str(), req.extras.iter().map(|e| e.as_str()).collect::<Vec<_>>().join(", "));
+                println!(
+                    "{}: {}",
+                    req.name.as_str(),
+                    req.extras
+                        .iter()
+                        .map(|e| e.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
                 count += 1;
             }
         }
