@@ -11,57 +11,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::{borrow::Borrow, borrow::Cow, collections::HashMap, default::Default, io::Read};
+
+use std::{borrow::Borrow, default::Default};
 
 use crate::{ArtifactHashes, ArtifactName};
-use html5ever::tendril::*;
-use html5ever::tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
-use html5ever::{expanded_name, local_name, namespace_url, ns, parse_document};
-use html5ever::{Attribute, ExpandedName, LocalNameStaticSet, QualName};
 use miette::IntoDiagnostic;
-use once_cell::sync::Lazy;
+
 use rattler_digest::{parse_digest_from_hex, Sha256};
-use string_cache::Atom;
+
+use tl::HTMLTag;
 use url::Url;
 
 use super::project_info::{ArtifactInfo, DistInfoMetadata, ProjectInfo, Yanked};
-
-const META_TAG: ExpandedName = expanded_name!(html "meta");
-const BASE_TAG: ExpandedName = expanded_name!(html "base");
-const A_TAG: ExpandedName = expanded_name!(html "a");
-const HREF_ATTR: Atom<LocalNameStaticSet> = html5ever::local_name!("href");
-const NAME_ATTR: Atom<LocalNameStaticSet> = html5ever::local_name!("name");
-const CONTENT_ATTR: Atom<LocalNameStaticSet> = html5ever::local_name!("content");
-static REQUIRES_PYTHON_ATTR: Lazy<Atom<LocalNameStaticSet>> =
-    Lazy::new(|| Atom::from("data-requires-python"));
-static YANKED_ATTR: Lazy<Atom<LocalNameStaticSet>> = Lazy::new(|| Atom::from("data-yanked"));
-static DATA_DIST_INFO_METADATA: Lazy<Atom<LocalNameStaticSet>> =
-    Lazy::new(|| Atom::from("data-dist-info-metadata"));
-
-struct ProjectInfoSink {
-    next_id: usize,
-    names: HashMap<usize, QualName>,
-    base: Url,
-    changed_base: bool,
-    project_info: ProjectInfo,
-}
-
-impl ProjectInfoSink {
-    fn get_id(&mut self) -> usize {
-        let id = self.next_id;
-        self.next_id += 2;
-        id
-    }
-}
-
-fn get_attr<'a>(name: &Atom<LocalNameStaticSet>, attrs: &'a Vec<Attribute>) -> Option<&'a str> {
-    for attr in attrs {
-        if attr.name.local == *name {
-            return Some(attr.value.as_ref());
-        }
-    }
-    None
-}
 
 fn parse_hash(s: &str) -> Option<ArtifactHashes> {
     if let Some(("sha256", hex)) = s.split_once('=') {
@@ -73,163 +34,124 @@ fn parse_hash(s: &str) -> Option<ArtifactHashes> {
     }
 }
 
-impl ProjectInfoSink {
-    fn try_parse_link(&self, url_str: &str, attrs: &Vec<Attribute>) -> Option<ArtifactInfo> {
-        let url = self.base.join(url_str).ok()?;
-        let filename: ArtifactName = url.path_segments()?.next_back()?.parse().ok()?;
-        // We found a valid link
-        let hash = url.fragment().and_then(parse_hash);
-        let requires_python = get_attr(REQUIRES_PYTHON_ATTR.borrow(), attrs).map(String::from);
-        let metadata_attr = get_attr(DATA_DIST_INFO_METADATA.borrow(), attrs);
-        let dist_info_metadata = match metadata_attr {
-            None => DistInfoMetadata {
-                available: false,
-                hashes: ArtifactHashes::default(),
-            },
-            Some("true") => DistInfoMetadata {
-                available: true,
-                hashes: ArtifactHashes::default(),
-            },
-            Some(value) => DistInfoMetadata {
-                available: true,
-                hashes: parse_hash(value).unwrap_or_default(),
-            },
-        };
-        let yanked_reason = get_attr(YANKED_ATTR.borrow(), attrs);
-        let yanked = match yanked_reason {
-            None => Yanked {
-                yanked: false,
-                reason: None,
-            },
-            Some(reason) => Yanked {
-                yanked: true,
-                reason: Some(reason.into()),
-            },
-        };
-        Some(ArtifactInfo {
-            filename,
-            url,
-            hashes: hash,
-            requires_python,
-            dist_info_metadata,
-            yanked,
-        })
-    }
-}
+pub fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
+    let attributes = tag.attributes();
+    // Get first href attribute to use as filename
+    let href = attributes.get("href").flatten()?.as_utf8_str();
 
-impl TreeSink for ProjectInfoSink {
-    type Handle = usize;
-    type Output = Self;
+    // Join with base
+    let url = base.join(href.as_ref()).ok()?;
+    let filename = url.path_segments().and_then(|mut s| s.next_back());
+    let filename: ArtifactName = filename
+        .map(|s| s.parse())?
+        .ok()?;
 
-    // This is where the actual work happens
+    // We found a valid link
+    let hash = url.fragment().and_then(parse_hash);
+    let requires_python = attributes
+        .get("data-requires-python")
+        .flatten()
+        .map(|a| a.as_utf8_str().to_string());
 
-    fn create_element(&mut self, name: QualName, attrs: Vec<Attribute>, _: ElementFlags) -> usize {
-        if name.expanded() == META_TAG {
-            if let Some("pypi:repository-version") = get_attr(&NAME_ATTR, &attrs) {
-                if let Some(version) = get_attr(&CONTENT_ATTR, &attrs) {
-                    self.project_info.meta.version = version.into();
-                }
-            }
-        }
+    let metadata_attr = attributes
+        .get("data-dist-info-metadata")
+        .flatten()
+        .map(|a| a.as_utf8_str());
 
-        if name.expanded() == BASE_TAG {
-            // HTML spec says that only the first <base> is respected
-            if !self.changed_base {
-                self.changed_base = true;
-                if let Some(new_base_str) = get_attr(&HREF_ATTR, &attrs) {
-                    if let Ok(new_base) = self.base.join(new_base_str) {
-                        self.base = new_base;
-                    }
-                }
-            }
-        }
-
-        if name.expanded() == A_TAG {
-            if let Some(url_str) = get_attr(&HREF_ATTR, &attrs) {
-                if let Some(artifact_info) = self.try_parse_link(url_str, &attrs) {
-                    self.project_info.files.push(artifact_info);
-                }
-            }
-        }
-
-        let id = self.get_id();
-        self.names.insert(id, name);
-        id
-    }
-
-    // Everything else is just boilerplate to make html5ever happy
-
-    fn finish(self) -> Self {
-        self
-    }
-
-    fn get_document(&mut self) -> usize {
-        0
-    }
-
-    fn get_template_contents(&mut self, target: &usize) -> usize {
-        target + 1
-    }
-
-    fn same_node(&self, x: &usize, y: &usize) -> bool {
-        x == y
-    }
-
-    fn elem_name(&self, target: &usize) -> ExpandedName {
-        self.names.get(target).expect("not an element").expanded()
-    }
-
-    fn create_comment(&mut self, _text: StrTendril) -> usize {
-        self.get_id()
-    }
-
-    fn create_pi(&mut self, _target: StrTendril, _value: StrTendril) -> usize {
-        // HTML doesn't have processing instructions
-        unreachable!()
-    }
-
-    fn append_before_sibling(&mut self, _sibling: &usize, _new_node: NodeOrText<usize>) {}
-
-    fn append_based_on_parent_node(
-        &mut self,
-        _element: &usize,
-        _prev_element: &usize,
-        _new_node: NodeOrText<usize>,
-    ) {
-    }
-
-    fn parse_error(&mut self, _msg: Cow<'static, str>) {}
-    fn set_quirks_mode(&mut self, _mode: QuirksMode) {}
-    fn append(&mut self, _parent: &usize, _child: NodeOrText<usize>) {}
-
-    fn append_doctype_to_document(&mut self, _: StrTendril, _: StrTendril, _: StrTendril) {}
-    // This is only called on <html> and <body> tags, so we don't need to worry about it
-    fn add_attrs_if_missing(&mut self, _target: &usize, _attrs: Vec<Attribute>) {}
-    fn remove_from_parent(&mut self, _target: &usize) {}
-    fn reparent_children(&mut self, _node: &usize, _new_parent: &usize) {}
-    fn mark_script_already_started(&mut self, _node: &usize) {}
-}
-
-pub fn parse_project_info_html<T>(url: &Url, mut body: T) -> miette::Result<ProjectInfo>
-where
-    T: Read,
-{
-    let sink = ProjectInfoSink {
-        next_id: 1,
-        base: url.clone(),
-        changed_base: false,
-        names: HashMap::new(),
-        project_info: Default::default(),
+    let dist_info_metadata = match metadata_attr {
+        None => DistInfoMetadata {
+            available: false,
+            hashes: ArtifactHashes::default(),
+        },
+        Some(cow) if cow.as_ref() == "true" => DistInfoMetadata {
+            available: true,
+            hashes: ArtifactHashes::default(),
+        },
+        Some(value) => DistInfoMetadata {
+            available: true,
+            hashes: parse_hash(value.borrow()).unwrap_or_default(),
+        },
     };
 
-    Ok(parse_document(sink, Default::default())
-        // For now, we just assume that all HTML is utf-8... this might bite us
-        // eventually, but hopefully it's true for the package index situation of
-        // API-responses-masquerading-as-HTML
-        .from_utf8()
-        .read_from(&mut body)
-        .into_diagnostic()?
-        .project_info)
+    let yanked_reason = attributes
+        .get("data-yanked")
+        .flatten()
+        .map(|a| a.as_utf8_str());
+    let yanked = match yanked_reason {
+        None => Yanked {
+            yanked: false,
+            reason: None,
+        },
+        Some(reason) => Yanked {
+            yanked: true,
+            reason: Some(reason.to_string()),
+        },
+    };
+
+    Some(ArtifactInfo {
+        filename,
+        url,
+        hashes: hash,
+        requires_python,
+        dist_info_metadata,
+        yanked,
+    })
+}
+
+pub fn parse_project_info_html(base: &Url, body: &str) -> miette::Result<ProjectInfo> {
+    let dom = tl::parse(body, tl::ParserOptions::default()).into_diagnostic()?;
+    let variants = dom.query_selector("a");
+    let mut project_info = ProjectInfo::default();
+
+    // Select repository version
+    project_info.meta.version = dom
+        .query_selector("meta[name=\"pypi:repository-version\"]")
+        // Take the first value
+        .and_then(|mut v| v.next())
+        // Get node access
+        .and_then(|v| v.get(dom.parser()))
+        // Require it to be a tag
+        .and_then(|v| v.as_tag())
+        // Get attributes, content specifically
+        .and_then(|v| v.attributes().get("content"))
+        // Get the version
+        .and_then(|v| v.map(|v| v.as_utf8_str().to_string()))
+        .unwrap_or_default();
+
+    // Select base url
+    let base = dom
+        .query_selector("base")
+        // Take the first value
+        .and_then(|mut v| v.next())
+        // Get node access
+        .and_then(|v| v.get(dom.parser()))
+        // Require it to be a tag
+        .and_then(|v| v.as_tag())
+        // Get attributes, href specifically
+        .and_then(|v| v.attributes().get("href"))
+        // Get the version
+        .and_then(|v| v.map(|v| v.as_utf8_str().to_string()))
+        // Parse the url
+        .and_then(|v| Url::parse(&v).ok())
+        // If we didn't find a base, use the one we were given
+        .unwrap_or_else(|| base.clone());
+
+    if let Some(variants) = variants {
+        // Filter for <a></a> tags
+        let a_tags = variants
+            .filter_map(|a| a.get(dom.parser()))
+            .filter_map(|h| h.as_tag());
+
+        // Parse and add <a></a> tags
+        for a in a_tags {
+            let artifact_info = into_artifact_info(&base, a);
+            if let Some(artifact_info) = artifact_info {
+                project_info.files.push(artifact_info);
+            }
+        }
+    };
+
+    Ok(project_info)
 }
 
 /// Parse package names from a pypyi repository index.
@@ -257,7 +179,7 @@ mod test {
     fn test_sink_simple() {
         let parsed = parse_project_info_html(
             &Url::parse("https://example.com/old-base/").unwrap(),
-            br#"<html>
+            r#"<html>
                 <head>
                   <meta name="pypi:repository-version" content="1.0">
                   <base href="https://example.com/new-base/">
@@ -268,7 +190,7 @@ mod test {
                   <a href="link3-3.0.tar.gz" data-requires-python=">= 3.17">link3</a>
                 </body>
               </html>
-            "# as &[u8],
+            "#,
         ).unwrap();
 
         insta::assert_ron_snapshot!(parsed, @r###"
@@ -380,7 +302,7 @@ mod test {
    </html>
         "#;
 
-        let names = parse_package_names_html(&html).unwrap();
+        let names = parse_package_names_html(html).unwrap();
         insta::assert_ron_snapshot!(names, @r###"
         [
           "0",

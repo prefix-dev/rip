@@ -12,7 +12,7 @@ use crate::{
 };
 use elsa::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
-use http::header::{CONTENT_TYPE};
+use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
@@ -20,7 +20,7 @@ use pep440::Version;
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
 use std::borrow::Borrow;
 use std::fmt::Display;
-use std::io::{Cursor, Read};
+use std::io::{Read};
 use std::path::PathBuf;
 use url::Url;
 
@@ -297,7 +297,9 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
         content_type.type_().as_str(),
         content_type.subtype().as_str(),
     ) {
-        ("text", "html") => parse_project_info_html(&url, Cursor::new(&bytes)).map(Some),
+        ("text", "html") => {
+            parse_project_info_html(&url, std::str::from_utf8(&bytes).into_diagnostic()?).map(Some)
+        }
         _ => miette::bail!(
             "simple API page expected Content-Type: text/html, but got {}",
             &content_type
@@ -333,11 +335,10 @@ mod test {
             .flat_map(|(_, artifacts)| artifacts.iter())
             .collect::<Vec<_>>();
 
-        let (_artifact, metadata) = package_db
+        let (_artifact, _metadata) = package_db
             .get_metadata::<Wheel, _>(&artifact_info)
             .await
             .unwrap();
-
     }
 }
 
