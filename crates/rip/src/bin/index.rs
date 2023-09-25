@@ -14,7 +14,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-use rattler_installs_packages::{Extra, NormalizedPackageName, PackageName, PackageRequirement, Wheel};
+use rattler_installs_packages::{Extra, PackageName, PackageRequirement, Wheel};
 use rip::writer::{global_multi_progress, IndicatifWriter};
 
 #[derive(Parser)]
@@ -74,8 +74,10 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
     for n in names {
         bar.inc(1);
         let package_name = PackageName::from_str(&n)?;
-        let mut artifacts_per_version =
-            package_db.available_artifacts(package_name.clone()).await?.clone();
+        let mut artifacts_per_version = package_db
+            .available_artifacts(package_name.clone())
+            .await?
+            .clone();
         artifacts_per_version.sort_keys();
 
         let (chosen_version, available_artifacts) =
@@ -86,7 +88,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
             };
 
         let mut rows = request
-            .query(&[package_name.as_str(), chosen_version.to_string().as_str()])
+            .query([package_name.as_str(), chosen_version.to_string().as_str()])
             .into_diagnostic()?;
         if rows.next().into_diagnostic()?.is_some() {
             // Skip if we have it in the database
@@ -102,7 +104,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
             .filter(|a| !a.yanked.yanked)
             .collect::<Vec<_>>();
 
-        if available_artifacts.len() == 0 {
+        if available_artifacts.is_empty() {
             continue;
         }
 
@@ -119,16 +121,16 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
         };
 
         insert_stmt
-            .insert(&[
+            .insert([
                 package_name.as_str(),
                 chosen_version.to_string().as_str(),
                 serde_json::to_string(&metadata.requires_dist)
                     .into_diagnostic()?
                     .as_str(),
-                &serde_json::to_string(&metadata.requires_python)
+                serde_json::to_string(&metadata.requires_python)
                     .into_diagnostic()?
                     .as_str(),
-                &serde_json::to_string(&metadata.extras)
+                serde_json::to_string(&metadata.extras)
                     .into_diagnostic()?
                     .as_str(),
             ])
@@ -181,7 +183,7 @@ pub fn query_extras() -> Result<(), miette::Error> {
         .into_diagnostic()?;
         total += requires_dist.len();
         for req in requires_dist {
-            if req.extras.len() > 0 {
+            if !req.extras.is_empty() {
                 println!(
                     "{}: {}",
                     req.name.as_str(),

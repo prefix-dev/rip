@@ -1707,18 +1707,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rattler_libsolv_rs"
-version = "0.8.0"
-source = "git+https://github.com/baszalmstra/rattler?branch=refactor/lazy_solver#babf03e8d99758cfc820186bff918bb8b3853bd0"
-dependencies = [
- "bitvec",
- "elsa",
- "itertools",
- "petgraph",
- "tracing",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1831,6 +1819,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "resolvo"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dab30801b54723f1949c6453a35db09c89e2ce7e052dc63e715f32fb40e427c"
+dependencies = [
+ "bitvec",
+ "elsa",
+ "itertools",
+ "petgraph",
+ "tracing",
+]
+
+[[package]]
 name = "rip"
 version = "0.1.0"
 dependencies = [
@@ -1843,8 +1844,8 @@ dependencies = [
  "miette",
  "rand",
  "rattler_installs_packages",
- "rattler_libsolv_rs",
  "reqwest",
+ "resolvo",
  "rusqlite",
  "serde",
  "serde_json",

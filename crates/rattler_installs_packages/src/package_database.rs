@@ -6,7 +6,6 @@ use crate::{
     artifact_name::InnerAsArtifactName,
     html,
     http::{CacheMode, Http},
-    package_name::PackageName,
     project_info::{ArtifactInfo, ProjectInfo},
     FileStore, NormalizedPackageName,
 };

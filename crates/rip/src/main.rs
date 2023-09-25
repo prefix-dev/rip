@@ -1,18 +1,16 @@
-use std::fmt::{Debug, Display};
 use std::io::Write;
 
 use clap::Parser;
 use miette::IntoDiagnostic;
-use rattler_libsolv_rs::{DefaultSolvableDisplay, DependencyProvider, Solver, VersionSet};
-use tracing::Level;
-use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::util::SubscriberInitExt;
+use resolvo::{DefaultSolvableDisplay, DependencyProvider, Solver};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::requirement::Requirement;
-use rattler_installs_packages::{NormalizedPackageName, PackageRequirement};
-use rip::pypi_provider::{PypiDependencyProvider, PypiPackageName};
-use rip::writer::{global_multi_progress, IndicatifWriter};
+use rattler_installs_packages::{requirement::Requirement, PackageRequirement};
+use rip::{
+    pypi_provider::{PypiDependencyProvider, PypiPackageName},
+    writer::{global_multi_progress, IndicatifWriter},
+};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -30,11 +28,9 @@ async fn actual_main() -> miette::Result<()> {
     let args = Args::parse();
 
     // Setup tracing subscriber
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .with_span_events(FmtSpan::ENTER)
-        .with_writer(IndicatifWriter::new(global_multi_progress()))
-        .finish()
+    tracing_subscriber::registry()
+        .with(fmt::layer().with_writer(IndicatifWriter::new(global_multi_progress())))
+        .with(EnvFilter::from_default_env())
         .init();
 
     // Determine cache directory
@@ -47,7 +43,7 @@ async fn actual_main() -> miette::Result<()> {
     let package_db = rattler_installs_packages::PackageDb::new(
         Default::default(),
         &[normalize_index_url(args.index_url)],
-        cache_dir.clone(),
+        cache_dir,
     )
     .into_diagnostic()?;
 
