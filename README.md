@@ -39,8 +39,7 @@ the authors where possible.
 Let's resolve the `flask` python package.
 We've added a small binary to showcase this:
 
-
-
+![flask-install](https://github.com/prefix-dev/rip/assets/417374/75826d3e-717d-45fa-bc79-3bd0dec713d5)
 
 This showcases the downloading and caching of metadata from PyPi. As well as the package resolution using our solver, more on this below.
 We cache everything in a local directory, so that we can re-use the metadata and don't have to download it again.
