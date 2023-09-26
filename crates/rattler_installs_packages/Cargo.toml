@@ -2,7 +2,7 @@
 name = "rattler_installs_packages"
 version.workspace = true
 edition.workspace = true
-authors = ["Bas Zalmstra <zalmstra.bas@gmail.com>"]
+authors = ["Bas Zalmstra <zalmstra.bas@gmail.com>", "Tim de Jager <tdejager89@gmail.com>"]
 description = "Datastructures and algorithms to interact with Python packaging ecosystem"
 categories.workspace = true
 homepage.workspace = true

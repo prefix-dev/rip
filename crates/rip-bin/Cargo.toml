@@ -1,27 +1,33 @@
 [package]
-name = "rip"
+name = "rip-bin"
 version.workspace = true
 edition.workspace = true
 authors = ["Bas Zalmstra <zalmstra.bas@gmail.com>", "Tim de Jager <tdejager89@gmail.com>"]
-description = "Implementation of resolvo for use with rattler_installs_packages"
+description = "Binary to verify and play around with rattler_installs_packages"
 categories.workspace = true
 homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 readme.workspace = true
+default-run = "rip-bin"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "index"
 
 [dependencies]
 clap = { version = "4.3.23", features = ["derive"] }
 console = { version = "0.15.7", features = ["windows-console-colors"] }
 dirs = "5.0.1"
 indexmap = "2.0.0"
+indicatif = "0.17.6"
 itertools = "0.11.0"
 miette = { version = "5.10.0", features = ["fancy"] }
 rattler_installs_packages = { path = "../rattler_installs_packages" }
 resolvo = "0.1.0"
 reqwest = "0.11.19"
+tabwriter = { version = "1.2.1", features = ["ansi_formatting"] }
 tokio = { version = "1.29.1", features = ["rt", "macros", "rt-multi-thread"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"]}
@@ -30,6 +36,8 @@ rand = "0.8.4"
 serde = "1.0.188"
 serde_with = "3.0.0"
 serde_json = "1.0.107"
+rusqlite = { version = "0.29.0", features = ["bundled"] }
+rip = {path = "../rip"}
 
 [package.metadata.release]
 # Dont publish the binary

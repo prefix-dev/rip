@@ -1,4 +1,7 @@
+mod writer;
+
 use std::io::Write;
+use rip_bin::{global_multi_progress, IndicatifWriter};
 
 use clap::Parser;
 use miette::IntoDiagnostic;
@@ -9,7 +12,7 @@ use url::Url;
 use rattler_installs_packages::{requirement::Requirement, PackageRequirement};
 use rip::{
     pypi_provider::{PypiDependencyProvider, PypiPackageName},
-    writer::{global_multi_progress, IndicatifWriter},
+    utils::normalize_index_url
 };
 
 #[derive(Parser)]
@@ -126,23 +129,5 @@ async fn actual_main() -> miette::Result<()> {
 async fn main() {
     if let Err(e) = actual_main().await {
         eprintln!("{e:?}");
-    }
-}
-
-fn normalize_index_url(mut url: Url) -> Url {
-    let path = url.path();
-    if !path.ends_with('/') {
-        url.set_path(&format!("{path}/"));
-    }
-    url
-}
-
-#[cfg(test)]
-mod test {
-    use rattler_installs_packages::Version;
-
-    #[test]
-    fn valid_version() {
-        assert!(Version::parse("1.2.1").is_some());
     }
 }
