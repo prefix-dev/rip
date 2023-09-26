@@ -11,7 +11,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-
 use std::{borrow::Borrow, default::Default};
 
 use crate::{ArtifactHashes, ArtifactName};
@@ -42,9 +41,7 @@ pub fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
     // Join with base
     let url = base.join(href.as_ref()).ok()?;
     let filename = url.path_segments().and_then(|mut s| s.next_back());
-    let filename: ArtifactName = filename
-        .map(|s| s.parse())?
-        .ok()?;
+    let filename: ArtifactName = filename.map(|s| s.parse())?.ok()?;
 
     // We found a valid link
     let hash = url.fragment().and_then(parse_hash);

@@ -1,5 +1,5 @@
 [package]
-name = "rip-bin"
+name = "rip_bin"
 version.workspace = true
 edition.workspace = true
 authors = ["Bas Zalmstra <zalmstra.bas@gmail.com>", "Tim de Jager <tdejager89@gmail.com>"]
@@ -9,12 +9,9 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 readme.workspace = true
-default-run = "rip-bin"
+default-run = "rip_bin"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[[bin]]
-name = "index"
 
 [dependencies]
 clap = { version = "4.3.23", features = ["derive"] }

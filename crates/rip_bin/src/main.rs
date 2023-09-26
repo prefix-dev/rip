@@ -1,5 +1,3 @@
-mod writer;
-
 use std::io::Write;
 use rip_bin::{global_multi_progress, IndicatifWriter};
 
@@ -9,7 +7,7 @@ use resolvo::{DefaultSolvableDisplay, DependencyProvider, Solver};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::{requirement::Requirement, PackageRequirement};
+use rattler_installs_packages::{PackageRequirement, Requirement};
 use rip::{
     pypi_provider::{PypiDependencyProvider, PypiPackageName},
     utils::normalize_index_url

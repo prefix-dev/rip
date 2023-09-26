@@ -21,7 +21,7 @@ use rip_bin::{global_multi_progress, IndicatifWriter};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Base URL of the Python Package Index (default https://pypi.org/simple). This should point
+    /// Base URL of the Python Package Index (default <https://pypi.org/simple>). This should point
     /// to a repository compliant with PEP 503 (the simple repository API).
     #[clap(default_value = "https://pypi.org/simple/", long)]
     index_url: Url,
