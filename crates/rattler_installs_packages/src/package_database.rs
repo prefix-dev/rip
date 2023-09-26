@@ -223,7 +223,7 @@ impl PackageDb {
 
         let metadata = A::parse_metadata(&bytes)?;
         self.put_metadata_in_cache(artifact_info, &bytes)?;
-        return Ok((artifact_info, metadata));
+        Ok((artifact_info, metadata))
     }
 
     /// Get all package names in the index.
