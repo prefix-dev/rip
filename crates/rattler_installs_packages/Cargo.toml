@@ -29,7 +29,7 @@ parking_lot = "0.12.1"
 peg = "0.8.1"
 pep440 = "0.2.0"
 pin-project-lite = "0.2.10"
-rattler_digest = { version = "0.6.0", features = ["serde"] }
+rattler_digest = { version = "0.9.0", features = ["serde"] }
 regex = "1.9.1"
 reqwest = { version = "0.11.18", features = ["json", "stream"] }
 serde = "1.0.188"
