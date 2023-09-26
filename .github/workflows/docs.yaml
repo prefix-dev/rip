@@ -1,0 +1,70 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: --html-in-header header.html
+
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    if: github.repository == 'prefix-dev/rattler_installs_packages'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      #  This does the following:
+      #   - Replaces the docs icon with one that clearly denotes it's not the released package on crates.io
+      #   - Adds a meta tag that forces Google not to index any page on the site.
+      - name: Pre-docs-build
+        run: |
+          echo "<meta name=\"robots\" content=\"noindex\">" > header.html
+
+      - name: Build Documentation
+        run: cargo doc --workspace --no-deps --all-features --lib
+
+      #  This adds the following:
+      #   - A top level redirect to the rattler_installs_packages crate documentation
+      #   - A robots.txt file to forbid any crawling of the site (to defer to the docs.rs site on search engines).
+      #   - A .nojekyll file to disable Jekyll GitHub Pages builds.
+      - name: Finalize documentation
+        run: |
+          echo "<meta http-equiv=\"refresh\" content=\"0; url=rattler_installs_packages/index.html\">" > target/doc/index.html
+          echo "User-Agent: *\nDisallow: /" > target/doc/robots.txt
+          touch target/doc/.nojekyll
+          
+      # https://github.com/actions/upload-pages-artifact#file-permissions
+      - run:  chmod -c -R +rX target/doc/
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: 'target/doc'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2

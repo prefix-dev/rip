@@ -1,3 +1,24 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+
+[profile.dev.package.insta]
+opt-level = 3
+
+[profile.dev.package.similar]
+opt-level = 3
+
+[workspace.package]
+version = "0.1.0"
+categories = ["conda"]
+homepage = "https://github.com/mamba-org/rattler"
+repository = "https://github.com/mamba-org/rattler"
+license = "BSD-3-Clause"
+edition = "2021"
+readme = "README.md"
+rust-version = "1.70"
+
+[workspace.metadata.release]
+allow-branch = ["main"]
+consolidate-commits = true
+tag-prefix = ""

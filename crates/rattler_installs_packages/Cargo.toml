@@ -1,10 +1,15 @@
 [package]
 name = "rattler_installs_packages"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.70"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version.workspace = true
+edition.workspace = true
+authors = ["Bas Zalmstra <zalmstra.bas@gmail.com>"]
+description = "Datastructures and algorithms to interact with Python packaging ecosystem"
+categories.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+readme.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 async-trait = "0.1.71"
