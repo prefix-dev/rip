@@ -6,7 +6,7 @@ use resolvo::{DefaultSolvableDisplay, DependencyProvider, Solver};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::{requirement::Requirement, PackageRequirement};
+use rattler_installs_packages::{PackageRequirement, Requirement};
 use rip::{
     pypi_provider::{PypiDependencyProvider, PypiPackageName},
     writer::{global_multi_progress, IndicatifWriter},
