@@ -1932,7 +1932,6 @@ name = "rip"
 version = "0.1.0"
 dependencies = [
  "clap 4.4.4",
- "console",
  "dirs",
  "indexmap 2.0.0",
  "itertools 0.11.0",
@@ -1946,7 +1945,6 @@ dependencies = [
  "serde_with",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "url",
 ]
 
@@ -1963,13 +1961,11 @@ dependencies = [
  "miette",
  "rand",
  "rattler_installs_packages",
- "reqwest",
  "resolvo",
  "rip",
  "rusqlite",
  "serde",
  "serde_json",
- "serde_with",
  "tabwriter",
  "tokio",
  "tracing",

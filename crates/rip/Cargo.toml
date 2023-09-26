@@ -14,7 +14,6 @@ readme.workspace = true
 
 [dependencies]
 clap = { version = "4.3.23", features = ["derive"] }
-console = { version = "0.15.7", features = ["windows-console-colors"] }
 dirs = "5.0.1"
 indexmap = "2.0.0"
 itertools = "0.11.0"
@@ -24,7 +23,6 @@ resolvo = "0.1.0"
 reqwest = "0.11.19"
 tokio = { version = "1.29.1", features = ["rt", "macros", "rt-multi-thread"] }
 tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"]}
 url = "2.4.0"
 rand = "0.8.4"
 serde = "1.0.188"
