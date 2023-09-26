@@ -163,25 +163,7 @@ impl PackageDb {
             // Retrieve the metadata instead of the entire wheel
             // If the dist-info is available separately, we can use that instead
             if artifact_info.dist_info_metadata.available {
-
-                // Turn into PEP658 compliant URL
-                let mut url = artifact_info.url.clone();
-                url.set_path(&url.path().replace(".whl", ".whl.metadata"));
-
-                let mut bytes = Vec::new();
-                self.http
-                    .request(
-                        url,
-                        Method::GET,
-                        HeaderMap::default(),
-                        CacheMode::Default,
-                    ).await?
-                    .into_body()
-                    .read_to_end(&mut bytes).await.into_diagnostic()?;
-
-                let metadata = A::parse_metadata(&bytes)?;
-                self.put_metadata_in_cache(artifact_info, &bytes)?;
-                return Ok((artifact_info, metadata));
+                return self.get_pep658_metadata::<A>(artifact_info).await;
             }
 
             let body = self
@@ -218,6 +200,30 @@ impl PackageDb {
                 .map(|artifact_info| artifact_info.borrow())
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// Retrieve the PEP658 metadata for the given artifact.
+    /// This assumes that the metadata is available in the repository
+    /// This can be checked with the ArtifactInfo
+    async fn get_pep658_metadata<'a, A: MetadataArtifact>(&self, artifact_info: &'a ArtifactInfo) -> miette::Result<(&'a ArtifactInfo, A::Metadata)> {
+        // Turn into PEP658 compliant URL
+        let mut url = artifact_info.url.clone();
+        url.set_path(&url.path().replace(".whl", ".whl.metadata"));
+
+        let mut bytes = Vec::new();
+        self.http
+            .request(
+                url,
+                Method::GET,
+                HeaderMap::default(),
+                CacheMode::Default,
+            ).await?
+            .into_body()
+            .read_to_end(&mut bytes).await.into_diagnostic()?;
+
+        let metadata = A::parse_metadata(&bytes)?;
+        self.put_metadata_in_cache(artifact_info, &bytes)?;
+        return Ok((artifact_info, metadata));
     }
 
     /// Get all package names in the index.
@@ -361,6 +367,37 @@ mod test {
 
         let (_artifact, _metadata) = package_db
             .get_metadata::<Wheel, _>(&artifact_info)
+            .await
+            .unwrap();
+    }
+
+
+    #[tokio::test]
+    async fn test_pep658() {
+        let cache_dir = TempDir::new().unwrap();
+        let package_db = PackageDb::new(
+            Client::new(),
+            &[Url::parse("https://pypi.org/simple/").unwrap()],
+            cache_dir.path().into(),
+        )
+            .unwrap();
+
+        // Get all the artifacts
+        let artifacts = package_db
+            .available_artifacts("numpy".parse::<PackageName>().unwrap())
+            .await
+            .unwrap();
+
+        // Get the artifact with dist-info attribute
+        let artifact_info = artifacts
+            .iter()
+            .flat_map(|(_, artifacts)| artifacts.iter())
+            // This signifies that a PEP658 metadata file is available
+            .find(|a| a.dist_info_metadata.available)
+            .unwrap();
+
+        let (_artifact, _metadata) = package_db
+            .get_pep658_metadata::<Wheel>(&artifact_info)
             .await
             .unwrap();
     }
