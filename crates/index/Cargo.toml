@@ -12,8 +12,8 @@ rust-version.workspace = true
 
 [features]
 default = ["native-tls"]
-native-tls = ['rattler_installs_packages/native-tls']
-rustls-tls = ['rattler_installs_packages/rustls-tls']
+native-tls = ['rattler_installs_packages/native-tls', 'rip_bin/native-tls']
+rustls-tls = ['rattler_installs_packages/rustls-tls', 'rip_bin/rustls-tls']
 
 [dependencies]
 clap = { version = "4.4.5", features = ["derive"] }
@@ -29,7 +29,7 @@ tokio = { version = "1.32.0", features = ["rt", "macros", "rt-multi-thread"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 url = "2.4.1"
-rip_bin = { path = "../rip_bin" }
+rip_bin = { path = "../rip_bin", default-features = false }
 
 
 [package.metadata.release]

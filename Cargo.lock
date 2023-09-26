@@ -1996,7 +1996,6 @@ dependencies = [
  "rand",
  "rattler_installs_packages",
  "resolvo",
- "rusqlite",
  "serde",
  "serde_json",
  "tabwriter",
