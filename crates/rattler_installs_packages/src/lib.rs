@@ -3,7 +3,7 @@ pub mod artifact_name;
 pub mod core_metadata;
 mod extra;
 mod file_store;
-mod html;
+pub mod html;
 mod http;
 mod package_database;
 mod package_name;
