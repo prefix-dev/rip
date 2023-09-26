@@ -19,7 +19,7 @@ use pep440::Version;
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
 use std::borrow::Borrow;
 use std::fmt::Display;
-use std::io::{Read};
+use std::io::Read;
 use std::path::PathBuf;
 use url::Url;
 
@@ -159,7 +159,6 @@ impl PackageDb {
         // Get the information from the first artifact. We assume the metadata is consistent across
         // all matching artifacts
         if let Some(artifact_info) = matching_artifacts.next() {
-
             // Retrieve the metadata instead of the entire wheel
             // If the dist-info is available separately, we can use that instead
             if artifact_info.dist_info_metadata.available {
@@ -205,21 +204,22 @@ impl PackageDb {
     /// Retrieve the PEP658 metadata for the given artifact.
     /// This assumes that the metadata is available in the repository
     /// This can be checked with the ArtifactInfo
-    async fn get_pep658_metadata<'a, A: MetadataArtifact>(&self, artifact_info: &'a ArtifactInfo) -> miette::Result<(&'a ArtifactInfo, A::Metadata)> {
+    async fn get_pep658_metadata<'a, A: MetadataArtifact>(
+        &self,
+        artifact_info: &'a ArtifactInfo,
+    ) -> miette::Result<(&'a ArtifactInfo, A::Metadata)> {
         // Turn into PEP658 compliant URL
         let mut url = artifact_info.url.clone();
         url.set_path(&url.path().replace(".whl", ".whl.metadata"));
 
         let mut bytes = Vec::new();
         self.http
-            .request(
-                url,
-                Method::GET,
-                HeaderMap::default(),
-                CacheMode::Default,
-            ).await?
+            .request(url, Method::GET, HeaderMap::default(), CacheMode::Default)
+            .await?
             .into_body()
-            .read_to_end(&mut bytes).await.into_diagnostic()?;
+            .read_to_end(&mut bytes)
+            .await
+            .into_diagnostic()?;
 
         let metadata = A::parse_metadata(&bytes)?;
         self.put_metadata_in_cache(artifact_info, &bytes)?;
@@ -340,8 +340,8 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
 mod test {
     use super::*;
     use crate::artifact::Wheel;
-    use tempfile::TempDir;
     use crate::PackageName;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_available_packages() {
@@ -371,7 +371,6 @@ mod test {
             .unwrap();
     }
 
-
     #[tokio::test]
     async fn test_pep658() {
         let cache_dir = TempDir::new().unwrap();
@@ -380,7 +379,7 @@ mod test {
             &[Url::parse("https://pypi.org/simple/").unwrap()],
             cache_dir.path().into(),
         )
-            .unwrap();
+        .unwrap();
 
         // Get all the artifacts
         let artifacts = package_db
