@@ -11,6 +11,11 @@ license.workspace = true
 readme.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["native-tls"]
+native-tls = ['reqwest/native-tls']
+rustls-tls = ['reqwest/rustls-tls']
+
 [dependencies]
 async-trait = "0.1.73"
 bytes = "1.5.0"
@@ -31,7 +36,7 @@ pep440 = "0.2.0"
 pin-project-lite = "0.2.13"
 rattler_digest = { version = "0.9.0", features = ["serde"] }
 regex = "1.9.5"
-reqwest = { version = "0.11.20", features = ["json", "stream"] }
+reqwest = { version = "0.11.20", default-features = false, features = ["json", "stream"] }
 serde = "1.0.188"
 serde_json = "1.0.107"
 serde_with = "3.3.0"
