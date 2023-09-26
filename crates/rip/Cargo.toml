@@ -17,7 +17,7 @@ default-run = "rip"
 name = "index"
 
 [dependencies]
-clap = { version = "4.3.23", features = ["derive"] }
+clap = { version = "4.4.5", features = ["derive"] }
 console = { version = "0.15.7", features = ["windows-console-colors"] }
 dirs = "5.0.1"
 indexmap = "2.0.0"
