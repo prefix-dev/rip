@@ -1,5 +1,5 @@
-use std::io::Write;
 use rip_bin::{global_multi_progress, IndicatifWriter};
+use std::io::Write;
 
 use clap::Parser;
 use miette::IntoDiagnostic;
@@ -10,7 +10,7 @@ use url::Url;
 use rattler_installs_packages::{PackageRequirement, Requirement};
 use rip::{
     pypi_provider::{PypiDependencyProvider, PypiPackageName},
-    utils::normalize_index_url
+    utils::normalize_index_url,
 };
 
 #[derive(Parser)]
