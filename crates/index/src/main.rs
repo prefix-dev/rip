@@ -51,7 +51,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
         &[normalize_index_url(index_url)],
         cache_dir.clone(),
     )
-        .into_diagnostic()?;
+    .into_diagnostic()?;
 
     let mut names = package_db.get_package_names().await?;
     names.shuffle(&mut rand::thread_rng());
@@ -65,7 +65,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_name_version ON `metadata` (`name`, `version`)",
         (),
     )
-        .into_diagnostic()?;
+    .into_diagnostic()?;
 
     let mut insert_stmt = conn.prepare("INSERT INTO metadata (name, version, requires_dist, requires_python, extras) VALUES (?, ?, ?, ?, ?)").into_diagnostic()?;
     let mut request = conn
@@ -180,7 +180,7 @@ pub fn query_extras() -> Result<(), miette::Error> {
         let requires_dist = serde_json::from_str::<Vec<PackageRequirement>>(
             requirement.into_diagnostic()?.as_str(),
         )
-            .into_diagnostic()?;
+        .into_diagnostic()?;
         total += requires_dist.len();
         for req in requires_dist {
             if !req.extras.is_empty() {
