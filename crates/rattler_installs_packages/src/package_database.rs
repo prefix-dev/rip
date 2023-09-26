@@ -156,11 +156,34 @@ impl PackageDb {
         // We have exhausted all options to read the metadata from the cache. We'll have to hit the
         // network to get to the information.
 
-        // TODO: PEP 658 support
-
         // Get the information from the first artifact. We assume the metadata is consistent across
         // all matching artifacts
         if let Some(artifact_info) = matching_artifacts.next() {
+
+            // Retrieve the metadata instead of the entire wheel
+            // If the dist-info is available separately, we can use that instead
+            if artifact_info.dist_info_metadata.available {
+
+                // Turn into PEP658 compliant URL
+                let mut url = artifact_info.url.clone();
+                url.set_path(&url.path().replace(".whl", ".whl.metadata"));
+
+                let mut bytes = Vec::new();
+                self.http
+                    .request(
+                        url,
+                        Method::GET,
+                        HeaderMap::default(),
+                        CacheMode::Default,
+                    ).await?
+                    .into_body()
+                    .read_to_end(&mut bytes).await.into_diagnostic()?;
+
+                let metadata = A::parse_metadata(&bytes)?;
+                self.put_metadata_in_cache(artifact_info, &bytes)?;
+                return Ok((artifact_info, metadata));
+            }
+
             let body = self
                 .http
                 .request(
