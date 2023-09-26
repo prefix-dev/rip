@@ -11,6 +11,11 @@ license.workspace = true
 readme.workspace = true
 default-run = "rip"
 
+[features]
+default = ["native-tls"]
+native-tls = ['reqwest/native-tls', 'rattler_installs_packages/native-tls']
+rustls-tls = ['reqwest/rustls-tls', 'rattler_installs_packages/rustls-tls']
+
 [dependencies]
 clap = { version = "4.4.5", features = ["derive"] }
 console = { version = "0.15.7", features = ["windows-console-colors"] }
@@ -20,8 +25,8 @@ indicatif = "0.17.7"
 itertools = "0.11.0"
 miette = { version = "5.10.0", features = ["fancy"] }
 rand = "0.8.5"
-rattler_installs_packages = { path = "../rattler_installs_packages" }
-reqwest = "0.11.20"
+rattler_installs_packages = { path = "../rattler_installs_packages", default-features = false }
+reqwest = { version = "0.11.20", default-features = false }
 resolvo = "0.1.0"
 rusqlite = { version = "0.29.0", features = ["bundled"] }
 serde = "1.0.188"
