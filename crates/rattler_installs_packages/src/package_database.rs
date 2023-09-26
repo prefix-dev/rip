@@ -19,7 +19,7 @@ use pep440::Version;
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
 use std::borrow::Borrow;
 use std::fmt::Display;
-use std::io::{Read};
+use std::io::Read;
 use std::path::PathBuf;
 use url::Url;
 
@@ -311,8 +311,8 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
 mod test {
     use super::*;
     use crate::artifact::Wheel;
-    use tempfile::TempDir;
     use crate::PackageName;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_available_packages() {

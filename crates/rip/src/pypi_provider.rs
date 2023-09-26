@@ -1,6 +1,6 @@
-use rattler_installs_packages::requirement::Requirement;
 use rattler_installs_packages::{
-    CompareOp, Extra, NormalizedPackageName, PackageDb, Specifier, Specifiers, Version, Wheel,
+    CompareOp, Extra, NormalizedPackageName, PackageDb, Requirement, Specifier, Specifiers,
+    Version, Wheel,
 };
 use resolvo::{
     Candidates, Dependencies, DependencyProvider, NameId, Pool, SolvableId, SolverCache, VersionSet,
