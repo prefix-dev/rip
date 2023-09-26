@@ -7,11 +7,11 @@ use resolvo::{DefaultSolvableDisplay, DependencyProvider, Solver};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::{PackageRequirement, Requirement};
 use rattler_installs_packages::{
-    resolvo_pypi::{PypiDependencyProvider, PypiPackageName},
     normalize_index_url,
+    resolvo_pypi::{PypiDependencyProvider, PypiPackageName},
 };
+use rattler_installs_packages::{PackageRequirement, Requirement};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
