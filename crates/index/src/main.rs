@@ -14,8 +14,10 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-use rattler_installs_packages::{Extra, PackageName, PackageRequirement, Wheel};
-use rip::writer::{global_multi_progress, IndicatifWriter};
+use rattler_installs_packages::{
+    normalize_index_url, Extra, PackageName, PackageRequirement, Wheel,
+};
+use rip_bin::{global_multi_progress, IndicatifWriter};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -33,14 +35,6 @@ enum Command {
     Index,
     ListExtras,
 }
-fn normalize_index_url(mut url: Url) -> Url {
-    let path = url.path();
-    if !path.ends_with('/') {
-        url.set_path(&format!("{path}/"));
-    }
-    url
-}
-
 pub async fn index(index_url: Url) -> Result<(), miette::Error> {
     let cache_dir = dirs::cache_dir()
         .ok_or_else(|| miette::miette!("failed to determine cache directory"))?

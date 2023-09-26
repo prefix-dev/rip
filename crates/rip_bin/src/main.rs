@@ -1,3 +1,4 @@
+use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::io::Write;
 
 use clap::Parser;
@@ -6,11 +7,11 @@ use resolvo::{DefaultSolvableDisplay, DependencyProvider, Solver};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::{PackageRequirement, Requirement};
-use rip::{
-    pypi_provider::{PypiDependencyProvider, PypiPackageName},
-    writer::{global_multi_progress, IndicatifWriter},
+use rattler_installs_packages::{
+    normalize_index_url,
+    resolvo_pypi::{PypiDependencyProvider, PypiPackageName},
 };
+use rattler_installs_packages::{PackageRequirement, Requirement};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -126,23 +127,5 @@ async fn actual_main() -> miette::Result<()> {
 async fn main() {
     if let Err(e) = actual_main().await {
         eprintln!("{e:?}");
-    }
-}
-
-fn normalize_index_url(mut url: Url) -> Url {
-    let path = url.path();
-    if !path.ends_with('/') {
-        url.set_path(&format!("{path}/"));
-    }
-    url
-}
-
-#[cfg(test)]
-mod test {
-    use rattler_installs_packages::Version;
-
-    #[test]
-    fn valid_version() {
-        assert!(Version::parse("1.2.1").is_some());
     }
 }

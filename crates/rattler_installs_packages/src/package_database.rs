@@ -396,7 +396,7 @@ mod test {
             .unwrap();
 
         let (_artifact, _metadata) = package_db
-            .get_pep658_metadata::<Wheel>(&artifact_info)
+            .get_pep658_metadata::<Wheel>(artifact_info)
             .await
             .unwrap();
     }
