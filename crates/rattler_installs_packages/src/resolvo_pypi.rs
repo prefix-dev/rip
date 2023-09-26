@@ -1,4 +1,4 @@
-use rattler_installs_packages::{
+use crate::{
     CompareOp, Extra, NormalizedPackageName, PackageDb, Requirement, Specifier, Specifiers,
     Version, Wheel,
 };

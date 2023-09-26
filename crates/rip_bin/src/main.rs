@@ -8,9 +8,9 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 use url::Url;
 
 use rattler_installs_packages::{PackageRequirement, Requirement};
-use rip::{
-    pypi_provider::{PypiDependencyProvider, PypiPackageName},
-    utils::normalize_index_url,
+use rattler_installs_packages::{
+    resolvo_pypi::{PypiDependencyProvider, PypiPackageName},
+    normalize_index_url,
 };
 
 #[derive(Parser)]

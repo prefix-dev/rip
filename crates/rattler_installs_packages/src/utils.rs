@@ -1,6 +1,7 @@
 use futures::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 use std::io::{Read, Seek, SeekFrom};
 use tokio_util::compat::TokioAsyncReadCompatExt;
+use url::Url;
 
 /// Keep retrying a certain IO function until it either succeeds or until it doesnt return
 /// [`std::io::ErrorKind::Interrupted`].
@@ -71,4 +72,14 @@ impl StreamingOrLocal {
             }
         }
     }
+}
+
+
+/// Normalize url according to pip standards
+pub fn normalize_index_url(mut url: Url) -> Url {
+    let path = url.path();
+    if !path.ends_with('/') {
+        url.set_path(&format!("{path}/"));
+    }
+    url
 }

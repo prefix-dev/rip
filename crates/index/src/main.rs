@@ -14,8 +14,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-use rattler_installs_packages::{Extra, PackageName, PackageRequirement, Wheel};
-use rip::utils::normalize_index_url;
+use rattler_installs_packages::{Extra, PackageName, PackageRequirement, Wheel, normalize_index_url};
 use rip_bin::{global_multi_progress, IndicatifWriter};
 
 #[derive(Parser)]

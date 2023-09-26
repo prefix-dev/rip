@@ -1129,7 +1129,6 @@ dependencies = [
  "miette",
  "rand",
  "rattler_installs_packages",
- "rip",
  "rip_bin",
  "rusqlite",
  "serde_json",
@@ -1803,6 +1802,7 @@ dependencies = [
  "rattler_digest",
  "regex",
  "reqwest",
+ "resolvo",
  "serde",
  "serde_json",
  "serde_with",
@@ -1983,23 +1983,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rip"
-version = "0.1.0"
-dependencies = [
- "clap 4.4.5",
- "console",
- "dirs",
- "indexmap 2.0.0",
- "indicatif",
- "rattler_installs_packages",
- "reqwest",
- "resolvo",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
 name = "rip_bin"
 version = "0.1.0"
 dependencies = [
@@ -2013,7 +1996,6 @@ dependencies = [
  "rand",
  "rattler_installs_packages",
  "resolvo",
- "rip",
  "rusqlite",
  "serde",
  "serde_json",

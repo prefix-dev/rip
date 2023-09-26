@@ -12,8 +12,8 @@ rust-version.workspace = true
 
 [features]
 default = ["native-tls"]
-native-tls = ['rattler_installs_packages/native-tls', 'rip/native-tls']
-rustls-tls = ['rattler_installs_packages/rustls-tls', 'rip/rustls-tls']
+native-tls = ['rattler_installs_packages/native-tls']
+rustls-tls = ['rattler_installs_packages/rustls-tls']
 
 [dependencies]
 clap = { version = "4.4.5", features = ["derive"] }
@@ -23,14 +23,13 @@ indicatif = "0.17.7"
 miette = { version = "5.10.0", features = ["fancy"] }
 rand = "0.8.5"
 rattler_installs_packages = { path = "../rattler_installs_packages", default-features = false }
-rip = { path = "../rip", default-features = false }
 rusqlite = { version = "0.29.0", features = ["bundled"] }
 serde_json = "1.0.107"
 tokio = { version = "1.32.0", features = ["rt", "macros", "rt-multi-thread"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 url = "2.4.1"
-rip_bin = {path = "../rip_bin"}
+rip_bin = { path = "../rip_bin" }
 
 
 [package.metadata.release]

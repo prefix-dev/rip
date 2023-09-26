@@ -15,6 +15,9 @@ mod seek_slice;
 mod specifier;
 mod utils;
 
+#[cfg(feature = "resolvo-pypi")]
+pub mod resolvo_pypi;
+
 pub use file_store::{CacheKey, FileStore};
 pub use package_database::PackageDb;
 
@@ -31,3 +34,5 @@ pub use requirement::{
     marker, PackageRequirement, ParseExtra, PythonRequirement, Requirement, UserRequirement,
 };
 pub use specifier::{CompareOp, Specifier, Specifiers};
+
+pub use utils::normalize_index_url;
