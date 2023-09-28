@@ -1,8 +1,8 @@
 <a href="https://github.com/prefix-dev/pixi/">
     <picture>
-      <source srcset="https://github.com/prefix-dev/rip/assets/4995967/2517cc7e-1a1c-475d-ad41-f8e20114299b" type="image/webp">
-      <source srcset="https://github.com/prefix-dev/rip/assets/4995967/0a401d03-f4d9-45f6-a442-c0809362d5a0" type="image/png">
-      <img src="https://github.com/prefix-dev/rip/assets/4995967/0a401d03-f4d9-45f6-a442-c0809362d5a0" alt="banner">
+      <source srcset="https://github.com/prefix-dev/rip/assets/4995967/aab133a8-b335-4942-bf56-335071c76db2" type="image/webp">
+      <source srcset="https://github.com/prefix-dev/rip/assets/4995967/3599ae56-42c5-4f3f-9db7-d844fa9558c9" type="image/png">
+      <img src="https://github.com/prefix-dev/rip/assets/4995967/3599ae56-42c5-4f3f-9db7-d844fa9558c9" alt="banner">
     </picture>
 </a>
 
