@@ -15,7 +15,7 @@ rust-version.workspace = true
 default = ["native-tls"]
 native-tls = ['reqwest/native-tls']
 rustls-tls = ['reqwest/rustls-tls']
-resolvo-pypi = []
+resolvo-pypi = ["dep:resolvo"]
 
 [dependencies]
 async-trait = "0.1.73"
@@ -50,7 +50,7 @@ tokio-util = { version = "0.7.9", features = ["compat"] }
 tracing = { version = "0.1.37", default-features = false, features = ["attributes"] }
 url = { version = "2.4.1", features = ["serde"] }
 zip = "0.6.6"
-resolvo = "0.1.0"
+resolvo = {version = "0.1.0", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"
