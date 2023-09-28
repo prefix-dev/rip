@@ -18,7 +18,7 @@ rustls-tls = ['rattler_installs_packages/rustls-tls', 'rip_bin/rustls-tls']
 [dependencies]
 clap = { version = "4.4.5", features = ["derive"] }
 dirs = "5.0.1"
-indexmap = "2.0.0"
+indexmap = "2.0.1"
 indicatif = "0.17.7"
 miette = { version = "5.10.0", features = ["fancy"] }
 rand = "0.8.5"
