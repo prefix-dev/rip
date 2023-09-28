@@ -2,16 +2,12 @@ use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::io::Write;
 
 use clap::Parser;
+use itertools::Itertools;
 use miette::IntoDiagnostic;
-use resolvo::{DefaultSolvableDisplay, DependencyProvider, Solver};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::{
-    normalize_index_url,
-    resolvo_pypi::{PypiDependencyProvider, PypiPackageName},
-};
-use rattler_installs_packages::{PackageRequirement, Requirement};
+use rattler_installs_packages::{normalize_index_url, resolve, PackageRequirement};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -48,56 +44,10 @@ async fn actual_main() -> miette::Result<()> {
     )
     .into_diagnostic()?;
 
-    let provider = PypiDependencyProvider::new(package_db);
-
-    // Create a task to solve the specs passed on the command line.
-    let mut root_requirements = Vec::with_capacity(args.specs.len());
-    for Requirement {
-        name,
-        specifiers,
-        extras,
-        ..
-    } in args.specs.iter().map(PackageRequirement::as_inner)
-    {
-        let dependency_package_name = provider
-            .pool()
-            .intern_package_name(PypiPackageName::Base(name.clone().into()));
-        let version_set_id = provider
-            .pool()
-            .intern_version_set(dependency_package_name, specifiers.clone().into());
-        root_requirements.push(version_set_id);
-
-        for extra in extras {
-            let dependency_package_name = provider
-                .pool()
-                .intern_package_name(PypiPackageName::Extra(name.clone().into(), extra.clone()));
-            let version_set_id = provider
-                .pool()
-                .intern_version_set(dependency_package_name, specifiers.clone().into());
-            root_requirements.push(version_set_id);
-        }
-    }
-
-    // Solve the jobs
-    let mut solver = Solver::new(provider);
-    let result = solver.solve(root_requirements);
-    let artifacts = match result {
-        Err(e) => {
-            eprintln!(
-                "Could not solve:\n{}",
-                e.display_user_friendly(&solver, &DefaultSolvableDisplay)
-            );
-            return Ok(());
-        }
-        Ok(transaction) => transaction
-            .into_iter()
-            .map(|result| {
-                let pool = solver.pool();
-                let solvable = pool.resolve_solvable(result);
-                let name = pool.resolve_package_name(solvable.name_id());
-                (name.clone(), solvable.inner().0.clone())
-            })
-            .collect::<Vec<_>>(),
+    // Solve the environment
+    let blueprint = match resolve(&package_db, &args.specs).await {
+        Ok(blueprint) => blueprint,
+        Err(err) => miette::bail!("Could not solve for the requested requirements:\n{err}"),
     };
 
     // Output the selected versions
@@ -115,10 +65,19 @@ async fn actual_main() -> miette::Result<()> {
         console::style("Version").bold()
     )
     .into_diagnostic()?;
-    for (name, artifact) in artifacts {
-        writeln!(tabbed_stdout, "{name}\t{artifact}").into_diagnostic()?;
+    for (name, (version, extras)) in blueprint.into_iter().sorted_by(|(a, _), (b, _)| a.cmp(b)) {
+        write!(tabbed_stdout, "{name}", name = name.as_str()).into_diagnostic()?;
+        if !extras.is_empty() {
+            write!(
+                tabbed_stdout,
+                "[{}]",
+                extras.iter().map(|e| e.as_str()).join(",")
+            )
+            .into_diagnostic()?;
+        }
+        writeln!(tabbed_stdout, "\t{version}").into_diagnostic()?;
     }
-    tabbed_stdout.flush().unwrap();
+    tabbed_stdout.flush().into_diagnostic()?;
 
     Ok(())
 }

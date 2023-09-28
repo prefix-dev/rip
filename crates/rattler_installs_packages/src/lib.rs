@@ -15,8 +15,11 @@ mod seek_slice;
 mod specifier;
 mod utils;
 
-#[cfg(feature = "resolvo-pypi")]
-pub mod resolvo_pypi;
+#[cfg(feature = "resolvo")]
+mod resolve;
+
+#[cfg(feature = "resolvo")]
+pub use resolve::resolve;
 
 pub use file_store::{CacheKey, FileStore};
 pub use package_database::PackageDb;
