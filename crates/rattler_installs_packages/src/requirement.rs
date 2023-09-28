@@ -325,6 +325,16 @@ impl Deref for PackageRequirement {
 #[derive(Debug, Clone, PartialEq, Eq, DeserializeFromStr, SerializeDisplay)]
 pub struct UserRequirement(Requirement);
 
+impl UserRequirement {
+    pub fn into_inner(self) -> Requirement {
+        self.0
+    }
+
+    pub fn as_inner(&self) -> &Requirement {
+        &self.0
+    }
+}
+
 impl Display for UserRequirement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)

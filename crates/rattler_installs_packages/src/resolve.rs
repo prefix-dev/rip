@@ -1,11 +1,12 @@
 use crate::{
-    CompareOp, Extra, NormalizedPackageName, PackageDb, Requirement, Specifier, Specifiers,
-    Version, Wheel,
+    CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement, Specifier,
+    Specifiers, UserRequirement, Version, Wheel,
 };
 use resolvo::{
-    Candidates, Dependencies, DependencyProvider, NameId, Pool, SolvableId, SolverCache, VersionSet,
+    Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId,
+    Solver, SolverCache, VersionSet,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use tokio::runtime::Handle;
 use tokio::task;
@@ -81,13 +82,13 @@ impl Display for PypiPackageName {
     }
 }
 
-pub struct PypiDependencyProvider {
+pub struct PypiDependencyProvider<'db> {
     pool: Pool<PypiVersionSet, PypiPackageName>,
-    package_db: PackageDb,
+    package_db: &'db PackageDb,
 }
 
-impl PypiDependencyProvider {
-    pub fn new(package_db: PackageDb) -> Self {
+impl<'db> PypiDependencyProvider<'db> {
+    pub fn new(package_db: &'db PackageDb) -> Self {
         Self {
             pool: Pool::new(),
             package_db,
@@ -95,7 +96,7 @@ impl PypiDependencyProvider {
     }
 }
 
-impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider {
+impl<'db> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider<'db> {
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
         &self.pool
     }
@@ -294,5 +295,77 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
         }
 
         dependencies
+    }
+}
+
+/// Resolves an environment that contains the given requirements and all dependencies of those
+/// requirements.
+pub async fn resolve(
+    package_db: &PackageDb,
+    requirements: impl IntoIterator<Item = &UserRequirement>,
+) -> Result<HashMap<PackageName, (Version, HashSet<Extra>)>, String> {
+    // Construct a provider
+    let provider = PypiDependencyProvider::new(package_db);
+    let pool = provider.pool();
+
+    let requirements = requirements.into_iter();
+
+    // Construct the root requirements from the requirements requested by the user.
+    let requirement_count = requirements.size_hint();
+    let mut root_requirements =
+        Vec::with_capacity(requirement_count.1.unwrap_or(requirement_count.0));
+    for Requirement {
+        name,
+        specifiers,
+        extras,
+        ..
+    } in requirements.map(UserRequirement::as_inner)
+    {
+        let dependency_package_name =
+            pool.intern_package_name(PypiPackageName::Base(name.clone().into()));
+        let version_set_id =
+            pool.intern_version_set(dependency_package_name, specifiers.clone().into());
+        root_requirements.push(version_set_id);
+
+        for extra in extras {
+            let dependency_package_name = pool
+                .intern_package_name(PypiPackageName::Extra(name.clone().into(), extra.clone()));
+            let version_set_id =
+                pool.intern_version_set(dependency_package_name, specifiers.clone().into());
+            root_requirements.push(version_set_id);
+        }
+    }
+
+    // Invoke the solver to get a solution to the requirements
+    let mut solver = Solver::new(provider);
+    let result = solver.solve(root_requirements);
+
+    match result {
+        Ok(solvables) => {
+            let mut result = HashMap::default();
+            for solvable in solvables {
+                let pool = solver.pool();
+                let solvable = pool.resolve_solvable(solvable);
+                let name = pool.resolve_package_name(solvable.name_id());
+                let version = solvable.inner();
+                match name {
+                    PypiPackageName::Base(name) => {
+                        result
+                            .entry(name.clone().into())
+                            .or_insert((version.0.clone(), HashSet::new()));
+                    }
+                    PypiPackageName::Extra(name, extra) => {
+                        let (_, extras) = result
+                            .entry(name.clone().into())
+                            .or_insert((version.0.clone(), HashSet::new()));
+                        extras.insert(extra.clone());
+                    }
+                }
+            }
+            Ok(result)
+        }
+        Err(e) => Err(e
+            .display_user_friendly(&solver, &DefaultSolvableDisplay)
+            .to_string()),
     }
 }
