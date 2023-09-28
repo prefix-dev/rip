@@ -37,6 +37,7 @@ use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Eq, DeserializeFromStr)]
+/// Structure that holds both the source string and the normalized version of an extra.
 pub struct Extra {
     /// The original string this instance was created from
     source: Box<str>,

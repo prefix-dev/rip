@@ -18,16 +18,24 @@ pub struct ProjectInfo {
     pub files: Vec<ArtifactInfo>,
 }
 
+/// Describes a single artifact that is available for download.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub struct ArtifactInfo {
+    /// Artifact name
     pub filename: ArtifactName,
+    /// Url to download the artifact
     pub url: url::Url,
+    /// Hashes of the artifact
     pub hashes: Option<ArtifactHashes>,
+    /// Python requirement
     pub requires_python: Option<String>,
     #[serde(default)]
+    /// This attribute specified if the metadata is available
+    /// as a separate download described in [PEP 658](https://www.python.org/dev/peps/pep-0658/)
     pub dist_info_metadata: DistInfoMetadata,
+    /// Yanked information
     #[serde(default)]
     pub yanked: Yanked,
 }
@@ -46,6 +54,7 @@ impl ArtifactInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ArtifactHashes {
     #[serde_as(as = "Option<SerializableHash<Sha256>>")]
+    /// Contains the optional sha256 hash of the artifact
     pub sha256: Option<rattler_digest::Sha256Hash>,
 }
 
@@ -61,7 +70,9 @@ impl ArtifactHashes {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(from = "Option<RawDistInfoMetadata>")]
 pub struct DistInfoMetadata {
+    /// True if the metadata is available
     pub available: bool,
+    /// Hashes to verify the metadata file
     pub hashes: ArtifactHashes,
 }
 
@@ -99,6 +110,7 @@ impl From<Option<RawDistInfoMetadata>> for DistInfoMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Meta {
     #[serde(rename = "api-version")]
+    /// Version of the API
     pub version: String,
 }
 
@@ -117,10 +129,13 @@ enum RawYanked {
     WithReason(String),
 }
 
+/// Struct that describes whether a package is yanked or not.
 #[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
 #[serde(from = "RawYanked")]
 pub struct Yanked {
+    /// This is true if the package is yanked.
     pub yanked: bool,
+    /// Optional reason why the package is yanked.
     pub reason: Option<String>,
 }
 

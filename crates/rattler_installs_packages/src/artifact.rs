@@ -11,6 +11,8 @@ use std::io::Read;
 use std::str::FromStr;
 use zip::ZipArchive;
 
+/// Trait that represents an artifact type in the PyPi ecosystem.
+/// Currently implemented for [`Wheel`] files.
 #[async_trait]
 pub trait Artifact: Sized {
     /// The name of the artifact which describes the artifact.
@@ -26,6 +28,9 @@ pub trait Artifact: Sized {
     fn name(&self) -> &Self::Name;
 }
 
+/// Wheel file in the PyPi ecosystem.
+/// See the [Reference Page](https://packaging.python.org/en/latest/specifications/binary-distribution-format/#binary-distribution-format)
+/// for more information.
 pub struct Wheel {
     name: WheelName,
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
@@ -47,8 +52,11 @@ impl Artifact for Wheel {
     }
 }
 
+/// Trait that represents an artifact that contains metadata.
+/// Currently implemented for [`Wheel`] files.
 #[async_trait]
 pub trait MetadataArtifact: Artifact {
+    /// Associated type for the metadata of this artifact.
     type Metadata;
 
     /// Parses the metadata associated with an artifact.

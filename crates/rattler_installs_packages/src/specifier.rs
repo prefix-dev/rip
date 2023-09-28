@@ -8,20 +8,26 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use smallvec::{smallvec, SmallVec};
 use std::{fmt::Display, ops::Range, str::FromStr};
 
-// TODO: See if we can parse this a little better than just an operator and a string. Everytime
+// TODO: See if we can parse this a little better than just an operator and a string. Every time
 //  `satisfied_by` is called `to_ranges` is called. We can probably cache that.
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// A specifier is a comparison operator and a version.
+/// See [PEP-440](https://peps.python.org/pep-0440/#version-specifiers)
 pub struct Specifier {
+    /// Compartions operator
     pub op: CompareOp,
+    /// Version
     pub value: String,
 }
 
 impl Specifier {
+    /// Returns true if the specifier is satisfied by the given version.
     pub fn satisfied_by(&self, version: &Version) -> miette::Result<bool> {
         Ok(self.to_ranges()?.into_iter().any(|r| r.contains(version)))
     }
 
+    /// Converts the specifier to a set of ranges.
     pub fn to_ranges(&self) -> miette::Result<SmallVec<[Range<Version>; 1]>> {
         self.op.ranges(&self.value)
     }
@@ -34,9 +40,11 @@ impl Display for Specifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, SerializeDisplay, DeserializeFromStr, Default, Hash)]
+/// A collection of specifiers, separated by commas.
 pub struct Specifiers(pub Vec<Specifier>);
 
 impl Specifiers {
+    /// Returns true if the set of specifiers is satisfied by the given version.
     pub fn satisfied_by(&self, version: &Version) -> miette::Result<bool> {
         for specifier in &self.0 {
             if !specifier.satisfied_by(version)? {
@@ -73,6 +81,8 @@ impl FromStr for Specifiers {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[allow(missing_docs)]
+/// Models a comparison operator in a version specifier.
 pub enum CompareOp {
     LessThanEqual,
     StrictlyLessThan,
@@ -132,11 +142,11 @@ fn parse_version_wildcard(input: &str) -> miette::Result<(Version, bool)> {
     Ok((version, wildcard))
 }
 
-/// Converts a comparison like ">= 1.2" into a union of [half, open) ranges.
-///
-/// Has to take a string, not a Version, because == and != can take "wildcards", which
-/// are not valid versions.
 impl CompareOp {
+    /// Converts a comparison like ">= 1.2" into a union of [half, open) ranges.
+    ///
+    /// Has to take a string, not a Version, because == and != can take "wildcards", which
+    /// are not valid versions.
     pub fn ranges(&self, rhs: &str) -> miette::Result<SmallVec<[Range<Version>; 1]>> {
         use CompareOp::*;
         let (version, wildcard) = parse_version_wildcard(rhs)?;

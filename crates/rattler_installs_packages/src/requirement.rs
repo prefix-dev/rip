@@ -43,6 +43,11 @@
 // version it declares, so it can satisfy other dependencies that use the name or
 // versions.
 
+// @tdejager: added some doc-comments to the posy code.
+
+//! Requirements for Python packages.
+//! Essentially version specifications for packages.
+
 use super::specifier::CompareOp;
 use crate::extra::Extra;
 use crate::package_name::PackageName;
@@ -55,6 +60,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 pub mod marker {
+    //! Environment marker expressions module
     use crate::extra::Extra;
     use std::collections::HashMap;
     use std::fmt::Display;
@@ -62,12 +68,16 @@ pub mod marker {
 
     use super::*;
 
+    /// Value can either be a literal string or a variable name.
+    #[allow(missing_docs)]
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum Value {
         Variable(String),
         Literal(String),
     }
 
+    /// Comparison operator
+    #[allow(missing_docs)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub enum Op {
         Compare(CompareOp),
@@ -75,6 +85,8 @@ pub mod marker {
         NotIn,
     }
 
+    /// Python environment markers: <https://peps.python.org/pep-0508/#environment-markers>
+    #[allow(missing_docs)]
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum EnvMarkerExpr {
         And(Box<EnvMarkerExpr>, Box<EnvMarkerExpr>),
@@ -82,7 +94,10 @@ pub mod marker {
         Operator { op: Op, lhs: Value, rhs: Value },
     }
 
+    /// Env marker retrieval Trait
     pub trait Env {
+        /// Returns the value of the marker variable
+        /// or None if the variable is not set
         fn get_marker_var(&self, var: &str) -> Option<&str>;
     }
 
@@ -93,6 +108,7 @@ pub mod marker {
     }
 
     impl Value {
+        /// Evaluate the value from an [`Env`] trait implementation
         pub fn eval<'a>(&'a self, env: &'a dyn Env) -> miette::Result<&'a str> {
             match self {
                 Value::Variable(varname) => env.get_marker_var(varname).ok_or_else(|| {
@@ -102,6 +118,7 @@ pub mod marker {
             }
         }
 
+        /// Returns whether the value is an Extra
         pub fn is_extra(&self) -> bool {
             match self {
                 Value::Variable(varname) => varname == "extra",
@@ -126,6 +143,7 @@ pub mod marker {
     }
 
     impl EnvMarkerExpr {
+        /// Evaluate the expression from an [`Env`] trait implementations
         pub fn eval(&self, env: &dyn Env) -> miette::Result<bool> {
             Ok(match self {
                 EnvMarkerExpr::And(lhs, rhs) => lhs.eval(env)? && rhs.eval(env)?,
@@ -217,29 +235,40 @@ impl FromStr for StandaloneMarkerExpr {
     type Err = miette::Report;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let expr = super::reqparse::marker(value, ParseExtra::NotAllowed)
+        let expr = super::reqparse::marker(value, ParseExtraInEnv::NotAllowed)
             .into_diagnostic()
             .wrap_err_with(|| format!("Failed parsing env marker expression {:?}", value))?;
         Ok(StandaloneMarkerExpr(expr))
     }
 }
 
+/// Defines whether its allowed to have extras in env markers
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ParseExtra {
+pub enum ParseExtraInEnv {
+    /// Extras are allowed in env markers
     Allowed,
+    /// Extras are not allowed in env markers
     NotAllowed,
 }
 
+/// Specification for a package requirement
+/// [PEP508](https://peps.python.org/pep-0508) and [PEP440](https://peps.python.org/pep-0440/) have a lot of information
+/// regarding the specification of these requirements
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Requirement {
+    /// Name of the package
     pub name: PackageName,
+    /// Optional requirements
     pub extras: Vec<Extra>,
+    /// Collection of version specifiers
     pub specifiers: Specifiers,
+    /// Optional env marker expression, see: <https://www.python.org/dev/peps/pep-0508/#environment-markers>
     pub env_marker_expr: Option<marker::EnvMarkerExpr>,
 }
 
 impl Requirement {
-    pub fn parse(input: &str, parse_extra: ParseExtra) -> miette::Result<Requirement> {
+    /// Parses a python requirement string
+    pub fn parse(input: &str, parse_extra: ParseExtraInEnv) -> miette::Result<Requirement> {
         let req = super::reqparse::requirement(input, parse_extra)
             .into_diagnostic()
             .wrap_err_with(|| format!("Failed parsing requirement string {:?})", input))?;
@@ -272,14 +301,18 @@ impl Display for Requirement {
     }
 }
 
+/// Requirements used by packages for other packages
+/// You would find these in the wheel metadata
 #[derive(Debug, Clone, PartialEq, Eq, DeserializeFromStr, SerializeDisplay)]
 pub struct PackageRequirement(Requirement);
 
 impl PackageRequirement {
+    /// Move the inner requirement out of the struct
     pub fn into_inner(self) -> Requirement {
         self.0
     }
 
+    /// Returns a reference to the inner requirement
     pub fn as_inner(&self) -> &Requirement {
         &self.0
     }
@@ -297,7 +330,7 @@ impl FromStr for PackageRequirement {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Ok(PackageRequirement(Requirement::parse(
             value,
-            ParseExtra::Allowed,
+            ParseExtraInEnv::Allowed,
         )?))
     }
 }
@@ -322,14 +355,19 @@ impl Deref for PackageRequirement {
     }
 }
 
+/// Requirement used for root-level requirements
+/// these do not allow extras in env markers
+/// as that does not make sense for a root-level requirement
 #[derive(Debug, Clone, PartialEq, Eq, DeserializeFromStr, SerializeDisplay)]
 pub struct UserRequirement(Requirement);
 
 impl UserRequirement {
+    /// Move the inner requirement out of the struct
     pub fn into_inner(self) -> Requirement {
         self.0
     }
 
+    /// Returns a reference to the inner requirement
     pub fn as_inner(&self) -> &Requirement {
         &self.0
     }
@@ -347,12 +385,13 @@ impl FromStr for UserRequirement {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Ok(UserRequirement(Requirement::parse(
             value,
-            ParseExtra::NotAllowed,
+            ParseExtraInEnv::NotAllowed,
         )?))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, DeserializeFromStr, SerializeDisplay)]
+/// Requirements for Python
 pub struct PythonRequirement(Requirement);
 
 impl Display for PythonRequirement {
@@ -382,7 +421,7 @@ impl FromStr for PythonRequirement {
     type Err = miette::Report;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let r = Requirement::parse(value, ParseExtra::NotAllowed)?;
+        let r = Requirement::parse(value, ParseExtraInEnv::NotAllowed)?;
         r.try_into()
     }
 }

@@ -15,6 +15,7 @@ use std::{
 
 /// Types that implement this can be used as keys of the [`FileStore`].
 pub trait CacheKey {
+    /// Returns the path prefix that should be used to store the data for this key.
     fn key(&self) -> PathBuf;
 }
 
@@ -62,6 +63,7 @@ impl CacheKey for ArtifactHashes {
 }
 
 #[derive(Debug)]
+/// A cache that stores its data as cbor files on the filesystem.
 pub struct FileStore {
     base: PathBuf,
     tmp: PathBuf,
@@ -259,7 +261,7 @@ fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
     open_options.write(true);
 
     // Only create the parent directories if the lock mode is set to `Lock`. In the other case we
-    // don't care if the file doesnt exist.
+    // don't care if the file doesn't exist.
     if mode == LockMode::Lock {
         let dir = lock_path
             .parent()
@@ -271,7 +273,7 @@ fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
     // Open the lock file
     let lock = open_options.open(&lock_path)?;
 
-    // Lock the file. On unix this is apparently a thin wrapper around flock(2) and it doesnt
+    // Lock the file. On unix this is apparently a thin wrapper around flock(2) and it doesn't
     // properly handle EINTR so we keep retrying when that happens.
     retry_interrupted(|| lock.lock_exclusive())?;
 
