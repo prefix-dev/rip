@@ -1,8 +1,8 @@
 <a href="https://github.com/prefix-dev/pixi/">
     <picture>
-      <source srcset="https://github.com/prefix-dev/rattler_installs_packages/assets/4995967/98a131d5-6a4a-44f1-a60e-dbdcea4951eb" type="image/webp">
-      <source srcset="https://github.com/prefix-dev/rattler_installs_packages/assets/4995967/29d2f52b-7801-4a3d-bcc8-2cf34a4263e4" type="image/png">
-      <img src="https://github.com/prefix-dev/rattler_installs_packages/assets/4995967/29d2f52b-7801-4a3d-bcc8-2cf34a4263e4" alt="banner">
+      <source srcset="https://github.com/prefix-dev/rip/assets/4995967/2517cc7e-1a1c-475d-ad41-f8e20114299b" type="image/webp">
+      <source srcset="https://github.com/prefix-dev/rip/assets/4995967/0a401d03-f4d9-45f6-a442-c0809362d5a0" type="image/png">
+      <img src="https://github.com/prefix-dev/rip/assets/4995967/0a401d03-f4d9-45f6-a442-c0809362d5a0" alt="banner">
     </picture>
 </a>
 
