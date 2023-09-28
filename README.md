@@ -21,7 +21,7 @@
 [chat-badge]: https://img.shields.io/discord/1082332781146800168.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2&style=flat-square
 [chat-url]: https://discord.gg/kKV8ZxyzY4
 [docs-main-badge]: https://img.shields.io/badge/docs-main-yellow.svg?style=flat-square
-[docs-main]: https://prefix-dev.github.io/rattler_installs_packages
+[docs-main]: https://prefix-dev.github.io/rip
 [crates]: https://crates.io/crates/rattler_installs_packages
 [crates-badge]: https://img.shields.io/crates/v/rattler_installs_packages.svg
 
