@@ -7,17 +7,14 @@ use resolvo::{DefaultSolvableDisplay, DependencyProvider, Solver};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::{
-    normalize_index_url,
-    resolvo_pypi::{PypiDependencyProvider, PypiPackageName},
-};
+use rattler_installs_packages::{normalize_index_url, resolvo_pypi::{PypiDependencyProvider, PypiPackageName}, UserRequirement};
 use rattler_installs_packages::{PackageRequirement, Requirement};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[clap(num_args=1.., required=true)]
-    specs: Vec<PackageRequirement>,
+    specs: Vec<UserRequirement>,
 
     /// Base URL of the Python Package Index (default https://pypi.org/simple). This should point
     /// to a repository compliant with PEP 503 (the simple repository API).
@@ -57,7 +54,7 @@ async fn actual_main() -> miette::Result<()> {
         specifiers,
         extras,
         ..
-    } in args.specs.iter().map(PackageRequirement::as_inner)
+    } in args.specs.iter().map(UserRequirement::as_inner)
     {
         let dependency_package_name = provider
             .pool()

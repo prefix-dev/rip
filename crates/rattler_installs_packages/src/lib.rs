@@ -31,7 +31,7 @@ pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError
 pub use pep440::Version;
 pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, ProjectInfo, Yanked};
 pub use requirement::{
-    marker, PackageRequirement, ParseExtra, PythonRequirement, Requirement, UserRequirement,
+    marker, PackageRequirement, ParseExtraInEnv, PythonRequirement, Requirement, UserRequirement,
 };
 pub use specifier::{CompareOp, Specifier, Specifiers};
 

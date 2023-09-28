@@ -217,7 +217,7 @@ impl FromStr for StandaloneMarkerExpr {
     type Err = miette::Report;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let expr = super::reqparse::marker(value, ParseExtra::NotAllowed)
+        let expr = super::reqparse::marker(value, ParseExtraInEnv::NotAllowed)
             .into_diagnostic()
             .wrap_err_with(|| format!("Failed parsing env marker expression {:?}", value))?;
         Ok(StandaloneMarkerExpr(expr))
@@ -225,7 +225,7 @@ impl FromStr for StandaloneMarkerExpr {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ParseExtra {
+pub enum ParseExtraInEnv {
     Allowed,
     NotAllowed,
 }
@@ -239,7 +239,7 @@ pub struct Requirement {
 }
 
 impl Requirement {
-    pub fn parse(input: &str, parse_extra: ParseExtra) -> miette::Result<Requirement> {
+    pub fn parse(input: &str, parse_extra: ParseExtraInEnv) -> miette::Result<Requirement> {
         let req = super::reqparse::requirement(input, parse_extra)
             .into_diagnostic()
             .wrap_err_with(|| format!("Failed parsing requirement string {:?})", input))?;
@@ -297,7 +297,7 @@ impl FromStr for PackageRequirement {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Ok(PackageRequirement(Requirement::parse(
             value,
-            ParseExtra::Allowed,
+            ParseExtraInEnv::Allowed,
         )?))
     }
 }
@@ -325,6 +325,18 @@ impl Deref for PackageRequirement {
 #[derive(Debug, Clone, PartialEq, Eq, DeserializeFromStr, SerializeDisplay)]
 pub struct UserRequirement(Requirement);
 
+
+impl UserRequirement {
+    pub fn into_inner(self) -> Requirement {
+        self.0
+    }
+
+    pub fn as_inner(&self) -> &Requirement {
+        &self.0
+    }
+}
+
+
 impl Display for UserRequirement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -337,7 +349,7 @@ impl FromStr for UserRequirement {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         Ok(UserRequirement(Requirement::parse(
             value,
-            ParseExtra::NotAllowed,
+            ParseExtraInEnv::NotAllowed,
         )?))
     }
 }
@@ -372,7 +384,7 @@ impl FromStr for PythonRequirement {
     type Err = miette::Report;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let r = Requirement::parse(value, ParseExtra::NotAllowed)?;
+        let r = Requirement::parse(value, ParseExtraInEnv::NotAllowed)?;
         r.try_into()
     }
 }

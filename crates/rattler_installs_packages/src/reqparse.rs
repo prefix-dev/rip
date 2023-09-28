@@ -5,7 +5,7 @@ pub use self::parser::{marker, requirement, versionspec};
 use super::{
     extra::Extra,
     package_name::PackageName,
-    requirement::{marker, ParseExtra, Requirement},
+    requirement::{marker, ParseExtraInEnv, Requirement},
     specifier::{CompareOp, Specifier, Specifiers},
 };
 
@@ -79,7 +79,7 @@ peg::parser! {
             = s:(python_squote_str() / python_dquote_str())
               { marker::Value::Literal(s.into()) }
 
-        rule env_var(parse_extra: ParseExtra) -> marker::Value
+        rule env_var(parse_extra: ParseExtraInEnv) -> marker::Value
             = var:$(
                 "python_version" / "python_full_version" / "os_name"
                 / "sys_platform" / "platform_release" / "platform_system"
@@ -88,7 +88,7 @@ peg::parser! {
                 / "implementation_version" / "extra"
               )
               {?
-               if ParseExtra::NotAllowed == parse_extra && var == "extra" {
+               if ParseExtraInEnv::NotAllowed == parse_extra && var == "extra" {
                    return Err("'extra' marker is not valid in this context")
                }
                Ok(marker::Value::Variable(var.to_owned()))
@@ -110,12 +110,12 @@ peg::parser! {
                marker::Value::Variable("platform_python_implementation".into())
              }
 
-        rule marker_value(parse_extra: ParseExtra) -> marker::Value
+        rule marker_value(parse_extra: ParseExtraInEnv) -> marker::Value
             = _ v:(env_var(parse_extra) / pep345_env_var() / setuptools_env_var()
                    / python_str())
               { v }
 
-        rule marker_expr(parse_extra: ParseExtra) -> marker::EnvMarkerExpr
+        rule marker_expr(parse_extra: ParseExtraInEnv) -> marker::EnvMarkerExpr
             = _ "(" m:marker(parse_extra) _ ")" { m }
               / lhs:marker_value(parse_extra) op:marker_op() rhs:marker_value(parse_extra)
               {
@@ -136,20 +136,20 @@ peg::parser! {
                   }
               }
 
-        rule marker_and(parse_extra: ParseExtra) -> marker::EnvMarkerExpr
+        rule marker_and(parse_extra: ParseExtraInEnv) -> marker::EnvMarkerExpr
             = lhs:marker_expr(parse_extra) _ "and" _ rhs:marker_and(parse_extra)
                  { marker::EnvMarkerExpr::And(Box::new(lhs), Box::new(rhs)) }
               / marker_expr(parse_extra)
 
-        rule marker_or(parse_extra: ParseExtra) -> marker::EnvMarkerExpr
+        rule marker_or(parse_extra: ParseExtraInEnv) -> marker::EnvMarkerExpr
             = lhs:marker_and(parse_extra) _ "or" _ rhs:marker_or(parse_extra)
                  { marker::EnvMarkerExpr::Or(Box::new(lhs), Box::new(rhs)) }
               / marker_and(parse_extra)
 
-        pub rule marker(parse_extra: ParseExtra) -> marker::EnvMarkerExpr
+        pub rule marker(parse_extra: ParseExtraInEnv) -> marker::EnvMarkerExpr
             = marker_or(parse_extra)
 
-        rule quoted_marker(parse_extra: ParseExtra) -> marker::EnvMarkerExpr
+        rule quoted_marker(parse_extra: ParseExtraInEnv) -> marker::EnvMarkerExpr
             = ";" _ m:marker(parse_extra) { m }
 
         rule identifier() -> &'input str
@@ -164,7 +164,7 @@ peg::parser! {
         rule extras() -> Vec<Extra>
             = "[" _ es:(extra() ** (_ "," _)) _ "]" { es }
 
-        rule name_req(parse_extra: ParseExtra) -> Requirement
+        rule name_req(parse_extra: ParseExtraInEnv) -> Requirement
             = name:name()
               _ extras:(extras() / "" { Vec::new() })
               _ specifiers:(versionspec() / "" { Specifiers(Vec::new()) })
@@ -178,7 +178,7 @@ peg::parser! {
                   }
               }
 
-        rule url_req(parse_extra: ParseExtra) -> Requirement
+        rule url_req(parse_extra: ParseExtraInEnv) -> Requirement
             = name:name()
               _ extras:(extras() / "" { Vec::new() })
               _ url:urlspec()
@@ -188,7 +188,7 @@ peg::parser! {
                 unreachable!()
             }
 
-        pub rule requirement(parse_extra: ParseExtra) -> Requirement
+        pub rule requirement(parse_extra: ParseExtraInEnv) -> Requirement
             = _ r:( url_req(parse_extra) / name_req(parse_extra) ) _ { r }
     }
 }
