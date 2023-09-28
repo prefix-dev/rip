@@ -7,13 +7,13 @@ use miette::IntoDiagnostic;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::{normalize_index_url, resolve, PackageRequirement};
+use rattler_installs_packages::{normalize_index_url, resolve, UserRequirement};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[clap(num_args=1.., required=true)]
-    specs: Vec<PackageRequirement>,
+    specs: Vec<UserRequirement>,
 
     /// Base URL of the Python Package Index (default https://pypi.org/simple). This should point
     /// to a repository compliant with PEP 503 (the simple repository API).

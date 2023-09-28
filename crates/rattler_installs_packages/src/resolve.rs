@@ -1,6 +1,6 @@
 use crate::{
-    CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName, PackageRequirement,
-    Requirement, Specifier, Specifiers, Version, Wheel,
+    CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement, Specifier,
+    Specifiers, UserRequirement, Version, Wheel,
 };
 use resolvo::{
     Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId,
@@ -302,7 +302,7 @@ impl<'db> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependency
 /// requirements.
 pub async fn resolve(
     package_db: &PackageDb,
-    requirements: impl IntoIterator<Item = &PackageRequirement>,
+    requirements: impl IntoIterator<Item = &UserRequirement>,
 ) -> Result<HashMap<PackageName, (Version, HashSet<Extra>)>, String> {
     // Construct a provider
     let provider = PypiDependencyProvider::new(package_db);
@@ -319,7 +319,7 @@ pub async fn resolve(
         specifiers,
         extras,
         ..
-    } in requirements.map(PackageRequirement::as_inner)
+    } in requirements.map(UserRequirement::as_inner)
     {
         let dependency_package_name =
             pool.intern_package_name(PypiPackageName::Base(name.clone().into()));
