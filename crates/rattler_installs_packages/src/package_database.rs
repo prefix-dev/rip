@@ -215,7 +215,7 @@ impl PackageDb {
 
         let mut bytes = Vec::new();
         self.http
-            .request(url, Method::GET, HeaderMap::default(), CacheMode::Default)
+            .request(url, Method::GET, HeaderMap::default(), CacheMode::NoStore)
             .await?
             .into_body()
             .read_to_end(&mut bytes)
