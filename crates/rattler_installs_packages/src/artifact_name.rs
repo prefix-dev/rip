@@ -74,7 +74,7 @@ impl Display for ArtifactName {
 
 /// Structure that contains the information that is contained in a wheel name
 /// See: [File Name Convention](https://www.python.org/dev/peps/pep-0427/#file-name-convention),
-/// and: [PyPa Conventions](https://packaging.python.org/en/latest/specifications/),
+/// and: [PyPA Conventions](https://packaging.python.org/en/latest/specifications/),
 /// for more details regarding the structure of a wheel name.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct WheelName {
@@ -385,8 +385,11 @@ mod test {
             "numpy-1.26.0-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
                 .parse()
                 .unwrap();
-        dbg!(n);
-        assert!(false);
+
+        assert_eq!(
+            n.arch_tags,
+            vec!["manylinux_2_17_x86_64", "manylinux2014_x86_64"]
+        );
     }
 
     #[test]

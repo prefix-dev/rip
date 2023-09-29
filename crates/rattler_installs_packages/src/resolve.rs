@@ -1,11 +1,11 @@
-//! This module contains the [`PypiDependencyProvider`] which is used
-//! to make the PyPi ecosystem compatible with the [`resolvo`] crate.
+//! This module contains the [`resolve`] function which is used
+//! to make the PyPI ecosystem compatible with the [`resolvo`] crate.
 //!
-//! To use this enable the `resolvo-pypi` feature.
-//! Note that this can also serve an example to integrate an alternate packaging system
+//! To use this enable the `resolve` feature.
+//! Note that this module can also serve an example to integrate an alternate packaging system
 //! with [`resolvo`].
 //!
-//! See the `rip_bin` crate for an example of how to use this provider, in the [RIP Repo](https://github.com/prefix-dev/rip)
+//! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
 use crate::{
     CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement, Specifier,
     Specifiers, UserRequirement, Version, Wheel,
@@ -22,7 +22,7 @@ use tokio::task;
 #[repr(transparent)]
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 /// This is a wrapper around [`Specifiers`] that implements [`VersionSet`]
-pub struct PypiVersionSet(Specifiers);
+struct PypiVersionSet(Specifiers);
 
 impl From<Specifiers> for PypiVersionSet {
     fn from(value: Specifiers) -> Self {
@@ -40,7 +40,7 @@ impl Display for PypiVersionSet {
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 /// This is a wrapper around [`Version`] that serves a version
 /// within the [`PypiVersionSet`] version set.
-pub struct PypiVersion(pub Version);
+struct PypiVersion(pub Version);
 
 impl VersionSet for PypiVersionSet {
     type V = PypiVersion;
@@ -99,8 +99,8 @@ impl Display for PypiPackageName {
     }
 }
 
-/// This is a [`DependencyProvider`] for PyPi packages
-pub struct PypiDependencyProvider<'db> {
+/// This is a [`DependencyProvider`] for PyPI packages
+struct PypiDependencyProvider<'db> {
     pool: Pool<PypiVersionSet, PypiPackageName>,
     package_db: &'db PackageDb,
 }
