@@ -22,3 +22,7 @@ rust-version = "1.70"
 allow-branch = ["main"]
 consolidate-commits = true
 tag-prefix = ""
+
+#[patch.crates-io]
+#resolvo = { path="../resolvo" }
+#resolvo = { git="https://github.com/mamba-org/resolvo.git", branch="main" }
