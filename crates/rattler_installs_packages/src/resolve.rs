@@ -10,6 +10,7 @@ use crate::{
     CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement, Specifier,
     Specifiers, UserRequirement, Version, Wheel,
 };
+use itertools::Itertools;
 use resolvo::{
     Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId,
     Solver, SolverCache, VersionSet,
@@ -140,7 +141,7 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
 
     fn get_candidates(&self, name: NameId) -> Option<Candidates> {
         let package_name = self.pool.resolve_package_name(name);
-        tracing::info!("Fetching metadata for {}", package_name);
+        tracing::info!("collecting {}", package_name);
 
         // Get all the metadata for this package
         let result = task::block_in_place(move || {
@@ -159,6 +160,7 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
             }
         };
         let mut candidates = Candidates::default();
+        let mut no_wheels = Vec::new();
         for (version, artifacts) in artifacts.iter() {
             // Filter only artifacts we can work with
             let available_artifacts = artifacts
@@ -174,7 +176,7 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
             // Check if there are wheel artifacts for this version
             if available_artifacts.is_empty() {
                 // If there are no wheel artifacts, we're just gonna skip it
-                tracing::warn!("No available wheel artifact {package_name} {version} (skipping)");
+                no_wheels.push(version);
                 continue;
             }
 
@@ -185,7 +187,6 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
                 .collect::<Vec<_>>();
 
             if non_yanked_artifacts.is_empty() {
-                tracing::info!("{package_name} {version} was yanked (skipping)");
                 continue;
             }
             let solvable_id = self
@@ -193,12 +194,28 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
                 .intern_solvable(name, PypiVersion(version.clone()));
             candidates.candidates.push(solvable_id);
         }
+
+        // Print some information about skipped packages
+        if !no_wheels.is_empty() && package_name.extra().is_none() {
+            tracing::warn!(
+                "Not considering {} {} because there are no wheel artifacts available",
+                package_name,
+                no_wheels.iter().format(", ")
+            );
+        }
+
         Some(candidates)
     }
 
     fn get_dependencies(&self, solvable: SolvableId) -> Dependencies {
         let solvable = self.pool.resolve_solvable(solvable);
         let package_name = self.pool.resolve_package_name(solvable.name_id());
+
+        tracing::info!(
+            "obtaining dependency information from {}={}",
+            package_name,
+            solvable.inner()
+        );
 
         // TODO: https://peps.python.org/pep-0508/#environment-markers
         let env = HashMap::from_iter([
@@ -276,6 +293,24 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
                 )
                 .unwrap()
         });
+
+        // Add constraints that restrict that the extra packages are set to the same version.
+        if let PypiPackageName::Base(package_name) = package_name {
+            // Add constraints on the extras of a package
+            for extra in metadata.extras {
+                let extra_name_id = self
+                    .pool
+                    .intern_package_name(PypiPackageName::Extra(package_name.clone(), extra));
+                let specifiers = Specifiers(vec![Specifier {
+                    op: CompareOp::Equal,
+                    value: solvable.inner().0.to_string(),
+                }]);
+                let version_set_id = self
+                    .pool
+                    .intern_version_set(extra_name_id, specifiers.into());
+                dependencies.constrains.push(version_set_id);
+            }
+        }
 
         for requirement in metadata.requires_dist {
             // Evaluate environment markers
