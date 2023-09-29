@@ -27,7 +27,12 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
 
         let mut requires_dist = Vec::new();
         for req_str in parsed.take_all("Requires-Dist").into_iter() {
-            requires_dist.push(req_str.parse()?);
+            match req_str.parse() {
+                Err(e) => {
+                    tracing::error!("ignoring Requires-Dist: {req_str}, failed to parse: {e}")
+                }
+                Ok(req) => requires_dist.push(req),
+            }
         }
 
         let requires_python = match parsed.maybe_take("Requires-Python")? {
