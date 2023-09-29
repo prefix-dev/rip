@@ -1,3 +1,11 @@
+//! This module contains the [`resolve`] function which is used
+//! to make the PyPI ecosystem compatible with the [`resolvo`] crate.
+//!
+//! To use this enable the `resolve` feature.
+//! Note that this module can also serve an example to integrate an alternate packaging system
+//! with [`resolvo`].
+//!
+//! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
 use crate::{
     CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement, Specifier,
     Specifiers, UserRequirement, Version, Wheel,
@@ -13,7 +21,8 @@ use tokio::task;
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub struct PypiVersionSet(Specifiers);
+/// This is a wrapper around [`Specifiers`] that implements [`VersionSet`]
+struct PypiVersionSet(Specifiers);
 
 impl From<Specifiers> for PypiVersionSet {
     fn from(value: Specifiers) -> Self {
@@ -29,7 +38,9 @@ impl Display for PypiVersionSet {
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PypiVersion(pub Version);
+/// This is a wrapper around [`Version`] that serves a version
+/// within the [`PypiVersionSet`] version set.
+struct PypiVersion(pub Version);
 
 impl VersionSet for PypiVersionSet {
     type V = PypiVersion;
@@ -52,12 +63,17 @@ impl Display for PypiVersion {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
+/// This can either be a base package name or with an extra
+/// this is used to support optional dependencies
 pub enum PypiPackageName {
+    /// Regular dependency
     Base(NormalizedPackageName),
+    /// Optional dependency
     Extra(NormalizedPackageName, Extra),
 }
 
 impl PypiPackageName {
+    /// Returns the actual package (normalized) name without the extra
     pub fn base(&self) -> &NormalizedPackageName {
         match self {
             PypiPackageName::Base(normalized) => normalized,
@@ -65,6 +81,7 @@ impl PypiPackageName {
         }
     }
 
+    /// Retrieves the extra if it is available
     pub fn extra(&self) -> Option<&Extra> {
         match self {
             PypiPackageName::Base(_) => None,
@@ -82,12 +99,15 @@ impl Display for PypiPackageName {
     }
 }
 
-pub struct PypiDependencyProvider<'db> {
+/// This is a [`DependencyProvider`] for PyPI packages
+struct PypiDependencyProvider<'db> {
     pool: Pool<PypiVersionSet, PypiPackageName>,
     package_db: &'db PackageDb,
 }
 
 impl<'db> PypiDependencyProvider<'db> {
+    /// Creates a new PypiDependencyProvider
+    /// for use with the [`resolvo`] crate
     pub fn new(package_db: &'db PackageDb) -> Self {
         Self {
             pool: Pool::new(),
@@ -96,7 +116,7 @@ impl<'db> PypiDependencyProvider<'db> {
     }
 }
 
-impl<'db> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider<'db> {
+impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider<'_> {
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
         &self.pool
     }

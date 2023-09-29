@@ -23,6 +23,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use url::Url;
 
+/// Cache of the available packages, artifacts and their metadata.
 pub struct PackageDb {
     http: Http,
 

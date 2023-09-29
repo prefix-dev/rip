@@ -36,6 +36,8 @@ impl PackageName {
 }
 
 #[derive(Debug, Clone, Error, Diagnostic)]
+/// Error when parsing a package name
+#[allow(missing_docs)]
 pub enum ParsePackageNameError {
     #[error("invalid package name '{0}'")]
     InvalidPackageName(String),
@@ -99,6 +101,8 @@ impl Serialize for PackageName {
     }
 }
 
+/// A normalized package name. This is a string that is guaranteed to be a valid python package string
+/// this is described in [PEP 503 (Normalized Names)](https://www.python.org/dev/peps/pep-0503/#normalized-names).
 #[repr(transparent)]
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct NormalizedPackageName(Box<str>);

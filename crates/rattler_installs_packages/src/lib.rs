@@ -1,3 +1,9 @@
+//! RIP is a library that allows the resolving and installing of Python PyPI packages from Rust into a virtual environment.
+//! It's based on our experience with building Rattler and aims to provide the same experience but for PyPI instead of Conda.
+//! It should be fast and easy to use.
+//! Like Rattler, this library is not a package manager itself but provides the low-level plumbing to be used in one.
+
+#![deny(missing_docs)]
 mod artifact;
 mod artifact_name;
 mod core_metadata;
@@ -34,7 +40,7 @@ pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError
 pub use pep440::Version;
 pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, ProjectInfo, Yanked};
 pub use requirement::{
-    marker, PackageRequirement, ParseExtra, PythonRequirement, Requirement, UserRequirement,
+    marker, PackageRequirement, ParseExtraInEnv, PythonRequirement, Requirement, UserRequirement,
 };
 pub use specifier::{CompareOp, Specifier, Specifiers};
 

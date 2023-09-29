@@ -26,7 +26,9 @@ use thiserror::Error;
 /// providing flexibility and clarity when working with Python package distributions.
 #[derive(Debug, Clone, PartialOrd, Ord, Eq, PartialEq, DeserializeFromStr, SerializeDisplay)]
 pub enum ArtifactName {
+    /// Wheel artifact
     Wheel(WheelName),
+    /// Sdist artifact
     SDist(SDistName),
 }
 
@@ -70,7 +72,10 @@ impl Display for ArtifactName {
     }
 }
 
-// https://packaging.python.org/specifications/binary-distribution-format/#file-name-convention
+/// Structure that contains the information that is contained in a wheel name
+/// See: [File Name Convention](https://www.python.org/dev/peps/pep-0427/#file-name-convention),
+/// and: [PyPA Conventions](https://packaging.python.org/en/latest/specifications/),
+/// for more details regarding the structure of a wheel name.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct WheelName {
     /// Distribution name, e.g. ‘django’, ‘pyramid’.
@@ -83,14 +88,20 @@ pub struct WheelName {
     pub build_tag: Option<BuildTag>,
 
     /// Language implementation and version tag
+    /// E.g. ‘py27’, ‘py2’, ‘py3’.
     pub py_tags: Vec<String>,
 
+    /// ABI specific tags
+    /// E.g. ‘cp33m’, ‘abi3’, ‘none’.
     pub abi_tags: Vec<String>,
 
+    /// Architecture specific tags
+    /// E.g. ‘linux_x86_64’, ‘any’, ‘manylinux_2_17_x86_64’
     pub arch_tags: Vec<String>,
 }
 
 impl WheelName {
+    /// Creates a set of all tags that are contained in this wheel name.
     pub fn all_tags(&self) -> HashSet<String> {
         let mut retval = HashSet::new();
         for py in &self.py_tags {
@@ -139,6 +150,7 @@ impl Display for BuildTag {
     }
 }
 
+/// Structure that contains the information that is contained in a source distribution name
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct SDistName {
     /// Distribution name, e.g. ‘django’, ‘pyramid’.
@@ -172,6 +184,7 @@ impl Display for SDistName {
 
 /// Describes the format in which the source distribution is shipped.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[allow(missing_docs)]
 pub enum SDistFormat {
     Zip,
     TarGz,
@@ -181,7 +194,9 @@ pub enum SDistFormat {
     Tar,
 }
 
+/// An error that can occur when parsing an artifact name
 #[derive(Debug, Clone, Error)]
+#[allow(missing_docs)]
 pub enum ParseArtifactNameError {
     #[error("invalid artifact name")]
     InvalidName,
@@ -332,7 +347,10 @@ impl FromStr for ArtifactName {
 
 /// A trait to convert the general [`ArtifactName`] into a specialized artifact name. This is useful
 /// to generically fetch the underlying specialized name.
+///
+/// Currently we provide implementations for wheels and sdists.
 pub trait InnerAsArtifactName {
+    /// Tries to convert the general [`ArtifactName`] into a specialized artifact name.
     fn try_as(name: &ArtifactName) -> Option<&Self>;
 }
 
@@ -359,6 +377,19 @@ mod test {
         assert_eq!(sn.version, "0.19a0".parse().unwrap());
 
         assert_eq!(sn.to_string(), "trio-0.19a0.tar.gz");
+    }
+
+    #[test]
+    fn test_many_linux() {
+        let n: WheelName =
+            "numpy-1.26.0-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+                .parse()
+                .unwrap();
+
+        assert_eq!(
+            n.arch_tags,
+            vec!["manylinux_2_17_x86_64", "manylinux2014_x86_64"]
+        );
     }
 
     #[test]

@@ -1,16 +1,4 @@
-// Derived from
-//   https://github.com/servo/html5ever/blob/master/html5ever/examples/noop-tree-builder.rs
-// Which has the following copyright header:
-//
-// Copyright 2014-2017 The html5ever Project Developers. See the
-// COPYRIGHT file at the top-level directory of this distribution.
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-
+//! Module for parsing different HTML pages from PyPI repository
 use std::{borrow::Borrow, default::Default};
 
 use crate::{ArtifactHashes, ArtifactName};
@@ -33,7 +21,7 @@ fn parse_hash(s: &str) -> Option<ArtifactHashes> {
     }
 }
 
-pub fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
+fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
     let attributes = tag.attributes();
     // Get first href attribute to use as filename
     let href = attributes.get("href").flatten()?.as_utf8_str();
@@ -95,6 +83,7 @@ pub fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
     })
 }
 
+/// Parses information regarding the different artifacts for a project
 pub fn parse_project_info_html(base: &Url, body: &str) -> miette::Result<ProjectInfo> {
     let dom = tl::parse(body, tl::ParserOptions::default()).into_diagnostic()?;
     let variants = dom.query_selector("a");
