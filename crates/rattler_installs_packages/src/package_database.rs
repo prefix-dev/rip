@@ -122,7 +122,7 @@ impl PackageDb {
         artifacts: &'a [I],
     ) -> miette::Result<(&'a ArtifactInfo, A::Metadata)> {
         // Find all the artifacts that match the artifact we are looking for
-        let mut matching_artifacts = artifacts
+        let matching_artifacts = artifacts
             .iter()
             .map(|artifact_info| artifact_info.borrow())
             .filter(|artifact_info| artifact_info.is::<A>());
@@ -143,7 +143,15 @@ impl PackageDb {
                 Ok(artifact) => {
                     // Apparently the artifact has been downloaded, but its metadata has not been
                     // cached yet. Lets store it there.
-                    let (blob, metadata) = artifact.metadata()?;
+                    let metadata = artifact.metadata();
+                    let Ok((blob, metadata)) = metadata else {
+                        tracing::warn!(
+                            "Error reading metadata from artifact '{}' skipping",
+                            artifact_info.filename
+                        );
+                        continue;
+                    };
+
                     self.put_metadata_in_cache(artifact_info, &blob)?;
                     return Ok((artifact_info, metadata));
                 }
@@ -159,7 +167,7 @@ impl PackageDb {
 
         // Get the information from the first artifact. We assume the metadata is consistent across
         // all matching artifacts
-        if let Some(artifact_info) = matching_artifacts.next() {
+        for artifact_info in matching_artifacts {
             // Retrieve the metadata instead of the entire wheel
             // If the dist-info is available separately, we can use that instead
             if artifact_info.dist_info_metadata.available {
@@ -187,7 +195,14 @@ impl PackageDb {
                     .clone(),
                 body,
             )?;
-            let (blob, metadata) = artifact.metadata()?;
+            let metadata = artifact.metadata();
+            let Ok((blob, metadata)) = metadata else {
+                tracing::warn!(
+                    "Error reading metadata from artifact '{}' skipping",
+                    artifact_info.filename
+                );
+                continue;
+            };
             self.put_metadata_in_cache(artifact_info, &blob)?;
             return Ok((artifact_info, metadata));
         }
