@@ -60,7 +60,7 @@ More intricacies of the PyPI ecosystem need to be implemented, see our GitHub is
 
 We have integrated the stand-alone packaging SAT solver [Resolvo](https://github.com/mamba-org/resolvo), to resolve pypi packages.
 This solver is incremental and adds packaging metadata during resolution of the SAT problem.
-This feature can be enabled with the `resolvo-pypi` feature flag.
+This feature can be enabled with the `resolvo` feature flag.
 
 
 ## Contributing 😍
