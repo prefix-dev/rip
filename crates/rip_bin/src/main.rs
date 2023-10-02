@@ -9,7 +9,7 @@ use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::{normalize_index_url, resolve, UserRequirement};
+use rattler_installs_packages::{normalize_index_url, resolve, Pep508EnvMakers, UserRequirement};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -52,8 +52,15 @@ async fn actual_main() -> miette::Result<()> {
     )
     .into_diagnostic()?;
 
+    // Determine the environment markers for the current machine
+    let env_markers = Pep508EnvMakers::from_env().await.into_diagnostic()?;
+    tracing::info!(
+        "extracted the following environment markers from the system python interpreter:\n{:#?}",
+        env_markers
+    );
+
     // Solve the environment
-    let blueprint = match resolve(&package_db, &args.specs).await {
+    let blueprint = match resolve(&package_db, &args.specs, &env_markers).await {
         Ok(blueprint) => blueprint,
         Err(err) => miette::bail!("Could not solve for the requested requirements:\n{err}"),
     };
@@ -99,7 +106,8 @@ async fn main() {
 
 /// Constructs a default [`EnvFilter`] that is used when the user did not specify a custom RUST_LOG.
 pub fn get_default_env_filter(verbose: bool) -> EnvFilter {
-    let mut result = EnvFilter::new("rattler_installs_packages=info");
+    let mut result = EnvFilter::new("rip=info")
+        .add_directive(Directive::from_str("rattler_installs_packages=info").unwrap());
 
     if verbose {
         result = result.add_directive(Directive::from_str("resolvo=info").unwrap());

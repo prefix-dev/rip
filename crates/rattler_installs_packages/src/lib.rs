@@ -21,6 +21,7 @@ mod seek_slice;
 mod specifier;
 mod utils;
 
+mod env_markers;
 #[cfg(feature = "resolvo")]
 mod resolve;
 
@@ -35,6 +36,7 @@ pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFormat, SDistName,
     WheelName,
 };
+pub use env_markers::Pep508EnvMakers;
 pub use extra::Extra;
 pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError};
 pub use pep440::Version;
