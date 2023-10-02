@@ -36,7 +36,7 @@ fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
     let requires_python = attributes
         .get("data-requires-python")
         .flatten()
-        .map(|a| a.as_utf8_str().to_string());
+        .map(|a| html_escape::decode_html_entities(&a.as_utf8_str()).into_owned());
 
     let metadata_attr = attributes
         .get("data-dist-info-metadata")

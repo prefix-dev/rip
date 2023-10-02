@@ -101,6 +101,12 @@ pub mod marker {
         fn get_marker_var(&self, var: &str) -> Option<&str>;
     }
 
+    impl<E: Env> Env for &E {
+        fn get_marker_var(&self, var: &str) -> Option<&str> {
+            (*self).get_marker_var(var)
+        }
+    }
+
     impl<T: Borrow<str> + Eq + Hash> Env for HashMap<T, T> {
         fn get_marker_var(&self, var: &str) -> Option<&str> {
             self.get(var).map(|s| s.borrow())

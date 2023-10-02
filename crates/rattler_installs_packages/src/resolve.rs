@@ -6,6 +6,8 @@
 //! with [`resolvo`].
 //!
 //! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
+use crate::env_markers::Pep508EnvMakers;
+use crate::marker::Env;
 use crate::{
     CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement, Specifier,
     Specifiers, UserRequirement, Version, Wheel,
@@ -101,23 +103,35 @@ impl Display for PypiPackageName {
 }
 
 /// This is a [`DependencyProvider`] for PyPI packages
-struct PypiDependencyProvider<'db> {
+struct PypiDependencyProvider<'db, E> {
     pool: Pool<PypiVersionSet, PypiPackageName>,
     package_db: &'db PackageDb,
+    env_markers: E,
+    python_version: Version,
 }
 
-impl<'db> PypiDependencyProvider<'db> {
+impl<'db, E: Env> PypiDependencyProvider<'db, E> {
     /// Creates a new PypiDependencyProvider
     /// for use with the [`resolvo`] crate
-    pub fn new(package_db: &'db PackageDb) -> Self {
-        Self {
+    pub fn new(package_db: &'db PackageDb, env_markers: E) -> miette::Result<Self> {
+        let version = env_markers
+            .get_marker_var("python_full_version")
+            .ok_or(miette::miette!(
+                "missing 'python_full_version' environment marker variable"
+            ))?
+            .parse()
+            .map_err(|e| miette::miette!("failed to parse 'python_full_version': {e}"))?;
+
+        Ok(Self {
             pool: Pool::new(),
             package_db,
-        }
+            env_markers,
+            python_version: version,
+        })
     }
 }
 
-impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider<'_> {
+impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider<'_, E> {
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
         &self.pool
     }
@@ -161,9 +175,10 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
         };
         let mut candidates = Candidates::default();
         let mut no_wheels = Vec::new();
+        let mut incompatible_python = Vec::new();
         for (version, artifacts) in artifacts.iter() {
             // Filter only artifacts we can work with
-            let available_artifacts = artifacts
+            let mut artifacts = artifacts
                 .iter()
                 // We are only interested in wheels
                 .filter(|a| a.is::<Wheel>())
@@ -174,9 +189,34 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
                 .collect::<Vec<_>>();
 
             // Check if there are wheel artifacts for this version
-            if available_artifacts.is_empty() {
+            if artifacts.is_empty() {
                 // If there are no wheel artifacts, we're just gonna skip it
                 no_wheels.push(version);
+                continue;
+            }
+
+            // Filter artifacts that are incompatible with the python version
+            // BasZ: Does it matter that this changes the order of the artifacts?
+            let mut idx = 0;
+            while idx < artifacts.len() {
+                let artifact = &artifacts[idx];
+                if let Some(requires_python) = artifact.requires_python.as_ref() {
+                    let python_specifier: Specifiers = requires_python
+                        .parse()
+                        .expect("invalid requires_python specifier");
+                    if !python_specifier
+                        .satisfied_by(&self.python_version)
+                        .expect("failed to determine satisfiability of requires_python specifier")
+                    {
+                        artifacts.remove(idx);
+                        continue;
+                    }
+                }
+                idx += 1;
+            }
+
+            if artifacts.is_empty() {
+                incompatible_python.push(version);
                 continue;
             }
 
@@ -189,6 +229,7 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
             if non_yanked_artifacts.is_empty() {
                 continue;
             }
+
             let solvable_id = self
                 .pool
                 .intern_solvable(name, PypiVersion(version.clone()));
@@ -201,6 +242,15 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
                 "Not considering {} {} because there are no wheel artifacts available",
                 package_name,
                 no_wheels.iter().format(", ")
+            );
+        }
+
+        if !incompatible_python.is_empty() && package_name.extra().is_none() {
+            tracing::warn!(
+                "Not considering {} {} because none of the artifacts are compatible with Python {}",
+                package_name,
+                incompatible_python.iter().format(", "),
+                &self.python_version
             );
         }
 
@@ -217,26 +267,10 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
             solvable.inner()
         );
 
-        // TODO: https://peps.python.org/pep-0508/#environment-markers
-        let env = HashMap::from_iter([
-            // TODO: We should add some proper values here.
-            // See: https://peps.python.org/pep-0508/#environment-markers
-            ("os_name", ""),
-            ("sys_platform", ""),
-            ("platform_machine", ""),
-            ("platform_python_implementation", ""),
-            ("platform_release", ""),
-            ("platform_system", ""),
-            ("platform_version", ""),
-            ("python_version", "3.9"),
-            ("python_full_version", ""),
-            ("implementation_name", ""),
-            ("implementation_version", ""),
-            (
-                "extra",
-                package_name.extra().map(|e| e.as_str()).unwrap_or(""),
-            ),
-        ]);
+        let env = ExtraEnv {
+            env: &self.env_markers,
+            extra: package_name.extra().map(|e| e.as_str()).unwrap_or(""),
+        };
         let mut dependencies = Dependencies::default();
 
         // Add a dependency to the base dependency when we have an extra
@@ -353,14 +387,31 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
     }
 }
 
+/// Combines an extra env marker with another object that implements [`Env`].
+struct ExtraEnv<'e, E> {
+    env: &'e E,
+    extra: &'e str,
+}
+
+impl<'e, E: Env> Env for ExtraEnv<'e, E> {
+    fn get_marker_var(&self, var: &str) -> Option<&str> {
+        if var == "extra" {
+            Some(self.extra)
+        } else {
+            self.env.get_marker_var(var)
+        }
+    }
+}
+
 /// Resolves an environment that contains the given requirements and all dependencies of those
 /// requirements.
 pub async fn resolve(
     package_db: &PackageDb,
     requirements: impl IntoIterator<Item = &UserRequirement>,
-) -> Result<HashMap<PackageName, (Version, HashSet<Extra>)>, String> {
+    env_markers: &Pep508EnvMakers,
+) -> miette::Result<HashMap<PackageName, (Version, HashSet<Extra>)>> {
     // Construct a provider
-    let provider = PypiDependencyProvider::new(package_db);
+    let provider = PypiDependencyProvider::new(package_db, env_markers)?;
     let pool = provider.pool();
 
     let requirements = requirements.into_iter();
@@ -419,8 +470,9 @@ pub async fn resolve(
             }
             Ok(result)
         }
-        Err(e) => Err(e
-            .display_user_friendly(&solver, &DefaultSolvableDisplay)
-            .to_string()),
+        Err(e) => Err(miette::miette!(
+            "{}",
+            e.display_user_friendly(&solver, &DefaultSolvableDisplay)
+        )),
     }
 }
