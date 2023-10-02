@@ -22,6 +22,7 @@ rustls-tls = ['rattler_installs_packages/rustls-tls']
 
 [dependencies]
 clap = { version = "4.4.5", features = ["derive"] }
+clap-verbosity-flag = "2.0.1"
 console = { version = "0.15.7", features = ["windows-console-colors"] }
 dirs = "5.0.1"
 indexmap = "2.0.1"
@@ -37,6 +38,7 @@ url = "2.4.1"
 rand = "0.8.5"
 serde = "1.0.188"
 serde_json = "1.0.107"
+
 
 [package.metadata.release]
 # Dont publish the binary
