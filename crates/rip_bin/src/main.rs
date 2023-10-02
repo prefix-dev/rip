@@ -27,7 +27,10 @@ async fn actual_main() -> miette::Result<()> {
     // Setup tracing subscriber
     tracing_subscriber::registry()
         .with(fmt::layer().with_writer(IndicatifWriter::new(global_multi_progress())))
-        .with(EnvFilter::from_default_env())
+        .with(
+            EnvFilter::try_from_default_env()
+                .unwrap_or(EnvFilter::new(format!("rattler_installs_packages=info"))),
+        )
         .init();
 
     // Determine cache directory
