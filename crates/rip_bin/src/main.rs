@@ -1,9 +1,11 @@
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::io::Write;
+use std::str::FromStr;
 
 use clap::Parser;
 use itertools::Itertools;
 use miette::IntoDiagnostic;
+use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
@@ -19,6 +21,9 @@ struct Args {
     /// to a repository compliant with PEP 503 (the simple repository API).
     #[clap(default_value = "https://pypi.org/simple/", long)]
     index_url: Url,
+
+    #[clap(short)]
+    verbose: bool,
 }
 
 async fn actual_main() -> miette::Result<()> {
@@ -27,7 +32,10 @@ async fn actual_main() -> miette::Result<()> {
     // Setup tracing subscriber
     tracing_subscriber::registry()
         .with(fmt::layer().with_writer(IndicatifWriter::new(global_multi_progress())))
-        .with(EnvFilter::from_default_env())
+        .with(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| get_default_env_filter(args.verbose)),
+        )
         .init();
 
     // Determine cache directory
@@ -87,4 +95,15 @@ async fn main() {
     if let Err(e) = actual_main().await {
         eprintln!("{e:?}");
     }
+}
+
+/// Constructs a default [`EnvFilter`] that is used when the user did not specify a custom RUST_LOG.
+pub fn get_default_env_filter(verbose: bool) -> EnvFilter {
+    let mut result = EnvFilter::new("rattler_installs_packages=info");
+
+    if verbose {
+        result = result.add_directive(Directive::from_str("resolvo=info").unwrap());
+    }
+
+    result
 }
