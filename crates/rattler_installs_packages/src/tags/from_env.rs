@@ -1,5 +1,6 @@
 use crate::tags::{WheelTag, WheelTags};
 use crate::utils::VENDORED_PACKAGING_DIR;
+use serde::Deserialize;
 use std::io;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -10,6 +11,9 @@ use thiserror::Error;
 pub enum FromPythonError {
     #[error("could not find python executable")]
     CouldNotFindPythonExecutable,
+
+    #[error("{0}")]
+    PythonError(String),
 
     #[error(transparent)]
     FailedToExecute(#[from] io::Error),
@@ -54,22 +58,33 @@ impl WheelTags {
 
         // Ensure that we have a valid success code
         if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stderr);
+            dbg!(stdout.as_ref());
             return Err(FromPythonError::FailedToRun(output.status));
+        }
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Result {
+            Tags(Vec<(String, String, String)>),
+            Error(String),
         }
 
         // Convert the JSON
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let tags: Vec<(String, String, String)> = serde_json::from_str(stdout.trim())?;
-        Ok(Self {
-            tags: tags
-                .into_iter()
-                .map(|(interpreter, abi, platform)| WheelTag {
-                    interpreter,
-                    abi,
-                    platform,
-                })
-                .collect(),
-        })
+        match serde_json::from_str(stdout.trim())? {
+            Result::Tags(tags) => Ok(Self {
+                tags: tags
+                    .into_iter()
+                    .map(|(interpreter, abi, platform)| WheelTag {
+                        interpreter,
+                        abi,
+                        platform,
+                    })
+                    .collect(),
+            }),
+            Result::Error(err) => Err(FromPythonError::PythonError(err)),
+        }
     }
 }
 
@@ -82,6 +97,9 @@ mod test {
         match WheelTags::from_env().await {
             Err(FromPythonError::CouldNotFindPythonExecutable) => {
                 // This is fine, the test machine does not include a python binary.
+            }
+            Err(FromPythonError::PythonError(e)) => {
+                println!("{e}")
             }
             Err(e) => panic!("{e:?}"),
             Ok(tags) => {
