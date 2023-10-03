@@ -49,7 +49,7 @@ impl VersionSet for PypiVersionSet {
     type V = PypiVersion;
 
     fn contains(&self, v: &Self::V) -> bool {
-        match self.0.satisfied_by(&v.0) {
+        match self.0.satisfied_by(&v.0, true) {
             Err(e) => {
                 tracing::error!("failed to determine if '{}' contains '{}': {e}", &self.0, v);
                 false
@@ -205,7 +205,7 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
                         .parse()
                         .expect("invalid requires_python specifier");
                     if !python_specifier
-                        .satisfied_by(&self.python_version)
+                        .satisfied_by(&self.python_version, true)
                         .expect("failed to determine satisfiability of requires_python specifier")
                     {
                         artifacts.remove(idx);

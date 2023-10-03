@@ -10,6 +10,7 @@ use std::{fmt::Display, ops::Range, str::FromStr};
 
 // TODO: See if we can parse this a little better than just an operator and a string. Every time
 //  `satisfied_by` is called `to_ranges` is called. We can probably cache that.
+// TODO: Use [`resolvo::range::Range`] here.
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// A specifier is a comparison operator and a version.
@@ -23,13 +24,35 @@ pub struct Specifier {
 
 impl Specifier {
     /// Returns true if the specifier is satisfied by the given version.
-    pub fn satisfied_by(&self, version: &Version) -> miette::Result<bool> {
-        Ok(self.to_ranges()?.into_iter().any(|r| r.contains(version)))
+    ///
+    /// `allow_ignore_wildcard` indicates whether a wildcard in a specifier can be ignored if it
+    /// doesn't make sense in the context of the operator. For example the specifier `>=3.5.*` is
+    /// valid but ambiguous. Does it mean `3.5.*` or `>=3.5`? If `allow_ignore_wildcard` is true
+    /// the least restrictive bound is chosen. If `allow_ignore_wildcard` is false, an error is
+    /// returned.
+    pub fn satisfied_by(
+        &self,
+        version: &Version,
+        allow_ignore_wildcard: bool,
+    ) -> miette::Result<bool> {
+        Ok(self
+            .to_ranges(allow_ignore_wildcard)?
+            .into_iter()
+            .any(|r| r.contains(version)))
     }
 
     /// Converts the specifier to a set of ranges.
-    pub fn to_ranges(&self) -> miette::Result<SmallVec<[Range<Version>; 1]>> {
-        self.op.ranges(&self.value)
+    ///
+    /// `allow_ignore_wildcard` indicates whether a wildcard in a specifier can be ignored if it
+    /// doesn't make sense in the context of the operator. For example the specifier `>=3.5.*` is
+    /// valid but ambiguous. Does it mean `3.5.*` or `>=3.5`? If `allow_ignore_wildcard` is true
+    /// the least restrictive bound is chosen. If `allow_ignore_wildcard` is false, an error is
+    /// returned.
+    pub fn to_ranges(
+        &self,
+        allow_ignore_wildcard: bool,
+    ) -> miette::Result<SmallVec<[Range<Version>; 1]>> {
+        self.op.ranges(&self.value, allow_ignore_wildcard)
     }
 }
 
@@ -45,9 +68,19 @@ pub struct Specifiers(pub Vec<Specifier>);
 
 impl Specifiers {
     /// Returns true if the set of specifiers is satisfied by the given version.
-    pub fn satisfied_by(&self, version: &Version) -> miette::Result<bool> {
+    ///
+    /// `allow_ignore_wildcard` indicates whether a wildcard in a specifier can be ignored if it
+    /// doesn't make sense in the context of the operator. For example the specifier `>=3.5.*` is
+    /// valid but ambiguous. Does it mean `3.5.*` or `>=3.5`? If `allow_ignore_wildcard` is true
+    /// the least restrictive bound is chosen. If `allow_ignore_wildcard` is false, an error is
+    /// returned.
+    pub fn satisfied_by(
+        &self,
+        version: &Version,
+        allow_ignore_wildcard: bool,
+    ) -> miette::Result<bool> {
         for specifier in &self.0 {
-            if !specifier.satisfied_by(version)? {
+            if !specifier.satisfied_by(version, allow_ignore_wildcard)? {
                 return Ok(false);
             }
         }
@@ -147,117 +180,130 @@ impl CompareOp {
     ///
     /// Has to take a string, not a Version, because == and != can take "wildcards", which
     /// are not valid versions.
-    pub fn ranges(&self, rhs: &str) -> miette::Result<SmallVec<[Range<Version>; 1]>> {
+    ///
+    /// `allow_ignore_wildcard` indicates whether a wildcard in a specifier can be ignored if it
+    /// doesn't make sense in the context of the operator. For example the specifier `>=3.5.*` is
+    /// valid but ambiguous. Does it mean `3.5.*` or `>=3.5`? If `allow_ignore_wildcard` is true
+    /// the least restrictive bound is chosen. If `allow_ignore_wildcard` is false, an error is
+    /// returned.
+    pub fn ranges(
+        &self,
+        rhs: &str,
+        allow_ignore_wildcard: bool,
+    ) -> miette::Result<SmallVec<[Range<Version>; 1]>> {
         use CompareOp::*;
         let (version, wildcard) = parse_version_wildcard(rhs)?;
-        Ok(if wildcard {
-            if version.dev.is_some() || !version.local.is_empty() {
-                miette::bail!("version wildcards can't have dev or local suffixes");
-            }
-            // == X.* corresponds to the half-open range
-            //
-            // [X.dev0, (X+1).dev0)
-            let mut low = version.clone();
-            low.dev = Some(0);
-            let mut high = version;
-            // .* can actually appear after .postX or .aX, so we need to find the last
-            // numeric entry in the version, and increment that.
-            if let Some(post) = high.post {
-                high.post = Some(post + 1)
-            } else if let Some(pre) = high.pre {
-                use pep440::PreRelease::*;
-                high.pre = Some(match pre {
-                    RC(n) => RC(n + 1),
-                    A(n) => A(n + 1),
-                    B(n) => B(n + 1),
-                })
+        let wildcard_makes_sense = matches!(self, Equal | NotEqual);
+        Ok(
+            if wildcard && (wildcard_makes_sense || allow_ignore_wildcard) {
+                if version.dev.is_some() || !version.local.is_empty() {
+                    miette::bail!("version wildcards can't have dev or local suffixes");
+                }
+                // == X.* corresponds to the half-open range
+                //
+                // [X.dev0, (X+1).dev0)
+                let mut low = version.clone();
+                low.dev = Some(0);
+                let mut high = version;
+                // .* can actually appear after .postX or .aX, so we need to find the last
+                // numeric entry in the version, and increment that.
+                if let Some(post) = high.post {
+                    high.post = Some(post + 1)
+                } else if let Some(pre) = high.pre {
+                    use pep440::PreRelease::*;
+                    high.pre = Some(match pre {
+                        RC(n) => RC(n + 1),
+                        A(n) => A(n + 1),
+                        B(n) => B(n + 1),
+                    })
+                } else {
+                    *high.release.last_mut().unwrap() += 1;
+                }
+                high.dev = Some(0);
+                match self {
+                    Equal => smallvec![low..high],
+                    NotEqual => {
+                        smallvec![VERSION_ZERO.clone()..low, high..VERSION_INFINITY.clone()]
+                    }
+                    _ => miette::bail!("Can't use wildcard with {:?}", self),
+                }
             } else {
-                *high.release.last_mut().unwrap() += 1;
-            }
-            high.dev = Some(0);
-            match self {
-                Equal => smallvec![low..high],
-                NotEqual => {
-                    smallvec![VERSION_ZERO.clone()..low, high..VERSION_INFINITY.clone()]
+                // no wildcards here
+                if self != &Equal && self != &NotEqual && !version.local.is_empty() {
+                    miette::bail!(
+                        "Operator {:?} cannot be used on a version with a +local suffix",
+                        self
+                    );
                 }
-                _ => miette::bail!("Can't use wildcard with {:?}", self),
-            }
-        } else {
-            // no wildcards here
-            if self != &Equal && self != &NotEqual && !version.local.is_empty() {
-                miette::bail!(
-                    "Operator {:?} cannot be used on a version with a +local suffix",
-                    self
-                );
-            }
-            match self {
-                // These two are simple
-                LessThanEqual => smallvec![VERSION_ZERO.clone()..version.next()],
-                GreaterThanEqual => smallvec![version..VERSION_INFINITY.clone()],
-                // These are also pretty simple, because we took care of the wildcard
-                // cases up above.
-                Equal => smallvec![version.clone()..version.next()],
-                NotEqual => smallvec![
-                    VERSION_ZERO.clone()..version.clone(),
-                    version.next()..VERSION_INFINITY.clone(),
-                ],
-                // "The exclusive ordered comparison >V MUST NOT allow a post-release of
-                // the given version unless V itself is a post release."
-                StrictlyGreaterThan => {
-                    let mut low = version.clone();
-                    if let Some(dev) = &version.dev {
-                        low.dev = Some(dev + 1);
-                    } else if let Some(post) = &version.post {
-                        low.post = Some(post + 1);
-                    } else {
-                        // Otherwise, want to increment either the pre-release (a0 ->
-                        // a1), or the "last" release segment. But working with
-                        // pre-releases takes a lot of typing, and there is no "last"
-                        // release segment -- X.Y.Z is just shorthand for
-                        // X.Y.Z.0.0.0.0... So instead, we tack on a .post(INFINITY) and
-                        // hope no-one actually makes a version like this in practice.
-                        low.post = Some(u32::MAX);
+                match self {
+                    // These two are simple
+                    LessThanEqual => smallvec![VERSION_ZERO.clone()..version.next()],
+                    GreaterThanEqual => smallvec![version..VERSION_INFINITY.clone()],
+                    // These are also pretty simple, because we took care of the wildcard
+                    // cases up above.
+                    Equal => smallvec![version.clone()..version.next()],
+                    NotEqual => smallvec![
+                        VERSION_ZERO.clone()..version.clone(),
+                        version.next()..VERSION_INFINITY.clone(),
+                    ],
+                    // "The exclusive ordered comparison >V MUST NOT allow a post-release of
+                    // the given version unless V itself is a post release."
+                    StrictlyGreaterThan => {
+                        let mut low = version.clone();
+                        if let Some(dev) = &version.dev {
+                            low.dev = Some(dev + 1);
+                        } else if let Some(post) = &version.post {
+                            low.post = Some(post + 1);
+                        } else {
+                            // Otherwise, want to increment either the pre-release (a0 ->
+                            // a1), or the "last" release segment. But working with
+                            // pre-releases takes a lot of typing, and there is no "last"
+                            // release segment -- X.Y.Z is just shorthand for
+                            // X.Y.Z.0.0.0.0... So instead, we tack on a .post(INFINITY) and
+                            // hope no-one actually makes a version like this in practice.
+                            low.post = Some(u32::MAX);
+                        }
+                        smallvec![low..VERSION_INFINITY.clone()]
                     }
-                    smallvec![low..VERSION_INFINITY.clone()]
-                }
-                // "The exclusive ordered comparison <V MUST NOT allow a pre-release of
-                // the specified version unless the specified version is itself a
-                // pre-release."
-                StrictlyLessThan => {
-                    if (&version.pre, &version.dev) == (&None, &None) {
-                        let mut new_max = version;
-                        new_max.dev = Some(0);
-                        new_max.post = None;
-                        new_max.local = vec![];
-                        smallvec![VERSION_ZERO.clone()..new_max]
-                    } else {
-                        // Otherwise, some kind of pre-release
-                        smallvec![VERSION_ZERO.clone()..version]
+                    // "The exclusive ordered comparison <V MUST NOT allow a pre-release of
+                    // the specified version unless the specified version is itself a
+                    // pre-release."
+                    StrictlyLessThan => {
+                        if (&version.pre, &version.dev) == (&None, &None) {
+                            let mut new_max = version;
+                            new_max.dev = Some(0);
+                            new_max.post = None;
+                            new_max.local = vec![];
+                            smallvec![VERSION_ZERO.clone()..new_max]
+                        } else {
+                            // Otherwise, some kind of pre-release
+                            smallvec![VERSION_ZERO.clone()..version]
+                        }
+                    }
+                    // ~= X.Y.suffixes is the same as >= X.Y.suffixes && == X.*
+                    // So it's a half-open range:
+                    //   [X.Y.suffixes, (X+1).dev0)
+                    Compatible => {
+                        if version.release.len() < 2 {
+                            miette::bail!("~= operator requires a version with two segments (X.Y)");
+                        }
+                        let mut new_max = pep440::Version {
+                            epoch: version.epoch,
+                            release: version.release.clone(),
+                            pre: None,
+                            post: None,
+                            dev: Some(0),
+                            local: vec![],
+                        };
+                        // Unwraps here are safe because we confirmed that the vector has at
+                        // least 2 elements above.
+                        new_max.release.pop().unwrap();
+                        *new_max.release.last_mut().unwrap() += 1;
+                        smallvec![version..new_max]
                     }
                 }
-                // ~= X.Y.suffixes is the same as >= X.Y.suffixes && == X.*
-                // So it's a half-open range:
-                //   [X.Y.suffixes, (X+1).dev0)
-                Compatible => {
-                    if version.release.len() < 2 {
-                        miette::bail!("~= operator requires a version with two segments (X.Y)");
-                    }
-                    let mut new_max = pep440::Version {
-                        epoch: version.epoch,
-                        release: version.release.clone(),
-                        pre: None,
-                        post: None,
-                        dev: Some(0),
-                        local: vec![],
-                    };
-                    // Unwraps here are safe because we confirmed that the vector has at
-                    // least 2 elements above.
-                    new_max.release.pop().unwrap();
-                    *new_max.release.last_mut().unwrap() += 1;
-                    smallvec![version..new_max]
-                }
-            }
-        })
+            },
+        )
     }
 }
 
