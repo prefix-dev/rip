@@ -22,16 +22,14 @@ pub enum FromPythonError {
 }
 
 impl WheelTags {
-    /// Try to determine the platform tags by executing the python command and extracting the
-    /// sys_tags. This will fail if the `packaging` module is not present in the python environment.
-    /// In which case this method will return [`FromPythonError::PackagingModuleMissing`].
+    /// Try to determine the platform tags by executing the python command and extracting `sys_tags`
+    /// using the vendored `packaging` module.
     pub async fn from_env() -> Result<Self, FromPythonError> {
         Self::from_python(Path::new("python")).await
     }
 
-    /// Try to determine the platform tags by executing the python command and extracting the
-    /// sys_tags. This will fail if the `packaging` module is not present in the python environment.
-    /// In which case this method will return [`FromPythonError::PackagingModuleMissing`].
+    /// Try to determine the platform tags by executing the python command and extracting `sys_tags`
+    /// using the vendored `packaging` module.
     pub async fn from_python(python: &Path) -> Result<Self, FromPythonError> {
         // Create a temporary directory to place our vendored packages in
         let vendored_dir = tempfile::tempdir()?;
