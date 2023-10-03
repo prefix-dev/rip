@@ -10,6 +10,7 @@ repository.workspace = true
 license.workspace = true
 readme.workspace = true
 rust-version.workspace = true
+include = ["vendor/"]
 
 [features]
 default = ["native-tls"]
@@ -27,6 +28,7 @@ futures = "0.3.28"
 html-escape = "0.2.13"
 http = "0.2.9"
 http-cache-semantics = { version = "1.0.1", default-features = false, features = ["with_serde", "reqwest"] }
+include_dir = "0.7.3"
 indexmap = "2.0.1"
 itertools = "0.11.0"
 miette = "5.10.0"

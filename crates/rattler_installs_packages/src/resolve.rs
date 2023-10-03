@@ -8,10 +8,12 @@
 //! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
 use crate::env_markers::Pep508EnvMakers;
 use crate::marker::Env;
+use crate::tags::WheelTags;
 use crate::{
-    CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement, Specifier,
-    Specifiers, UserRequirement, Version, Wheel,
+    ArtifactInfo, ArtifactName, CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName,
+    Requirement, Specifier, Specifiers, UserRequirement, Version, Wheel,
 };
+use elsa::FrozenMap;
 use itertools::Itertools;
 use resolvo::{
     Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId,
@@ -108,12 +110,19 @@ struct PypiDependencyProvider<'db, E> {
     package_db: &'db PackageDb,
     env_markers: E,
     python_version: Version,
+    compatible_tags: Option<&'db WheelTags>,
+
+    cached_artifacts: FrozenMap<SolvableId, Vec<&'db ArtifactInfo>>,
 }
 
 impl<'db, E: Env> PypiDependencyProvider<'db, E> {
     /// Creates a new PypiDependencyProvider
     /// for use with the [`resolvo`] crate
-    pub fn new(package_db: &'db PackageDb, env_markers: E) -> miette::Result<Self> {
+    pub fn new(
+        package_db: &'db PackageDb,
+        env_markers: E,
+        compatible_tags: Option<&'db WheelTags>,
+    ) -> miette::Result<Self> {
         let version = env_markers
             .get_marker_var("python_full_version")
             .ok_or(miette::miette!(
@@ -127,6 +136,8 @@ impl<'db, E: Env> PypiDependencyProvider<'db, E> {
             package_db,
             env_markers,
             python_version: version,
+            compatible_tags,
+            cached_artifacts: Default::default(),
         })
     }
 }
@@ -176,30 +187,36 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
         let mut candidates = Candidates::default();
         let mut no_wheels = Vec::new();
         let mut incompatible_python = Vec::new();
+        let mut incompatible_tags = Vec::new();
         for (version, artifacts) in artifacts.iter() {
-            // Filter only artifacts we can work with
             let mut artifacts = artifacts
                 .iter()
-                // We are only interested in wheels
-                .filter(|a| a.is::<Wheel>())
-                // TODO: How to filter prereleases correctly?
                 .filter(|a| {
                     a.filename.version().pre.is_none() && a.filename.version().dev.is_none()
                 })
                 .collect::<Vec<_>>();
 
-            // Check if there are wheel artifacts for this version
+            if artifacts.is_empty() {
+                // Skip all prereleases
+                continue;
+            }
+
+            // Filter only artifacts we can work with
+            artifacts.retain(|a| a.is::<Wheel>());
             if artifacts.is_empty() {
                 // If there are no wheel artifacts, we're just gonna skip it
                 no_wheels.push(version);
                 continue;
             }
 
+            // Filter yanked artifacts
+            artifacts.retain(|a| !a.yanked.yanked);
+            if artifacts.is_empty() {
+                continue;
+            }
+
             // Filter artifacts that are incompatible with the python version
-            // BasZ: Does it matter that this changes the order of the artifacts?
-            let mut idx = 0;
-            while idx < artifacts.len() {
-                let artifact = &artifacts[idx];
+            artifacts.retain(|artifact| {
                 if let Some(requires_python) = artifact.requires_python.as_ref() {
                     let python_specifier: Specifiers = requires_python
                         .parse()
@@ -208,25 +225,29 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
                         .satisfied_by(&self.python_version)
                         .expect("failed to determine satisfiability of requires_python specifier")
                     {
-                        artifacts.remove(idx);
-                        continue;
+                        return false;
                     }
                 }
-                idx += 1;
-            }
+                true
+            });
 
             if artifacts.is_empty() {
                 incompatible_python.push(version);
                 continue;
             }
 
-            // Filter yanked artifacts
-            let non_yanked_artifacts = artifacts
-                .iter()
-                .filter(|a| !a.yanked.yanked)
-                .collect::<Vec<_>>();
+            // Filter based on compatibility
+            if let Some(compatible_tags) = self.compatible_tags {
+                artifacts.retain(|artifact| match &artifact.filename {
+                    ArtifactName::Wheel(wheel_name) => wheel_name
+                        .all_tags_iter()
+                        .any(|t| compatible_tags.is_compatible(&t)),
+                    ArtifactName::SDist(_) => unreachable!("sdists have already been filtered"),
+                });
+            }
 
-            if non_yanked_artifacts.is_empty() {
+            if artifacts.is_empty() {
+                incompatible_tags.push(version);
                 continue;
             }
 
@@ -234,6 +255,7 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
                 .pool
                 .intern_solvable(name, PypiVersion(version.clone()));
             candidates.candidates.push(solvable_id);
+            self.cached_artifacts.insert(solvable_id, artifacts);
         }
 
         // Print some information about skipped packages
@@ -241,7 +263,7 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
             tracing::warn!(
                 "Not considering {} {} because there are no wheel artifacts available",
                 package_name,
-                no_wheels.iter().format(", ")
+                no_wheels.iter().format(", "),
             );
         }
 
@@ -254,11 +276,19 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
             );
         }
 
+        if !incompatible_tags.is_empty() && package_name.extra().is_none() {
+            tracing::warn!(
+                "Not considering {} {} because none of the artifacts are compatible with the Python interpreter",
+                package_name,
+                incompatible_tags.iter().format(", "),
+            );
+        }
+
         Some(candidates)
     }
 
-    fn get_dependencies(&self, solvable: SolvableId) -> Dependencies {
-        let solvable = self.pool.resolve_solvable(solvable);
+    fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
+        let solvable = self.pool.resolve_solvable(solvable_id);
         let package_name = self.pool.resolve_package_name(solvable.name_id());
 
         tracing::info!(
@@ -290,41 +320,14 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
             dependencies.requirements.push(version_set_id);
         }
 
-        let result = task::block_in_place(move || {
-            Handle::current().block_on(
-                self.package_db
-                    .available_artifacts(package_name.base().clone()),
-            )
-        });
-
-        let artifacts_per_version = match result {
-            Ok(artifacts) => artifacts,
-            Err(e) => {
-                tracing::error!("failed to fetch artifacts of '{package_name}': {e:?}, skipping..");
-                return dependencies;
-            }
-        };
-
-        let artifacts = artifacts_per_version
-            .get(&solvable.inner().0.clone())
-            .expect("strange, no artificats are available");
-
-        // Filter yanked artifacts
-        let non_yanked_artifacts = artifacts
-            .iter()
-            .filter(|a| !a.yanked.yanked)
-            .collect::<Vec<_>>();
-
-        if non_yanked_artifacts.is_empty() {
-            panic!("no artifacts are available after removing yanked artifacts");
-        }
-
+        // Retrieve the artifacts that are applicable for this version
+        let artifacts = self
+            .cached_artifacts
+            .get(&solvable_id)
+            .expect("the artifacts must already have been cached");
         let (_, metadata) = task::block_in_place(|| {
             Handle::current()
-                .block_on(
-                    self.package_db
-                        .get_metadata::<Wheel, _>(&non_yanked_artifacts),
-                )
+                .block_on(self.package_db.get_metadata::<Wheel, _>(artifacts))
                 .unwrap()
         });
 
@@ -350,7 +353,6 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
             // Evaluate environment markers
             if let Some(env_marker) = &requirement.env_marker_expr {
                 if !env_marker.eval(&env).unwrap() {
-                    // tracing::info!("skipping dependency {requirement}");
                     continue;
                 }
             }
@@ -405,13 +407,22 @@ impl<'e, E: Env> Env for ExtraEnv<'e, E> {
 
 /// Resolves an environment that contains the given requirements and all dependencies of those
 /// requirements.
+///
+/// `requirements` defines the requirements of packages that must be present in the solved
+/// environment.
+/// `env_markers` defines information about the python interpreter.
+///
+/// If `compatible_tags` is defined then the available artifacts of a distribution are filtered to
+/// include only artifacts that are compatible with the specified tags. If `None` is passed, the
+/// artifacts are not filtered at all.
 pub async fn resolve(
     package_db: &PackageDb,
     requirements: impl IntoIterator<Item = &UserRequirement>,
     env_markers: &Pep508EnvMakers,
+    compatible_tags: Option<&WheelTags>,
 ) -> miette::Result<HashMap<PackageName, (Version, HashSet<Extra>)>> {
     // Construct a provider
-    let provider = PypiDependencyProvider::new(package_db, env_markers)?;
+    let provider = PypiDependencyProvider::new(package_db, env_markers, compatible_tags)?;
     let pool = provider.pool();
 
     let requirements = requirements.into_iter();

@@ -24,6 +24,7 @@ mod utils;
 mod env_markers;
 #[cfg(feature = "resolvo")]
 mod resolve;
+pub mod tags;
 
 #[cfg(feature = "resolvo")]
 pub use resolve::resolve;

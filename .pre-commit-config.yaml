@@ -38,3 +38,5 @@ repos:
     hooks:
       - id: codespell
         args: [--ignore-words=.codespell-whitelist.txt]
+        exclude: Cargo.lock
+exclude: 'crates/rattler_installs_packages/vendor/.*'
