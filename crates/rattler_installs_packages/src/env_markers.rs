@@ -5,6 +5,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::process::ExitStatus;
 use thiserror::Error;
+use which::which;
 
 /// Describes the environment markers that can be used in dependency specifications to enable or
 /// disable certain dependencies based on runtime environment.
@@ -50,7 +51,9 @@ pub enum FromPythonError {
 impl Pep508EnvMakers {
     /// Try to determine the environment markers by executing python.
     pub async fn from_env() -> Result<Self, FromPythonError> {
-        Self::from_python(Path::new("python")).await
+        let python = which("python").map_err(|_| FromPythonError::CouldNotFindPythonExecutable)?;
+        tracing::info!("using python executable at {}", python.display());
+        Self::from_python(python.as_path()).await
     }
 
     /// Try to determine the environment markers from an existing python executable. The executable

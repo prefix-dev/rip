@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use clap::Parser;
 use itertools::Itertools;
-use miette::IntoDiagnostic;
+use miette::{Context, IntoDiagnostic};
 use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
@@ -48,13 +48,24 @@ async fn actual_main() -> miette::Result<()> {
     // Construct a package database
     let package_db = rattler_installs_packages::PackageDb::new(
         Default::default(),
-        &[normalize_index_url(args.index_url)],
+        &[normalize_index_url(args.index_url.clone())],
         cache_dir,
     )
-    .into_diagnostic()?;
+    .into_diagnostic()
+    .wrap_err_with(|| {
+        format!(
+            "failed to construct package database for index {}",
+            args.index_url
+        )
+    })?;
 
     // Determine the environment markers for the current machine
-    let env_markers = Pep508EnvMakers::from_env().await.into_diagnostic()?;
+    let env_markers = Pep508EnvMakers::from_env()
+        .await
+        .into_diagnostic()
+        .wrap_err_with(|| {
+            "failed to determine environment markers for the current machine (could not run Python)"
+        })?;
     tracing::info!(
         "extracted the following environment markers from the system python interpreter:\n{:#?}",
         env_markers
