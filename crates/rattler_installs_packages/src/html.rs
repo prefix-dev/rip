@@ -227,7 +227,7 @@ mod test {
               filename: "link3-3.0.tar.gz",
               url: "https://example.com/new-base/link3-3.0.tar.gz",
               hashes: None,
-              r#requires-python: Some(">= 3.17"),
+              r#requires-python: Some(">=3.17"),
               r#dist-info-metadata: DistInfoMetadata(
                 available: false,
                 hashes: ArtifactHashes(),
