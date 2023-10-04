@@ -9,6 +9,7 @@ use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
+use rattler_installs_packages::tags::WheelTags;
 use rattler_installs_packages::{normalize_index_url, resolve, Pep508EnvMakers, UserRequirement};
 
 #[derive(Parser)]
@@ -59,8 +60,21 @@ async fn actual_main() -> miette::Result<()> {
         env_markers
     );
 
+    let compatible_tags = WheelTags::from_env().await.into_diagnostic()?;
+    tracing::info!(
+        "extracted the following compatible wheel tags from the system python interpreter: {}",
+        compatible_tags.tags().format(", ")
+    );
+
     // Solve the environment
-    let blueprint = match resolve(&package_db, &args.specs, &env_markers).await {
+    let blueprint = match resolve(
+        &package_db,
+        &args.specs,
+        &env_markers,
+        Some(&compatible_tags),
+    )
+    .await
+    {
         Ok(blueprint) => blueprint,
         Err(err) => miette::bail!("Could not solve for the requested requirements:\n{err}"),
     };

@@ -1,4 +1,6 @@
 use crate::package_name::{PackageName, ParsePackageNameError};
+use crate::tags::WheelTag;
+use itertools::Itertools;
 use pep440::Version;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use std::collections::HashSet;
@@ -102,16 +104,23 @@ pub struct WheelName {
 
 impl WheelName {
     /// Creates a set of all tags that are contained in this wheel name.
-    pub fn all_tags(&self) -> HashSet<String> {
-        let mut retval = HashSet::new();
-        for py in &self.py_tags {
-            for abi in &self.abi_tags {
-                for arch in &self.arch_tags {
-                    retval.insert(format!("{}-{}-{}", py, abi, arch));
-                }
-            }
-        }
-        retval
+    pub fn all_tags(&self) -> HashSet<WheelTag> {
+        HashSet::from_iter(self.all_tags_iter())
+    }
+
+    /// Returns an iterator over all the tags that are contained in this wheel name. Note that there
+    /// might be duplicates in the iterator. Use [`Self::all_tags`] if you want a unique set of
+    /// tags.
+    pub fn all_tags_iter(&self) -> impl Iterator<Item = WheelTag> + '_ {
+        self.py_tags
+            .iter()
+            .cartesian_product(self.abi_tags.iter())
+            .cartesian_product(self.arch_tags.iter())
+            .map(|((py, abi), arch)| WheelTag {
+                interpreter: py.clone(),
+                abi: abi.clone(),
+                platform: arch.clone(),
+            })
     }
 }
 

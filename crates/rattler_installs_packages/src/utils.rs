@@ -1,9 +1,10 @@
 use futures::{AsyncRead, AsyncReadExt, AsyncSeekExt};
+use include_dir::{include_dir, Dir};
 use std::io::{Read, Seek, SeekFrom};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use url::Url;
 
-/// Keep retrying a certain IO function until it either succeeds or until it doesnt return
+/// Keep retrying a certain IO function until it either succeeds or until it doesn't return
 /// [`std::io::ErrorKind::Interrupted`].
 pub fn retry_interrupted<F, T>(mut f: F) -> std::io::Result<T>
 where
@@ -82,3 +83,6 @@ pub fn normalize_index_url(mut url: Url) -> Url {
     }
     url
 }
+
+pub(crate) static VENDORED_PACKAGING_DIR: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/vendor/packaging/");
