@@ -6,7 +6,6 @@ use super::{
     extra::Extra,
     package_name::PackageName,
     requirement::{marker, ParseExtraInEnv, Requirement},
-    specifier::{CompareOp, Specifier, Specifiers},
 };
 
 peg::parser! {

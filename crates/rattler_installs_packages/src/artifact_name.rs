@@ -1,7 +1,9 @@
-use crate::package_name::{PackageName, ParsePackageNameError};
-use crate::tags::WheelTag;
+use crate::{
+    package_name::{PackageName, ParsePackageNameError},
+    tags::WheelTag,
+    Version,
+};
 use itertools::Itertools;
-use pep440::Version;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
@@ -268,7 +270,7 @@ impl FromStr for SDistName {
             .map_err(ParseArtifactNameError::InvalidPackageName)?;
 
         // Parse the version
-        let version = pep440::Version::from_str(version)
+        let version = Version::from_str(version)
             .map_err(|e| ParseArtifactNameError::InvalidVersion(e.to_string()))?;
 
         Ok(SDistName {

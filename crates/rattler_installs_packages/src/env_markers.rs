@@ -1,7 +1,8 @@
-use crate::marker::Env;
+use pep508_rs::MarkerEnvironment;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::io::ErrorKind;
+use std::ops::Deref;
 use std::path::Path;
 use std::process::ExitStatus;
 use thiserror::Error;
@@ -17,21 +18,10 @@ use which::which;
 /// that is being inspected.
 ///
 /// The behavior and the names of the markers are described in PEP 508.
-#[derive(Default, Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[allow(missing_docs)]
-pub struct Pep508EnvMakers {
-    pub os_name: String,
-    pub sys_platform: String,
-    pub platform_machine: String,
-    pub platform_python_implementation: String,
-    pub platform_release: String,
-    pub platform_system: String,
-    pub platform_version: String,
-    pub python_version: String,
-    pub python_full_version: String,
-    pub implementation_name: String,
-    pub implementation_version: String,
-}
+#[serde(transparent)]
+pub struct Pep508EnvMakers(pep508_rs::MarkerEnvironment);
 
 #[derive(Debug, Error)]
 pub enum FromPythonError {
@@ -86,22 +76,11 @@ impl Pep508EnvMakers {
     }
 }
 
-impl Env for Pep508EnvMakers {
-    fn get_marker_var(&self, var: &str) -> Option<&str> {
-        match var {
-            "os_name" => Some(&self.os_name),
-            "sys_platform" => Some(&self.sys_platform),
-            "platform_machine" => Some(&self.platform_machine),
-            "platform_python_implementation" => Some(&self.platform_python_implementation),
-            "platform_release" => Some(&self.platform_release),
-            "platform_system" => Some(&self.platform_system),
-            "platform_version" => Some(&self.platform_version),
-            "python_version" => Some(&self.python_version),
-            "python_full_version" => Some(&self.python_full_version),
-            "implementation_name" => Some(&self.implementation_name),
-            "implementation_version" => Some(&self.implementation_version),
-            _ => None,
-        }
+impl Deref for Pep508EnvMakers {
+    type Target = MarkerEnvironment;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

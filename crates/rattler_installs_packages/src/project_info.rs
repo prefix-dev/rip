@@ -2,9 +2,10 @@
 
 use crate::artifact::Artifact;
 use crate::artifact_name::ArtifactName;
+use pep440_rs::VersionSpecifiers;
 use rattler_digest::{serde::SerializableHash, Sha256};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, skip_serializing_none, VecSkipError};
+use serde_with::{serde_as, skip_serializing_none, DisplayFromStr, VecSkipError};
 
 /// Represents the result of the response from the Simple API.
 #[serde_as]
@@ -30,7 +31,8 @@ pub struct ArtifactInfo {
     /// Hashes of the artifact
     pub hashes: Option<ArtifactHashes>,
     /// Python requirement
-    pub requires_python: Option<String>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub requires_python: Option<VersionSpecifiers>,
     #[serde(default)]
     /// This attribute specified if the metadata is available
     /// as a separate download described in [PEP 658](https://www.python.org/dev/peps/pep-0658/)

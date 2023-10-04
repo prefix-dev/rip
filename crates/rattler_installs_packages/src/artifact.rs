@@ -2,10 +2,10 @@ use crate::artifact_name::{InnerAsArtifactName, WheelName};
 use crate::core_metadata::WheelCoreMetadata;
 use crate::package_name::PackageName;
 use crate::utils::ReadAndSeek;
+use crate::Version;
 use async_trait::async_trait;
 use miette::IntoDiagnostic;
 use parking_lot::Mutex;
-use pep440::Version;
 use std::collections::HashSet;
 use std::io::Read;
 use std::str::FromStr;
@@ -88,7 +88,7 @@ impl Wheel {
             let Ok(candidate_name) = PackageName::from_str(candidate_name) else {
                 return false;
             };
-            let Some(candidate_version) = Version::parse(candidate_version) else {
+            let Ok(candidate_version) = Version::from_str(candidate_version) else {
                 return false;
             };
 

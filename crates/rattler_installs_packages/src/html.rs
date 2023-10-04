@@ -1,8 +1,10 @@
 //! Module for parsing different HTML pages from PyPI repository
+use std::str::FromStr;
 use std::{borrow::Borrow, default::Default};
 
 use crate::{ArtifactHashes, ArtifactName};
 use miette::IntoDiagnostic;
+use pep440_rs::VersionSpecifiers;
 
 use rattler_digest::{parse_digest_from_hex, Sha256};
 
@@ -36,7 +38,13 @@ fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
     let requires_python = attributes
         .get("data-requires-python")
         .flatten()
-        .map(|a| html_escape::decode_html_entities(&a.as_utf8_str()).into_owned());
+        .map(|a| {
+            VersionSpecifiers::from_str(
+                html_escape::decode_html_entities(a.as_utf8_str().as_ref()).as_ref(),
+            )
+        })
+        .transpose()
+        .ok()?;
 
     let metadata_attr = attributes
         .get("data-dist-info-metadata")
@@ -219,7 +227,7 @@ mod test {
               filename: "link3-3.0.tar.gz",
               url: "https://example.com/new-base/link3-3.0.tar.gz",
               hashes: None,
-              r#requires-python: Some(">= 3.17"),
+              r#requires-python: Some(">=3.17"),
               r#dist-info-metadata: DistInfoMetadata(
                 available: false,
                 hashes: ArtifactHashes(),
