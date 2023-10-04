@@ -54,6 +54,7 @@ tracing = { version = "0.1.37", default-features = false, features = ["attribute
 url = { version = "2.4.1", features = ["serde"] }
 zip = "0.6.6"
 resolvo = { version = "0.1.0", optional = true }
+which = "4.4.2"
 
 [dev-dependencies]
 criterion = "0.5"
