@@ -181,7 +181,7 @@ pub mod marker {
                             // be parsed as a wildcard with a wildcard-accepting op),
                             // then we do a version comparison
                             if let Ok(lhs_ver) = lhs_val.parse() {
-                                if let Ok(rhs_ranges) = op.ranges(rhs_val) {
+                                if let Ok(rhs_ranges) = op.ranges(rhs_val, true) {
                                     return Ok(rhs_ranges
                                         .into_iter()
                                         .any(|r| r.contains(&lhs_ver)));
