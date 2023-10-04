@@ -1,6 +1,7 @@
 use crate::artifact::MetadataArtifact;
 use crate::html::parse_project_info_html;
 use crate::http::HttpRequestError;
+use crate::Version;
 use crate::{
     artifact::Artifact,
     artifact_name::InnerAsArtifactName,
@@ -15,7 +16,6 @@ use http::header::CONTENT_TYPE;
 use http::{HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
-use pep440::Version;
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
 use std::borrow::Borrow;
 use std::fmt::Display;
@@ -125,7 +125,8 @@ impl PackageDb {
         let matching_artifacts = artifacts
             .iter()
             .map(|artifact_info| artifact_info.borrow())
-            .filter(|artifact_info| artifact_info.is::<A>());
+            .filter(|artifact_info| artifact_info.is::<A>())
+            .collect::<Vec<_>>();
 
         // Check if we already have information about any of the artifacts cached.
         for artifact_info in artifacts.iter().map(|b| b.borrow()) {
@@ -134,31 +135,35 @@ impl PackageDb {
             }
         }
 
-        // Check if we already have one of the artifacts cached.
-        for artifact_info in matching_artifacts.clone() {
-            let result = self
-                .get_artifact_with_cache::<A>(artifact_info, CacheMode::OnlyIfCached)
-                .await;
-            match result {
-                Ok(artifact) => {
-                    // Apparently the artifact has been downloaded, but its metadata has not been
-                    // cached yet. Lets store it there.
-                    let metadata = artifact.metadata();
-                    let Ok((blob, metadata)) = metadata else {
-                        tracing::warn!(
-                            "Error reading metadata from artifact '{}' skipping",
-                            artifact_info.filename
-                        );
-                        continue;
-                    };
+        // Check if we already have one of the artifacts cached. Only do this if we have more than
+        // one artifact because otherwise, we'll do a request anyway if we dont have the file
+        // cached.
+        if matching_artifacts.len() > 1 {
+            for &artifact_info in matching_artifacts.iter() {
+                let result = self
+                    .get_artifact_with_cache::<A>(artifact_info, CacheMode::OnlyIfCached)
+                    .await;
+                match result {
+                    Ok(artifact) => {
+                        // Apparently the artifact has been downloaded, but its metadata has not been
+                        // cached yet. Lets store it there.
+                        let metadata = artifact.metadata();
+                        let Ok((blob, metadata)) = metadata else {
+                            tracing::warn!(
+                                "Error reading metadata from artifact '{}' skipping",
+                                artifact_info.filename
+                            );
+                            continue;
+                        };
 
-                    self.put_metadata_in_cache(artifact_info, &blob)?;
-                    return Ok((artifact_info, metadata));
+                        self.put_metadata_in_cache(artifact_info, &blob)?;
+                        return Ok((artifact_info, metadata));
+                    }
+                    Err(err) => match err.downcast_ref::<HttpRequestError>() {
+                        Some(HttpRequestError::NotCached(_)) => continue,
+                        _ => return Err(err),
+                    },
                 }
-                Err(err) => match err.downcast_ref::<HttpRequestError>() {
-                    Some(HttpRequestError::NotCached(_)) => continue,
-                    _ => return Err(err),
-                },
             }
         }
 
@@ -174,27 +179,9 @@ impl PackageDb {
                 return self.get_pep658_metadata::<A>(artifact_info).await;
             }
 
-            let body = self
-                .http
-                .request(
-                    artifact_info.url.clone(),
-                    Method::GET,
-                    HeaderMap::default(),
-                    CacheMode::Default,
-                )
-                .await?
-                .into_body()
-                .force_local()
-                .await
-                .into_diagnostic()?;
-            let artifact = A::new(
-                artifact_info
-                    .filename
-                    .as_inner::<A::Name>()
-                    .expect("this should never happen because we filter on matching artifacts only")
-                    .clone(),
-                body,
-            )?;
+            let artifact = self
+                .get_artifact_with_cache::<A>(artifact_info, CacheMode::Default)
+                .await?;
             let metadata = artifact.metadata();
             let Ok((blob, metadata)) = metadata else {
                 tracing::warn!(

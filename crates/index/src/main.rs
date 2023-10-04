@@ -14,9 +14,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-use rattler_installs_packages::{
-    normalize_index_url, Extra, PackageName, PackageRequirement, Wheel,
-};
+use rattler_installs_packages::{normalize_index_url, Extra, PackageName, Requirement, Wheel};
 use rip_bin::{global_multi_progress, IndicatifWriter};
 
 #[derive(Parser)]
@@ -171,18 +169,18 @@ pub fn query_extras() -> Result<(), miette::Error> {
         })
         .into_diagnostic()?;
     for requirement in iter {
-        let requires_dist = serde_json::from_str::<Vec<PackageRequirement>>(
-            requirement.into_diagnostic()?.as_str(),
-        )
-        .into_diagnostic()?;
+        let requires_dist =
+            serde_json::from_str::<Vec<Requirement>>(requirement.into_diagnostic()?.as_str())
+                .into_diagnostic()?;
         total += requires_dist.len();
         for req in requires_dist {
-            if !req.extras.is_empty() {
+            if req.extras.is_none() {
                 println!(
                     "{}: {}",
                     req.name.as_str(),
                     req.extras
                         .iter()
+                        .flatten()
                         .map(|e| e.as_str())
                         .collect::<Vec<_>>()
                         .join(", ")

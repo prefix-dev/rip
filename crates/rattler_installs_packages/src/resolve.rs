@@ -6,64 +6,78 @@
 //! with [`resolvo`].
 //!
 //! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
-use crate::env_markers::Pep508EnvMakers;
-use crate::marker::Env;
 use crate::tags::WheelTags;
 use crate::{
-    ArtifactInfo, ArtifactName, CompareOp, Extra, NormalizedPackageName, PackageDb, PackageName,
-    Requirement, Specifier, Specifiers, UserRequirement, Version, Wheel,
+    ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement,
+    Version, Wheel,
 };
 use elsa::FrozenMap;
 use itertools::Itertools;
+use pep440_rs::{Operator, VersionSpecifier, VersionSpecifiers};
+use pep508_rs::{MarkerEnvironment, VersionOrUrl};
 use resolvo::{
     Candidates, DefaultSolvableDisplay, Dependencies, DependencyProvider, NameId, Pool, SolvableId,
     Solver, SolverCache, VersionSet,
 };
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 use tokio::runtime::Handle;
 use tokio::task;
+use url::Url;
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 /// This is a wrapper around [`Specifiers`] that implements [`VersionSet`]
-struct PypiVersionSet(Specifiers);
+struct PypiVersionSet(Option<VersionOrUrl>);
 
-impl From<Specifiers> for PypiVersionSet {
-    fn from(value: Specifiers) -> Self {
+impl From<Option<VersionOrUrl>> for PypiVersionSet {
+    fn from(value: Option<VersionOrUrl>) -> Self {
         Self(value)
     }
 }
 
 impl Display for PypiVersionSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        match &self.0 {
+            None => write!(f, "*"),
+            Some(VersionOrUrl::Url(url)) => write!(f, "{url}"),
+            Some(VersionOrUrl::VersionSpecifier(spec)) => write!(f, "{spec}"),
+        }
     }
 }
 
-#[repr(transparent)]
-#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 /// This is a wrapper around [`Version`] that serves a version
 /// within the [`PypiVersionSet`] version set.
-struct PypiVersion(pub Version);
+#[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[allow(dead_code)]
+enum PypiVersion {
+    Version(Version),
+    Url(Url),
+}
 
 impl VersionSet for PypiVersionSet {
     type V = PypiVersion;
 
     fn contains(&self, v: &Self::V) -> bool {
-        match self.0.satisfied_by(&v.0, true) {
-            Err(e) => {
-                tracing::error!("failed to determine if '{}' contains '{}': {e}", &self.0, v);
-                false
+        match (self.0.as_ref(), v) {
+            (Some(VersionOrUrl::Url(a)), PypiVersion::Url(b)) => a == b,
+            (Some(VersionOrUrl::VersionSpecifier(spec)), PypiVersion::Version(v)) => {
+                spec.contains(v)
             }
-            Ok(result) => result,
+            (None, _) => true,
+            _ => false,
         }
     }
 }
 
 impl Display for PypiVersion {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.0)
+        match self {
+            PypiVersion::Version(v) => write!(f, "{v}"),
+            PypiVersion::Url(u) => write!(f, "{u}"),
+        }
     }
 }
 
@@ -105,44 +119,34 @@ impl Display for PypiPackageName {
 }
 
 /// This is a [`DependencyProvider`] for PyPI packages
-struct PypiDependencyProvider<'db, E> {
+struct PypiDependencyProvider<'db> {
     pool: Pool<PypiVersionSet, PypiPackageName>,
     package_db: &'db PackageDb,
-    env_markers: E,
-    python_version: Version,
+    markers: &'db MarkerEnvironment,
     compatible_tags: Option<&'db WheelTags>,
 
     cached_artifacts: FrozenMap<SolvableId, Vec<&'db ArtifactInfo>>,
 }
 
-impl<'db, E: Env> PypiDependencyProvider<'db, E> {
+impl<'db> PypiDependencyProvider<'db> {
     /// Creates a new PypiDependencyProvider
     /// for use with the [`resolvo`] crate
     pub fn new(
         package_db: &'db PackageDb,
-        env_markers: E,
+        markers: &'db MarkerEnvironment,
         compatible_tags: Option<&'db WheelTags>,
     ) -> miette::Result<Self> {
-        let version = env_markers
-            .get_marker_var("python_full_version")
-            .ok_or(miette::miette!(
-                "missing 'python_full_version' environment marker variable"
-            ))?
-            .parse()
-            .map_err(|e| miette::miette!("failed to parse 'python_full_version': {e}"))?;
-
         Ok(Self {
             pool: Pool::new(),
             package_db,
-            env_markers,
-            python_version: version,
+            markers,
             compatible_tags,
             cached_artifacts: Default::default(),
         })
     }
 }
 
-impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider<'_, E> {
+impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider<'_> {
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
         &self.pool
     }
@@ -156,11 +160,18 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
             let solvable_a = solver.pool().resolve_solvable(a);
             let solvable_b = solver.pool().resolve_solvable(b);
 
-            let a = &solvable_a.inner().0;
-            let b = &solvable_b.inner().0;
+            match (&solvable_a.inner(), &solvable_b.inner()) {
+                // Sort Urls alphabetically
+                // TODO: Do better
+                (PypiVersion::Url(a), PypiVersion::Url(b)) => a.cmp(b),
 
-            // Sort in reverse order from highest to lowest.
-            b.cmp(a)
+                // Prefer Urls over versions
+                (PypiVersion::Url(_), PypiVersion::Version(_)) => Ordering::Greater,
+                (PypiVersion::Version(_), PypiVersion::Url(_)) => Ordering::Less,
+
+                // Sort versions from highest to lowest
+                (PypiVersion::Version(a), PypiVersion::Version(b)) => b.cmp(a),
+            }
         })
     }
 
@@ -218,13 +229,7 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
             // Filter artifacts that are incompatible with the python version
             artifacts.retain(|artifact| {
                 if let Some(requires_python) = artifact.requires_python.as_ref() {
-                    let python_specifier: Specifiers = requires_python
-                        .parse()
-                        .expect("invalid requires_python specifier");
-                    if !python_specifier
-                        .satisfied_by(&self.python_version, true)
-                        .expect("failed to determine satisfiability of requires_python specifier")
-                    {
+                    if !requires_python.contains(&self.markers.python_full_version.version) {
                         return false;
                     }
                 }
@@ -244,6 +249,18 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
                         .any(|t| compatible_tags.is_compatible(&t)),
                     ArtifactName::SDist(_) => unreachable!("sdists have already been filtered"),
                 });
+
+                // Sort the artifacts from most compatible to least compatible, this ensures that we
+                // check the most compatible artifacts for dependencies first.
+                artifacts.sort_by_cached_key(|a| {
+                    -a.filename
+                        .as_wheel()
+                        .expect("only wheels are considered")
+                        .all_tags_iter()
+                        .filter_map(|tag| compatible_tags.compatibility(&tag))
+                        .max()
+                        .unwrap_or(0)
+                });
             }
 
             if artifacts.is_empty() {
@@ -253,7 +270,7 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
 
             let solvable_id = self
                 .pool
-                .intern_solvable(name, PypiVersion(version.clone()));
+                .intern_solvable(name, PypiVersion::Version(version.clone()));
             candidates.candidates.push(solvable_id);
             self.cached_artifacts.insert(solvable_id, artifacts);
         }
@@ -272,7 +289,7 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
                 "Not considering {} {} because none of the artifacts are compatible with Python {}",
                 package_name,
                 incompatible_python.iter().format(", "),
-                &self.python_version
+                &self.markers.python_full_version.version
             );
         }
 
@@ -290,17 +307,16 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
     fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
         let solvable = self.pool.resolve_solvable(solvable_id);
         let package_name = self.pool.resolve_package_name(solvable.name_id());
+        let PypiVersion::Version(package_version) = solvable.inner() else {
+            unimplemented!("cannot get dependencies of wheels by url yet")
+        };
 
         tracing::info!(
             "obtaining dependency information from {}={}",
             package_name,
-            solvable.inner()
+            package_version
         );
 
-        let env = ExtraEnv {
-            env: &self.env_markers,
-            extra: package_name.extra().map(|e| e.as_str()).unwrap_or(""),
-        };
         let mut dependencies = Dependencies::default();
 
         // Add a dependency to the base dependency when we have an extra
@@ -310,13 +326,16 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
                 .pool
                 .lookup_package_name(&PypiPackageName::Base(package_name.clone()))
                 .expect("base package not found while resolving extra");
-            let specifiers = Specifiers(vec![Specifier {
-                op: CompareOp::Equal,
-                value: solvable.inner().0.to_string(),
-            }]);
-            let version_set_id = self
-                .pool
-                .intern_version_set(base_name_id, specifiers.into());
+            let specifiers = VersionSpecifiers::from_iter([VersionSpecifier::new(
+                Operator::ExactEqual,
+                package_version.clone(),
+                false,
+            )
+            .expect("failed to construct equality version specifier")]);
+            let version_set_id = self.pool.intern_version_set(
+                base_name_id,
+                Some(VersionOrUrl::VersionSpecifier(specifiers)).into(),
+            );
             dependencies.requirements.push(version_set_id);
         }
 
@@ -325,6 +344,7 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
             .cached_artifacts
             .get(&solvable_id)
             .expect("the artifacts must already have been cached");
+
         let (_, metadata) = task::block_in_place(|| {
             Handle::current()
                 .block_on(self.package_db.get_metadata::<Wheel, _>(artifacts))
@@ -338,21 +358,29 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
                 let extra_name_id = self
                     .pool
                     .intern_package_name(PypiPackageName::Extra(package_name.clone(), extra));
-                let specifiers = Specifiers(vec![Specifier {
-                    op: CompareOp::Equal,
-                    value: solvable.inner().0.to_string(),
-                }]);
-                let version_set_id = self
-                    .pool
-                    .intern_version_set(extra_name_id, specifiers.into());
+                let specifiers = VersionSpecifiers::from_iter([VersionSpecifier::new(
+                    Operator::ExactEqual,
+                    package_version.clone(),
+                    false,
+                )
+                .expect("failed to construct equality version specifier")]);
+                let version_set_id = self.pool.intern_version_set(
+                    extra_name_id,
+                    Some(VersionOrUrl::VersionSpecifier(specifiers)).into(),
+                );
                 dependencies.constrains.push(version_set_id);
             }
         }
 
+        let extras = package_name
+            .extra()
+            .into_iter()
+            .map(|e| e.as_str())
+            .collect::<Vec<_>>();
         for requirement in metadata.requires_dist {
             // Evaluate environment markers
-            if let Some(env_marker) = &requirement.env_marker_expr {
-                if !env_marker.eval(&env).unwrap() {
+            if let Some(markers) = requirement.marker.as_ref() {
+                if !markers.evaluate(self.markers, &extras) {
                     continue;
                 }
             }
@@ -360,48 +388,34 @@ impl<E: Env> DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDepende
             // Add the dependency to the pool
             let Requirement {
                 name,
-                specifiers,
+                version_or_url,
                 extras,
                 ..
-            } = requirement.into_inner();
+            } = requirement;
 
+            let name = PackageName::from_str(&name).expect("invalid package name");
             let dependency_name_id = self
                 .pool
                 .intern_package_name(PypiPackageName::Base(name.clone().into()));
             let version_set_id = self
                 .pool
-                .intern_version_set(dependency_name_id, specifiers.clone().into());
+                .intern_version_set(dependency_name_id, version_or_url.clone().into());
             dependencies.requirements.push(version_set_id);
 
             // Add a unique package for each extra/optional dependency
-            for extra in extras {
+            for extra in extras.into_iter().flatten() {
+                let extra = Extra::from_str(&extra).expect("invalid extra name");
                 let dependency_name_id = self
                     .pool
                     .intern_package_name(PypiPackageName::Extra(name.clone().into(), extra));
                 let version_set_id = self
                     .pool
-                    .intern_version_set(dependency_name_id, specifiers.clone().into());
+                    .intern_version_set(dependency_name_id, version_or_url.clone().into());
                 dependencies.requirements.push(version_set_id);
             }
         }
 
         dependencies
-    }
-}
-
-/// Combines an extra env marker with another object that implements [`Env`].
-struct ExtraEnv<'e, E> {
-    env: &'e E,
-    extra: &'e str,
-}
-
-impl<'e, E: Env> Env for ExtraEnv<'e, E> {
-    fn get_marker_var(&self, var: &str) -> Option<&str> {
-        if var == "extra" {
-            Some(self.extra)
-        } else {
-            self.env.get_marker_var(var)
-        }
     }
 }
 
@@ -417,8 +431,8 @@ impl<'e, E: Env> Env for ExtraEnv<'e, E> {
 /// artifacts are not filtered at all.
 pub async fn resolve(
     package_db: &PackageDb,
-    requirements: impl IntoIterator<Item = &UserRequirement>,
-    env_markers: &Pep508EnvMakers,
+    requirements: impl IntoIterator<Item = &Requirement>,
+    env_markers: &MarkerEnvironment,
     compatible_tags: Option<&WheelTags>,
 ) -> miette::Result<HashMap<PackageName, (Version, HashSet<Extra>)>> {
     // Construct a provider
@@ -433,22 +447,24 @@ pub async fn resolve(
         Vec::with_capacity(requirement_count.1.unwrap_or(requirement_count.0));
     for Requirement {
         name,
-        specifiers,
+        version_or_url,
         extras,
         ..
-    } in requirements.map(UserRequirement::as_inner)
+    } in requirements
     {
+        let name = PackageName::from_str(name).expect("invalid package name");
         let dependency_package_name =
             pool.intern_package_name(PypiPackageName::Base(name.clone().into()));
         let version_set_id =
-            pool.intern_version_set(dependency_package_name, specifiers.clone().into());
+            pool.intern_version_set(dependency_package_name, version_or_url.clone().into());
         root_requirements.push(version_set_id);
 
-        for extra in extras {
+        for extra in extras.iter().flatten() {
+            let extra: Extra = extra.parse().expect("invalid extra");
             let dependency_package_name = pool
                 .intern_package_name(PypiPackageName::Extra(name.clone().into(), extra.clone()));
             let version_set_id =
-                pool.intern_version_set(dependency_package_name, specifiers.clone().into());
+                pool.intern_version_set(dependency_package_name, version_or_url.clone().into());
             root_requirements.push(version_set_id);
         }
     }
@@ -464,17 +480,19 @@ pub async fn resolve(
                 let pool = solver.pool();
                 let solvable = pool.resolve_solvable(solvable);
                 let name = pool.resolve_package_name(solvable.name_id());
-                let version = solvable.inner();
+                let PypiVersion::Version(version) = solvable.inner() else {
+                    unreachable!("urls are not yet supported")
+                };
                 match name {
                     PypiPackageName::Base(name) => {
                         result
                             .entry(name.clone().into())
-                            .or_insert((version.0.clone(), HashSet::new()));
+                            .or_insert((version.clone(), HashSet::new()));
                     }
                     PypiPackageName::Extra(name, extra) => {
                         let (_, extras) = result
                             .entry(name.clone().into())
-                            .or_insert((version.0.clone(), HashSet::new()));
+                            .or_insert((version.clone(), HashSet::new()));
                         extras.insert(extra.clone());
                     }
                 }

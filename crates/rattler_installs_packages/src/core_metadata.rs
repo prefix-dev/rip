@@ -1,21 +1,20 @@
 // Implementation comes from https://github.com/njsmith/posy/blob/main/src/vocab/core_metadata.rs
 // Licensed under MIT or Apache-2.0
 
-use crate::extra::Extra;
-use crate::package_name::PackageName;
-use crate::requirement::PackageRequirement;
-use crate::rfc822ish::RFC822ish;
-use crate::specifier::Specifiers;
+use crate::{
+    extra::Extra, package_name::PackageName, rfc822ish::RFC822ish, Version, VersionSpecifiers,
+};
+use miette::IntoDiagnostic;
 use once_cell::sync::Lazy;
-use pep440::Version;
-use std::collections::HashSet;
+use pep508_rs::Requirement;
+use std::{collections::HashSet, str::FromStr};
 
 #[derive(Debug, Clone)]
 pub struct WheelCoreMetadata {
     pub name: PackageName,
     pub version: Version,
-    pub requires_dist: Vec<PackageRequirement>,
-    pub requires_python: Specifiers,
+    pub requires_dist: Vec<Requirement>,
+    pub requires_python: Option<VersionSpecifiers>,
     pub extras: HashSet<Extra>,
 }
 
@@ -35,10 +34,12 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
             }
         }
 
-        let requires_python = match parsed.maybe_take("Requires-Python")? {
-            Some(rp_str) => rp_str.parse()?,
-            None => Specifiers(Vec::new()),
-        };
+        let requires_python = parsed
+            .maybe_take("Requires-Python")?
+            .as_deref()
+            .map(VersionSpecifiers::from_str)
+            .transpose()
+            .into_diagnostic()?;
 
         let mut extras: HashSet<Extra> = HashSet::new();
         for extra in parsed.take_all("Provides-Extra").drain(..) {
@@ -59,7 +60,8 @@ fn parse_common(input: &[u8]) -> miette::Result<(PackageName, Version, RFC822ish
     let input = String::from_utf8_lossy(input);
     let mut parsed = RFC822ish::parse(&input)?;
 
-    static NEXT_MAJOR_METADATA_VERSION: Lazy<Version> = Lazy::new(|| Version::parse("3").unwrap());
+    static NEXT_MAJOR_METADATA_VERSION: Lazy<Version> =
+        Lazy::new(|| Version::from_str("3").unwrap());
 
     // Quoth https://packaging.python.org/specifications/core-metadata:
     // "Automated tools consuming metadata SHOULD warn if metadata_version
@@ -79,8 +81,9 @@ fn parse_common(input: &[u8]) -> miette::Result<(PackageName, Version, RFC822ish
     // much-discussed beforehand that if a tool's authors don't know
     // about it it's because the tool is abandoned anyway.
     let metadata_version = parsed.take("Metadata-Version")?;
-    let metadata_version: Version = Version::parse(&metadata_version)
-        .ok_or_else(|| miette::miette!("failed to parse {metadata_version}"))?;
+    let metadata_version: Version = metadata_version
+        .parse()
+        .map_err(|err| miette::miette!("failed to parse {metadata_version}: {err}"))?;
     if metadata_version >= *NEXT_MAJOR_METADATA_VERSION {
         miette::bail!("unsupported Metadata-Version {}", metadata_version);
     }
@@ -89,8 +92,9 @@ fn parse_common(input: &[u8]) -> miette::Result<(PackageName, Version, RFC822ish
 
     Ok((
         parsed.take("Name")?.parse()?,
-        Version::parse(&version_str)
-            .ok_or_else(|| miette::miette!("failed to parse version '{version_str}'"))?,
+        version_str
+            .parse()
+            .map_err(|err| miette::miette!("failed to parse version '{version_str}': {err}"))?,
         parsed,
     ))
 }

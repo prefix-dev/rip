@@ -14,11 +14,8 @@ mod http;
 mod package_database;
 mod package_name;
 mod project_info;
-mod reqparse;
-mod requirement;
 mod rfc822ish;
 mod seek_slice;
-mod specifier;
 mod utils;
 
 mod env_markers;
@@ -40,11 +37,8 @@ pub use artifact_name::{
 pub use env_markers::Pep508EnvMakers;
 pub use extra::Extra;
 pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError};
-pub use pep440::Version;
+pub use pep440_rs::{Version, VersionSpecifier, VersionSpecifiers};
+pub use pep508_rs::{MarkerEnvironment, Requirement};
 pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, ProjectInfo, Yanked};
-pub use requirement::{
-    marker, PackageRequirement, ParseExtraInEnv, PythonRequirement, Requirement, UserRequirement,
-};
-pub use specifier::{CompareOp, Specifier, Specifiers};
 
 pub use utils::normalize_index_url;

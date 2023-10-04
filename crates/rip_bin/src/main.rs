@@ -10,13 +10,13 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 use url::Url;
 
 use rattler_installs_packages::tags::WheelTags;
-use rattler_installs_packages::{normalize_index_url, resolve, Pep508EnvMakers, UserRequirement};
+use rattler_installs_packages::{normalize_index_url, resolve, Pep508EnvMakers, Requirement};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[clap(num_args=1.., required=true)]
-    specs: Vec<UserRequirement>,
+    specs: Vec<Requirement>,
 
     /// Base URL of the Python Package Index (default <https://pypi.org/simple>). This should point
     /// to a repository compliant with PEP 503 (the simple repository API).
