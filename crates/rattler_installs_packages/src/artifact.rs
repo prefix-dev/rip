@@ -1,6 +1,7 @@
 use crate::artifact_name::{InnerAsArtifactName, WheelName};
 use crate::core_metadata::WheelCoreMetadata;
 use crate::package_name::PackageName;
+use crate::rfc822ish::RFC822ish;
 use crate::utils::ReadAndSeek;
 use crate::Version;
 use async_trait::async_trait;
@@ -8,6 +9,7 @@ use miette::IntoDiagnostic;
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use zip::ZipArchive;
 
@@ -36,7 +38,6 @@ pub struct Wheel {
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
 }
 
-#[async_trait]
 impl Artifact for Wheel {
     type Name = WheelName;
 
@@ -54,7 +55,6 @@ impl Artifact for Wheel {
 
 /// Trait that represents an artifact that contains metadata.
 /// Currently implemented for [`Wheel`] files.
-#[async_trait]
 pub trait MetadataArtifact: Artifact {
     /// Associated type for the metadata of this artifact.
     type Metadata;
@@ -65,6 +65,14 @@ pub trait MetadataArtifact: Artifact {
     /// Parses the metadata from the artifact itself. Also returns the metadata bytes so we can
     /// cache it for later.
     fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)>;
+}
+
+struct WheelVitals {
+    dist_info: String,
+    data: String,
+    root_is_purelib: bool,
+    metadata_blob: Vec<u8>,
+    metadata: WheelCoreMetadata,
 }
 
 impl Wheel {
@@ -108,17 +116,8 @@ impl Wheel {
 
         Ok(Some(candidate))
     }
-}
 
-#[async_trait]
-impl MetadataArtifact for Wheel {
-    type Metadata = WheelCoreMetadata;
-
-    fn parse_metadata(bytes: &[u8]) -> miette::Result<Self::Metadata> {
-        WheelCoreMetadata::try_from(bytes)
-    }
-
-    fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)> {
+    fn get_vitals(&self) -> miette::Result<WheelVitals> {
         let mut archive = self.archive.lock();
 
         // Determine the top level filenames in the wheel
@@ -141,29 +140,92 @@ impl MetadataArtifact for Wheel {
         .ok_or_else(|| miette::miette!(".dist-info/ missing"))?
         .to_owned();
 
-        // // Determine the name of the data directory
-        // let data = Wheel::find_special_wheel_dir(
-        //     top_level_names,
-        //     &self.name.distribution,
-        //     &self.name.version,
-        //     ".data",
-        // )?
-        // .map_or_else(
-        //     || format!("{}.data", dist_info.strip_suffix(".dist-info").unwrap()),
-        //     ToOwned::to_owned,
-        // );
+        // Determine the name of the data directory
+        let data = Wheel::find_special_wheel_dir(
+            top_level_names,
+            &self.name.distribution,
+            &self.name.version,
+            ".data",
+        )?
+        .map_or_else(
+            || format!("{}.data", dist_info.strip_suffix(".dist-info").unwrap()),
+            ToOwned::to_owned,
+        );
 
-        // let wheel_path = format!("{dist_info}/WHEEL");
-        // let wheel_metadata = read_entry_to_end(&mut archive, &wheel_path).await?;
-        //
-        // // TODO: Verify integrity of wheel metadata
+        let wheel_path = format!("{dist_info}/WHEEL");
+        let wheel_metadata = read_entry_to_end(&mut archive, &wheel_path)?;
+
+        let mut parsed = parse_format_metadata_and_check_version(&wheel_metadata, "Wheel-Version")?;
+
+        let root_is_purelib = match &parsed.take_the("Root-Is-Purelib")?[..] {
+            "true" => true,
+            "false" => false,
+            other => miette::bail!(
+                "Expected 'true' or 'false' for Root-Is-Purelib, not {}",
+                other,
+            ),
+        };
 
         let metadata_path = format!("{dist_info}/METADATA");
         let metadata_bytes = read_entry_to_end(&mut archive, &metadata_path)?;
         let metadata = Self::parse_metadata(&metadata_bytes)?;
 
-        Ok((metadata_bytes, metadata))
+        if metadata.name != self.name.distribution {
+            miette::bail!(
+                "name mismatch between {dist_info}/METADATA and filename ({} != {}",
+                metadata.name.as_given(),
+                self.name.distribution.as_source_str()
+            );
+        }
+        if metadata.version != self.name.version {
+            miette::bail!(
+                "version mismatch between {dist_info}/METADATA and filename ({} != {})",
+                metadata.version,
+                self.name.version
+            );
+        }
+
+        Ok(WheelVitals {
+            dist_info: dist_info,
+            data: data,
+            root_is_purelib,
+            metadata_blob,
+            metadata,
+        })
     }
+}
+
+#[async_trait]
+impl MetadataArtifact for Wheel {
+    type Metadata = WheelCoreMetadata;
+
+    fn parse_metadata(bytes: &[u8]) -> miette::Result<Self::Metadata> {
+        WheelCoreMetadata::try_from(bytes)
+    }
+
+    fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)> {
+        let WheelVitals {
+            metadata_blob,
+            metadata,
+            ..
+        } = self.get_vitals()?;
+        Ok((metadata_blob, metadata))
+    }
+}
+
+fn parse_format_metadata_and_check_version(
+    input: &[u8],
+    version_field: &str,
+) -> miette::Result<RFC822ish> {
+    let input: &str = std::str::from_utf8(input)?;
+    let mut parsed = RFC822ish::parse(input)?;
+
+    let version = parsed.take(version_field)?;
+    if !version.starts_with("1.") {
+        miette::bail!("unsupported {}: {:?}", version_field, version);
+    }
+
+    Ok(parsed)
 }
 
 /// Helper method to read a particular file from a zip archive.
@@ -179,4 +241,85 @@ fn read_entry_to_end<R: ReadAndSeek>(
         .into_diagnostic()?;
 
     Ok(bytes)
+}
+
+pub trait Filesystem {
+    fn mkdir(&mut self, path: &Path) -> std::io::Result<()>;
+    fn write_file(
+        &mut self,
+        path: &Path,
+        data: &mut dyn Read,
+        executable: bool,
+    ) -> std::io::Result<()>;
+    fn write_symlink(&mut self, source: &Path, target: &Path) -> std::io::Result<()>;
+}
+
+impl<FS: Filesystem> Filesystem for &mut FS {
+    fn mkdir(&mut self, path: &Path) -> std::io::Result<()> {
+        self.mkdir(path)
+    }
+
+    fn write_file(
+        &mut self,
+        path: &Path,
+        data: &mut dyn Read,
+        executable: bool,
+    ) -> std::io::Result<()> {
+        self.write_file(path, data, executable)
+    }
+
+    fn write_symlink(&mut self, source: &Path, target: &Path) -> std::io::Result<()> {
+        self.write_symlink(source, target)
+    }
+}
+
+struct RootedFilesystem {
+    root: PathBuf,
+}
+
+impl Filesystem for RootedFilesystem {
+    fn mkdir(&mut self, path: &Path) -> std::io::Result<()> {
+        debug_assert!(path.is_relative());
+        std::fs::create_dir_all(self.root.join(path))
+    }
+
+    fn write_file(
+        &mut self,
+        path: &Path,
+        data: &mut dyn Read,
+        executable: bool,
+    ) -> std::io::Result<()> {
+        debug_assert!(path.is_relative());
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if executable {
+            options.mode(0o777);
+        } else {
+            options.mode(0o666);
+        }
+        let mut file = options.open(self.root.join(path))?;
+        std::io::copy(data, &mut file)?;
+        Ok(())
+    }
+
+    fn write_symlink(&mut self, source: &Path, target: &Path) -> std::io::Result<()> {
+        debug_assert!(source.is_relative());
+        debug_assert!(target.is_relative());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&target, self.root.join(source))
+        }
+        #[cfg(not(unix))]
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "symlinks not supported on this platform",
+        ))
+    }
+}
+
+impl Wheel {
+    pub fn unpack<FS: Filesystem>(&self, mut dest: FS) -> std::io::Result<()> {
+        self.met
+    }
 }

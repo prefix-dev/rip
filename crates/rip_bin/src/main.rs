@@ -105,17 +105,22 @@ async fn actual_main() -> miette::Result<()> {
         console::style("Version").bold()
     )
     .into_diagnostic()?;
-    for (name, (version, extras)) in blueprint.into_iter().sorted_by(|(a, _), (b, _)| a.cmp(b)) {
-        write!(tabbed_stdout, "{name}", name = name.as_str()).into_diagnostic()?;
-        if !extras.is_empty() {
+    for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
+        write!(tabbed_stdout, "{name}", name = pinned_package.name.as_str()).into_diagnostic()?;
+        if !pinned_package.extras.is_empty() {
             write!(
                 tabbed_stdout,
                 "[{}]",
-                extras.iter().map(|e| e.as_str()).join(",")
+                pinned_package.extras.iter().map(|e| e.as_str()).join(",")
             )
             .into_diagnostic()?;
         }
-        writeln!(tabbed_stdout, "\t{version}").into_diagnostic()?;
+        writeln!(
+            tabbed_stdout,
+            "\t{version}",
+            version = pinned_package.version
+        )
+        .into_diagnostic()?;
     }
     tabbed_stdout.flush().into_diagnostic()?;
 

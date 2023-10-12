@@ -24,7 +24,7 @@ mod resolve;
 pub mod tags;
 
 #[cfg(feature = "resolvo")]
-pub use resolve::resolve;
+pub use resolve::{resolve, PinnedPackage};
 
 pub use file_store::{CacheKey, FileStore};
 pub use package_database::PackageDb;

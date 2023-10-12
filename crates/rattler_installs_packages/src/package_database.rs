@@ -1,26 +1,18 @@
-use crate::artifact::MetadataArtifact;
-use crate::html::parse_project_info_html;
-use crate::http::HttpRequestError;
-use crate::Version;
 use crate::{
-    artifact::Artifact,
+    artifact::{Artifact, MetadataArtifact},
     artifact_name::InnerAsArtifactName,
-    html,
-    http::{CacheMode, Http},
+    html::{self, parse_project_info_html},
+    http::{CacheMode, Http, HttpRequestError},
     project_info::{ArtifactInfo, ProjectInfo},
-    FileStore, NormalizedPackageName,
+    FileStore, NormalizedPackageName, Version,
 };
-use elsa::FrozenMap;
+use elsa::sync::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
-use http::header::CONTENT_TYPE;
-use http::{HeaderMap, HeaderValue, Method};
+use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
-use std::borrow::Borrow;
-use std::fmt::Display;
-use std::io::Read;
-use std::path::PathBuf;
+use std::{borrow::Borrow, fmt::Display, io::Read, path::PathBuf};
 use url::Url;
 
 /// Cache of the available packages, artifacts and their metadata.
