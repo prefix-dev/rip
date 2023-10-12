@@ -1,5 +1,6 @@
 use crate::artifact_name::{InnerAsArtifactName, WheelName};
 use crate::core_metadata::WheelCoreMetadata;
+use crate::fs::Filesystem;
 use crate::package_name::PackageName;
 use crate::rfc822ish::RFC822ish;
 use crate::utils::ReadAndSeek;
@@ -7,9 +8,12 @@ use crate::Version;
 use async_trait::async_trait;
 use miette::IntoDiagnostic;
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
+use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 use zip::ZipArchive;
 
@@ -36,6 +40,19 @@ pub trait Artifact: Sized {
 pub struct Wheel {
     name: WheelName,
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
+}
+
+impl Wheel {
+    /// Open a wheel by reading a file on disk.
+    pub fn from_path(path: &Path) -> miette::Result<Self> {
+        let file_name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or_else(|| miette::miette!("path does not contain a filename"))?;
+        let wheel_name = WheelName::from_str(file_name).into_diagnostic()?;
+        let file = File::open(path).into_diagnostic()?;
+        Self::new(wheel_name, Box::new(file))
+    }
 }
 
 impl Artifact for Wheel {
@@ -67,6 +84,7 @@ pub trait MetadataArtifact: Artifact {
     fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)>;
 }
 
+#[allow(dead_code)]
 struct WheelVitals {
     dist_info: String,
     data: String,
@@ -157,7 +175,7 @@ impl Wheel {
 
         let mut parsed = parse_format_metadata_and_check_version(&wheel_metadata, "Wheel-Version")?;
 
-        let root_is_purelib = match &parsed.take_the("Root-Is-Purelib")?[..] {
+        let root_is_purelib = match &parsed.take("Root-Is-Purelib")?[..] {
             "true" => true,
             "false" => false,
             other => miette::bail!(
@@ -167,13 +185,13 @@ impl Wheel {
         };
 
         let metadata_path = format!("{dist_info}/METADATA");
-        let metadata_bytes = read_entry_to_end(&mut archive, &metadata_path)?;
-        let metadata = Self::parse_metadata(&metadata_bytes)?;
+        let metadata_blob = read_entry_to_end(&mut archive, &metadata_path)?;
+        let metadata = Self::parse_metadata(&metadata_blob)?;
 
         if metadata.name != self.name.distribution {
             miette::bail!(
                 "name mismatch between {dist_info}/METADATA and filename ({} != {}",
-                metadata.name.as_given(),
+                metadata.name.as_source_str(),
                 self.name.distribution.as_source_str()
             );
         }
@@ -186,8 +204,8 @@ impl Wheel {
         }
 
         Ok(WheelVitals {
-            dist_info: dist_info,
-            data: data,
+            dist_info,
+            data,
             root_is_purelib,
             metadata_blob,
             metadata,
@@ -217,7 +235,7 @@ fn parse_format_metadata_and_check_version(
     input: &[u8],
     version_field: &str,
 ) -> miette::Result<RFC822ish> {
-    let input: &str = std::str::from_utf8(input)?;
+    let input: &str = std::str::from_utf8(input).into_diagnostic()?;
     let mut parsed = RFC822ish::parse(input)?;
 
     let version = parsed.take(version_field)?;
@@ -243,83 +261,184 @@ fn read_entry_to_end<R: ReadAndSeek>(
     Ok(bytes)
 }
 
-pub trait Filesystem {
-    fn mkdir(&mut self, path: &Path) -> std::io::Result<()>;
-    fn write_file(
-        &mut self,
-        path: &Path,
-        data: &mut dyn Read,
-        executable: bool,
-    ) -> std::io::Result<()>;
-    fn write_symlink(&mut self, source: &Path, target: &Path) -> std::io::Result<()>;
+/// A dictionary of installation categories to where they should be stored relative to the
+/// installation destination.
+#[derive(Debug, Clone)]
+pub struct InstallPaths {
+    pub mapping: HashMap<String, PathBuf>,
 }
 
-impl<FS: Filesystem> Filesystem for &mut FS {
-    fn mkdir(&mut self, path: &Path) -> std::io::Result<()> {
-        self.mkdir(path)
-    }
-
-    fn write_file(
-        &mut self,
-        path: &Path,
-        data: &mut dyn Read,
-        executable: bool,
-    ) -> std::io::Result<()> {
-        self.write_file(path, data, executable)
-    }
-
-    fn write_symlink(&mut self, source: &Path, target: &Path) -> std::io::Result<()> {
-        self.write_symlink(source, target)
-    }
-}
-
-struct RootedFilesystem {
-    root: PathBuf,
-}
-
-impl Filesystem for RootedFilesystem {
-    fn mkdir(&mut self, path: &Path) -> std::io::Result<()> {
-        debug_assert!(path.is_relative());
-        std::fs::create_dir_all(self.root.join(path))
-    }
-
-    fn write_file(
-        &mut self,
-        path: &Path,
-        data: &mut dyn Read,
-        executable: bool,
-    ) -> std::io::Result<()> {
-        debug_assert!(path.is_relative());
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        if executable {
-            options.mode(0o777);
+impl InstallPaths {
+    /// Populates mappings of installation targets for a virtualenv layout. The mapping depends on
+    /// the python version and whether or not the installation targets windows. Specifucally on
+    /// windows some of the paths are different. :shrug:
+    pub fn for_venv(python_version: (u32, u32), windows: bool) -> Self {
+        let site_packages = if windows {
+            Path::new("Lib").join("site-packages")
         } else {
-            options.mode(0o666);
+            Path::new("lib").join(format!(
+                "python{}.{}/site-packages",
+                python_version.0, python_version.1
+            ))
+        };
+        Self {
+            mapping: HashMap::from([
+                (
+                    String::from("scripts"),
+                    if windows {
+                        PathBuf::from("Scripts")
+                    } else {
+                        PathBuf::from("bin")
+                    },
+                ),
+                // purelib and platlib locations are not relevant when using venvs
+                // https://stackoverflow.com/a/27882460/3549270
+                (String::from("purelib"), site_packages.clone()),
+                (String::from("platlib"), site_packages),
+                // Move the content of the folder to the root of the venv
+                (String::from("data"), PathBuf::from("")),
+            ]),
         }
-        let mut file = options.open(self.root.join(path))?;
-        std::io::copy(data, &mut file)?;
-        Ok(())
-    }
-
-    fn write_symlink(&mut self, source: &Path, target: &Path) -> std::io::Result<()> {
-        debug_assert!(source.is_relative());
-        debug_assert!(target.is_relative());
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(&target, self.root.join(source))
-        }
-        #[cfg(not(unix))]
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "symlinks not supported on this platform",
-        ))
     }
 }
 
 impl Wheel {
-    pub fn unpack<FS: Filesystem>(&self, mut dest: FS) -> std::io::Result<()> {
-        self.met
+    /// Unpacks a wheel to the given fileystem.
+    /// TODO: Write better docs.
+    /// The following functionality is still missing:
+    /// - Checking and writing of RECORD file
+    /// - entry_points.txt
+    /// - Rewrite #!python.
+    /// - Generate script wrappers.
+    /// - bytecode compilation
+    /// - INSTALLER (https://peps.python.org/pep-0376/#installer)
+    /// - REQUESTED (https://peps.python.org/pep-0376/#requested)
+    /// - direct_url.json (https://peps.python.org/pep-0610/)
+    /// - support "headers" category
+    pub fn unpack<FS: Filesystem>(&self, mut dest: FS, paths: &InstallPaths) -> miette::Result<()> {
+        let vitals = self.get_vitals()?;
+
+        let transformer = WheelPathTransformer {
+            data: vitals.data,
+            root_is_purelib: vitals.root_is_purelib,
+            paths,
+        };
+
+        let mut archive = self.archive.lock();
+        for index in 0..archive.len() {
+            let mut zip_entry = archive.by_index(index).into_diagnostic()?;
+            let relative_path = zip_entry
+                .enclosed_name()
+                .ok_or_else(|| miette::miette!("file {} is an invalid path", zip_entry.name()))?;
+
+            // Determine the destination path.
+            let Some((destination, is_script)) =
+                transformer.analyze_path(relative_path).into_diagnostic()?
+            else {
+                continue;
+            };
+
+            // If the entry refers to a directory we simply create it.
+            if zip_entry.is_dir() {
+                dest.mkdir(&destination).into_diagnostic()?;
+                continue;
+            }
+
+            // Determine if the entry is executable
+            let executable = zip_entry
+                .unix_mode()
+                .map(|v| v & 0o0111 != 0)
+                .unwrap_or(false);
+
+            // If the file is a script
+            if is_script {
+                todo!("implement scripts")
+            } else {
+                dest.write_file(&destination, &mut zip_entry, executable)
+                    .into_diagnostic()?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Implements the logic to determine where a files from a wheel should be placed on the filesystem
+/// and whether we should apply special logic.
+///
+/// This implements the logic from <https://peps.python.org/pep-0427/#details>
+struct WheelPathTransformer<'a> {
+    /// The name of the data directory in the wheel archive
+    data: String,
+
+    /// Whether the wheel is a purelib or a platlib.
+    root_is_purelib: bool,
+
+    /// The location in the fileystem where to place files from the data directory.
+    paths: &'a InstallPaths,
+}
+
+impl<'a> WheelPathTransformer<'a> {
+    /// Given a path from a wheel zip, analyze the path and determine its final destination path.
+    ///
+    /// Returns `None` if the path should be ignored.
+    fn analyze_path(&self, path: &Path) -> std::io::Result<Option<(PathBuf, bool)>> {
+        let (category, rest_of_path) = if let Ok(data_path) = path.strip_prefix(&self.data) {
+            let mut components = data_path.components();
+            if let Some(category) = components.next() {
+                let Component::Normal(name) = category else {
+                    // TODO: Better error handling
+                    panic!("invalid path")
+                };
+                (name.to_string_lossy(), components.as_path())
+            } else {
+                // This is the data directory itself. Discard that.
+                return Ok(None);
+            }
+        } else {
+            let category = if self.root_is_purelib {
+                Cow::Borrowed("purelib")
+            } else {
+                Cow::Borrowed("platlib")
+            };
+            (category, path)
+        };
+
+        let basepath = self.paths.mapping.get(category.as_ref()).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                format!("unrecognized wheel file category {category}"),
+            )
+        })?;
+
+        Ok(Some((basepath.join(rest_of_path), category == "scripts")))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::fs::RootedFilesystem;
+    use tempfile::tempdir;
+
+    /// A test to use as an entry point for wheel extraction.
+    #[test]
+    fn test_wheel_unpack() {
+        let wheel = Wheel::from_path(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../test-data/wheels/miniblack-23.1.0-py3-none-any.whl"),
+        )
+        .unwrap();
+        let tmpdir = tempdir().unwrap();
+
+        wheel
+            .unpack(
+                RootedFilesystem::from(tmpdir.path()),
+                &InstallPaths::for_venv((3, 8), false),
+            )
+            .unwrap();
+
+        let retained_path = tmpdir.into_path();
+        println!("Outputted to: {}", &retained_path.display());
     }
 }
