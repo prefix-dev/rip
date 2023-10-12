@@ -44,7 +44,7 @@ impl<FS: Filesystem> Filesystem for &mut FS {
     }
 }
 
-/// A [`FileSystem`] implementation that writes its contents to a directory on the systems
+/// A [`Filesystem`] implementation that writes its contents to a directory on the systems
 /// filesystem.
 pub struct RootedFilesystem {
     root: PathBuf,

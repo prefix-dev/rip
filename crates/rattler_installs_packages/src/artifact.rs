@@ -312,9 +312,9 @@ impl Wheel {
     /// - Rewrite #!python.
     /// - Generate script wrappers.
     /// - bytecode compilation
-    /// - INSTALLER (https://peps.python.org/pep-0376/#installer)
-    /// - REQUESTED (https://peps.python.org/pep-0376/#requested)
-    /// - direct_url.json (https://peps.python.org/pep-0610/)
+    /// - INSTALLER (<https://peps.python.org/pep-0376/#installer>)
+    /// - REQUESTED (<https://peps.python.org/pep-0376/#requested>)
+    /// - direct_url.json (<https://peps.python.org/pep-0610/>)
     /// - support "headers" category
     pub fn unpack<FS: Filesystem>(&self, mut dest: FS, paths: &InstallPaths) -> miette::Result<()> {
         let vitals = self.get_vitals()?;
