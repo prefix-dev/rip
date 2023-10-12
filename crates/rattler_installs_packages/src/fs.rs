@@ -68,7 +68,7 @@ impl Filesystem for RootedFilesystem {
     ) -> std::io::Result<()> {
         debug_assert!(path.is_relative());
         let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
+        options.write(true).create(true);
         #[cfg(unix)]
         if _executable {
             options.mode(0o777);

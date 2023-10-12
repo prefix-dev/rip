@@ -30,7 +30,7 @@ pub use resolve::{resolve, PinnedPackage};
 pub use file_store::{CacheKey, FileStore};
 pub use package_database::PackageDb;
 
-pub use artifact::{Artifact, MetadataArtifact, Wheel, InstallPaths};
+pub use artifact::{Artifact, InstallPaths, MetadataArtifact, Wheel};
 pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFormat, SDistName,
     WheelName,
