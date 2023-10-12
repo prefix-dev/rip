@@ -10,9 +10,9 @@ opt-level = 3
 
 [workspace.package]
 version = "0.1.0"
-categories = ["conda"]
-homepage = "https://github.com/mamba-org/rattler"
-repository = "https://github.com/mamba-org/rattler"
+categories = ["development-tools"]
+homepage = "https://github.com/prefix-dev/rip"
+repository = "https://github.com/prefix-dev/rip"
 license = "BSD-3-Clause"
 edition = "2021"
 readme = "README.md"
