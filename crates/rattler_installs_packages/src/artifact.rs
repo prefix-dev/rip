@@ -265,6 +265,7 @@ fn read_entry_to_end<R: ReadAndSeek>(
 /// installation destination.
 #[derive(Debug, Clone)]
 pub struct InstallPaths {
+    /// Mapping from category to installation path
     pub mapping: HashMap<String, PathBuf>,
 }
 
