@@ -2,6 +2,8 @@
 //! physical filesystem [`RootedFilesystem]`.
 
 use std::io::Read;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 /// An abstraction over a filesystem.
