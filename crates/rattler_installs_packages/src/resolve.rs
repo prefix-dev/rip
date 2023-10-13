@@ -119,22 +119,22 @@ impl Display for PypiPackageName {
 }
 
 /// This is a [`DependencyProvider`] for PyPI packages
-struct PypiDependencyProvider<'db> {
+struct PypiDependencyProvider<'db, 'i> {
     pool: Pool<PypiVersionSet, PypiPackageName>,
     package_db: &'db PackageDb,
-    markers: &'db MarkerEnvironment,
-    compatible_tags: Option<&'db WheelTags>,
+    markers: &'i MarkerEnvironment,
+    compatible_tags: Option<&'i WheelTags>,
 
     cached_artifacts: FrozenMap<SolvableId, Vec<&'db ArtifactInfo>>,
 }
 
-impl<'db> PypiDependencyProvider<'db> {
+impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
     /// Creates a new PypiDependencyProvider
     /// for use with the [`resolvo`] crate
     pub fn new(
         package_db: &'db PackageDb,
-        markers: &'db MarkerEnvironment,
-        compatible_tags: Option<&'db WheelTags>,
+        markers: &'i MarkerEnvironment,
+        compatible_tags: Option<&'i WheelTags>,
     ) -> miette::Result<Self> {
         Ok(Self {
             pool: Pool::new(),
@@ -146,7 +146,9 @@ impl<'db> PypiDependencyProvider<'db> {
     }
 }
 
-impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvider<'_> {
+impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
+    for &'p PypiDependencyProvider<'_, '_>
+{
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
         &self.pool
     }
@@ -419,6 +421,23 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
     }
 }
 
+/// Represents a single locked down distribution (python package) after calling [`resolve`].
+#[derive(Debug)]
+pub struct PinnedPackage<'db> {
+    /// The name of the package
+    pub name: NormalizedPackageName,
+
+    /// The selected version
+    pub version: Version,
+
+    /// The extras that where selected either by the user or as part of the resolution.
+    pub extras: HashSet<Extra>,
+
+    /// The applicable artifacts for this package. These have been ordered by compatibility if
+    /// `compatible_tags` have been provided to the solver.
+    pub artifacts: Vec<&'db ArtifactInfo>,
+}
+
 /// Resolves an environment that contains the given requirements and all dependencies of those
 /// requirements.
 ///
@@ -429,15 +448,15 @@ impl DependencyProvider<PypiVersionSet, PypiPackageName> for PypiDependencyProvi
 /// If `compatible_tags` is defined then the available artifacts of a distribution are filtered to
 /// include only artifacts that are compatible with the specified tags. If `None` is passed, the
 /// artifacts are not filtered at all.
-pub async fn resolve(
-    package_db: &PackageDb,
+pub async fn resolve<'db>(
+    package_db: &'db PackageDb,
     requirements: impl IntoIterator<Item = &Requirement>,
     env_markers: &MarkerEnvironment,
     compatible_tags: Option<&WheelTags>,
-) -> miette::Result<HashMap<PackageName, (Version, HashSet<Extra>)>> {
+) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct a provider
     let provider = PypiDependencyProvider::new(package_db, env_markers, compatible_tags)?;
-    let pool = provider.pool();
+    let pool = &provider.pool;
 
     let requirements = requirements.into_iter();
 
@@ -470,38 +489,47 @@ pub async fn resolve(
     }
 
     // Invoke the solver to get a solution to the requirements
-    let mut solver = Solver::new(provider);
-    let result = solver.solve(root_requirements);
-
-    match result {
-        Ok(solvables) => {
-            let mut result = HashMap::default();
-            for solvable in solvables {
-                let pool = solver.pool();
-                let solvable = pool.resolve_solvable(solvable);
-                let name = pool.resolve_package_name(solvable.name_id());
-                let PypiVersion::Version(version) = solvable.inner() else {
-                    unreachable!("urls are not yet supported")
-                };
-                match name {
-                    PypiPackageName::Base(name) => {
-                        result
-                            .entry(name.clone().into())
-                            .or_insert((version.clone(), HashSet::new()));
-                    }
-                    PypiPackageName::Extra(name, extra) => {
-                        let (_, extras) = result
-                            .entry(name.clone().into())
-                            .or_insert((version.clone(), HashSet::new()));
-                        extras.insert(extra.clone());
-                    }
-                }
-            }
-            Ok(result)
+    let mut solver = Solver::new(&provider);
+    let solvables = match solver.solve(root_requirements) {
+        Ok(solvables) => solvables,
+        Err(e) => {
+            return Err(miette::miette!(
+                "{}",
+                e.display_user_friendly(&solver, &DefaultSolvableDisplay)
+            ))
         }
-        Err(e) => Err(miette::miette!(
-            "{}",
-            e.display_user_friendly(&solver, &DefaultSolvableDisplay)
-        )),
+    };
+
+    let mut result = HashMap::new();
+    for solvable_id in solvables {
+        let pool = solver.pool();
+        let solvable = pool.resolve_solvable(solvable_id);
+        let name = pool.resolve_package_name(solvable.name_id());
+        let PypiVersion::Version(version) = solvable.inner() else {
+            unreachable!("urls are not yet supported")
+        };
+
+        // Get the entry in the result
+        let entry = result
+            .entry(name.base().clone())
+            .or_insert_with(|| PinnedPackage {
+                name: name.base().clone(),
+                version: version.clone(),
+                extras: Default::default(),
+                artifacts: provider
+                    .cached_artifacts
+                    .get(&solvable_id)
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .collect(),
+            });
+
+        // Add the extra if selected
+        if let PypiPackageName::Extra(_, extra) = name {
+            entry.extras.insert(extra.clone());
+        }
     }
+
+    Ok(result.into_values().collect())
 }

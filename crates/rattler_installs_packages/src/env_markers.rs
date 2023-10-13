@@ -21,7 +21,13 @@ use which::which;
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[allow(missing_docs)]
 #[serde(transparent)]
-pub struct Pep508EnvMakers(pep508_rs::MarkerEnvironment);
+pub struct Pep508EnvMakers(pub pep508_rs::MarkerEnvironment);
+
+impl From<pep508_rs::MarkerEnvironment> for Pep508EnvMakers {
+    fn from(value: pep508_rs::MarkerEnvironment) -> Self {
+        Self(value)
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum FromPythonError {
