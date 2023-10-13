@@ -1,3 +1,9 @@
+//! This module implements logic to locate so called python distributions (installed artifacts)
+//! in an environment.
+//!
+//! The implementation is based on the <https://packaging.python.org/en/latest/specifications/recording-installed-packages>
+//! which is based on [PEP 376](https://peps.python.org/pep-0376/) and [PEP 627](https://peps.python.org/pep-0627/).
+
 use crate::{rfc822ish::RFC822ish, InstallPaths, NormalizedPackageName, PackageName};
 use itertools::Itertools;
 use pep440_rs::Version;
@@ -129,10 +135,16 @@ mod test {
 
     #[test]
     fn test_find_distributions() {
+        // Describe the virtual environment
         let venv_path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/find_distributions/");
         let install_paths = InstallPaths::for_venv((3, 8), true);
-        let distributions = find_distributions_in_venv(&venv_path, &install_paths).unwrap();
+
+        // Find all distributions
+        let mut distributions = find_distributions_in_venv(&venv_path, &install_paths).unwrap();
+
+        // Sort to get consistent ordering across platforms
+        distributions.sort_by(|a, b| a.name.cmp(&b.name));
 
         insta::assert_ron_snapshot!(distributions, {
             "[].dist_info" => insta::dynamic_redaction(move |value, _path| {
