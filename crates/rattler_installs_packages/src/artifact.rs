@@ -236,7 +236,7 @@ fn parse_format_metadata_and_check_version(
     version_field: &str,
 ) -> miette::Result<RFC822ish> {
     let input: &str = std::str::from_utf8(input).into_diagnostic()?;
-    let mut parsed = RFC822ish::parse(input)?;
+    let mut parsed = RFC822ish::from_str(input).into_diagnostic()?;
 
     let version = parsed.take(version_field)?;
     if !version.starts_with("1.") {
@@ -304,7 +304,7 @@ impl InstallPaths {
 }
 
 impl Wheel {
-    /// Unpacks a wheel to the given fileystem.
+    /// Unpacks a wheel to the given filesystem.
     /// TODO: Write better docs.
     /// The following functionality is still missing:
     /// - Checking and writing of RECORD file
@@ -375,7 +375,7 @@ struct WheelPathTransformer<'a> {
     /// Whether the wheel is a purelib or a platlib.
     root_is_purelib: bool,
 
-    /// The location in the fileystem where to place files from the data directory.
+    /// The location in the filesystem where to place files from the data directory.
     paths: &'a InstallPaths,
 }
 
