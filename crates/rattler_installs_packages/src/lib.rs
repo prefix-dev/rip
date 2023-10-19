@@ -24,6 +24,8 @@ pub mod fs;
 mod resolve;
 pub mod tags;
 
+mod distribution_finder;
+
 #[cfg(feature = "resolvo")]
 pub use resolve::{resolve, PinnedPackage};
 
@@ -35,6 +37,7 @@ pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFormat, SDistName,
     WheelName,
 };
+pub use distribution_finder::{find_distributions_in_venv, Distribution, FindDistributionError};
 pub use env_markers::Pep508EnvMakers;
 pub use extra::Extra;
 pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError};

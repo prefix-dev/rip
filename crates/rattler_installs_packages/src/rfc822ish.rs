@@ -1,8 +1,8 @@
 // Implementation comes from https://github.com/njsmith/posy/blob/main/src/vocab/rfc822ish.rs
 // Licensed under MIT or Apache-2.0
 
-use miette::IntoDiagnostic;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 pub type Fields = HashMap<String, Vec<String>>;
 
@@ -88,10 +88,6 @@ peg::parser! {
 }
 
 impl RFC822ish {
-    pub fn parse(input: &str) -> miette::Result<RFC822ish> {
-        rfc822ish_parser::rfc822ish(input).into_diagnostic()
-    }
-
     pub fn take_all(&mut self, key: &str) -> Vec<String> {
         match self.fields.remove(&key.to_ascii_lowercase()) {
             Some(vec) => vec,
@@ -113,5 +109,13 @@ impl RFC822ish {
             Some(result) => Ok(result),
             None => miette::bail!("can't find required key {}", key),
         }
+    }
+}
+
+impl FromStr for RFC822ish {
+    type Err = peg::error::ParseError<peg::str::LineCol>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        rfc822ish_parser::rfc822ish(s)
     }
 }

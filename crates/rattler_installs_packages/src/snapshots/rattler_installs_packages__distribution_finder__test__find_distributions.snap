@@ -1,0 +1,86 @@
+---
+source: crates/rattler_installs_packages/src/distribution_finder.rs
+assertion_line: 131
+expression: distributions
+---
+[
+  Distribution(
+    name: "click",
+    version: "7.1.2",
+    installer: Some("pip"),
+    dist_info: "Lib/site-packages/click-7.1.2.dist-info",
+    tags: Some([
+      "py2-none-any",
+      "py3-none-any",
+    ]),
+  ),
+  Distribution(
+    name: "flask",
+    version: "1.1.4",
+    installer: Some("pip"),
+    dist_info: "Lib/site-packages/Flask-1.1.4.dist-info",
+    tags: Some([
+      "py2-none-any",
+      "py3-none-any",
+    ]),
+  ),
+  Distribution(
+    name: "itsdangerous",
+    version: "1.1.0",
+    installer: Some("pip"),
+    dist_info: "Lib/site-packages/itsdangerous-1.1.0.dist-info",
+    tags: Some([
+      "py2-none-any",
+      "py3-none-any",
+    ]),
+  ),
+  Distribution(
+    name: "jinja2",
+    version: "2.11.3",
+    installer: Some("pip"),
+    dist_info: "Lib/site-packages/Jinja2-2.11.3.dist-info",
+    tags: Some([
+      "py2-none-any",
+      "py3-none-any",
+    ]),
+  ),
+  Distribution(
+    name: "markupsafe",
+    version: "1.1.1",
+    installer: Some("pip"),
+    dist_info: "Lib/site-packages/MarkupSafe-1.1.1.dist-info",
+    tags: Some([
+      "cp35-cp35m-win_amd64",
+    ]),
+  ),
+  Distribution(
+    name: "pip",
+    version: "9.0.1",
+    installer: Some("pip"),
+    dist_info: "Lib/site-packages/pip-9.0.1.dist-info",
+    tags: Some([
+      "py2-none-any",
+      "py3-none-any",
+    ]),
+  ),
+  Distribution(
+    name: "setuptools",
+    version: "28.8.0",
+    installer: Some("pip"),
+    dist_info: "Lib/site-packages/setuptools-28.8.0.dist-info",
+    tags: Some([
+      "py2-none-any",
+      "py3-none-any",
+    ]),
+  ),
+  Distribution(
+    name: "werkzeug",
+    version: "1.0.1",
+    installer: Some("pip"),
+    dist_info: "Lib/site-packages/Werkzeug-1.0.1.dist-info",
+    tags: Some([
+      "py2-none-any",
+      "py3-none-any",
+    ]),
+  ),
+]

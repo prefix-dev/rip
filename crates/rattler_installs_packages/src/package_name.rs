@@ -1,7 +1,7 @@
 use miette::Diagnostic;
 use regex::Regex;
 use serde::{Serialize, Serializer};
-use serde_with::DeserializeFromStr;
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -104,7 +104,9 @@ impl Serialize for PackageName {
 /// A normalized package name. This is a string that is guaranteed to be a valid python package string
 /// this is described in [PEP 503 (Normalized Names)](https://www.python.org/dev/peps/pep-0503/#normalized-names).
 #[repr(transparent)]
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, SerializeDisplay, DeserializeFromStr,
+)]
 pub struct NormalizedPackageName(Box<str>);
 
 impl From<PackageName> for NormalizedPackageName {
@@ -132,6 +134,14 @@ impl NormalizedPackageName {
     /// Returns a string reference
     pub fn as_str(&self) -> &str {
         self.0.as_ref()
+    }
+}
+
+impl FromStr for NormalizedPackageName {
+    type Err = ParsePackageNameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(PackageName::from_str(s)?.into())
     }
 }
 

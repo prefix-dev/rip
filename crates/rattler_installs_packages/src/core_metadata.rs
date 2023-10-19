@@ -58,7 +58,7 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
 
 fn parse_common(input: &[u8]) -> miette::Result<(PackageName, Version, RFC822ish)> {
     let input = String::from_utf8_lossy(input);
-    let mut parsed = RFC822ish::parse(&input)?;
+    let mut parsed = RFC822ish::from_str(&input).into_diagnostic()?;
 
     static NEXT_MAJOR_METADATA_VERSION: Lazy<Version> =
         Lazy::new(|| Version::from_str("3").unwrap());
