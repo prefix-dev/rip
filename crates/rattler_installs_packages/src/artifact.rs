@@ -1,21 +1,29 @@
-use crate::artifact_name::{InnerAsArtifactName, WheelName};
-use crate::core_metadata::WheelCoreMetadata;
-use crate::fs::Filesystem;
-use crate::package_name::PackageName;
-use crate::rfc822ish::RFC822ish;
-use crate::utils::ReadAndSeek;
-use crate::Version;
+use crate::{
+    artifact_name::{InnerAsArtifactName, WheelName},
+    core_metadata::{WheelCoreMetaDataError, WheelCoreMetadata},
+    package_name::PackageName,
+    record::{Record, RecordEntry},
+    rfc822ish::RFC822ish,
+    utils::ReadAndSeek,
+    Version,
+};
 use async_trait::async_trait;
+use data_encoding::BASE64URL_NOPAD;
 use miette::IntoDiagnostic;
 use parking_lot::Mutex;
-use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::Read;
-use std::path::{Component, Path, PathBuf};
-use std::str::FromStr;
-use zip::ZipArchive;
+use rattler_digest::Sha256;
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    ffi::OsStr,
+    fs,
+    fs::File,
+    io::Read,
+    path::{Component, Path, PathBuf},
+    str::FromStr,
+};
+use thiserror::Error;
+use zip::{read::ZipFile, result::ZipError, ZipArchive};
 
 /// Trait that represents an artifact type in the PyPI ecosystem.
 /// Currently implemented for [`Wheel`] files.
@@ -93,6 +101,42 @@ struct WheelVitals {
     metadata: WheelCoreMetadata,
 }
 
+#[derive(Debug, Error)]
+pub enum WheelVitalsError {
+    #[error(".dist-info/ missing")]
+    DistInfoMissing,
+
+    #[error("found multiple {0} directories in wheel")]
+    MultipleSpecialDirs(String),
+
+    #[error("failed to parse WHEEL file")]
+    FailedToParseWheel(#[source] <RFC822ish as FromStr>::Err),
+
+    #[error("unsupported WHEEL version {0}")]
+    UnsupportedWheelVersion(String),
+
+    #[error("invalid METADATA")]
+    InvalidMetadata(#[from] WheelCoreMetaDataError),
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error("Failed to read the wheel file {0}")]
+    ZipError(String, #[source] ZipError),
+
+    #[error("missing key from WHEEL '{0}'")]
+    MissingKeyInWheel(String),
+}
+
+impl WheelVitalsError {
+    pub fn from_zip(file: String, err: ZipError) -> Self {
+        match err {
+            ZipError::Io(err) => WheelVitalsError::IoError(err),
+            _ => WheelVitalsError::ZipError(file, err),
+        }
+    }
+}
+
 impl Wheel {
     /// A wheel file always contains a special directory that contains the metadata of the package.
     /// This function returns the name of that directory.
@@ -101,7 +145,7 @@ impl Wheel {
         name: &PackageName,
         version: &Version,
         suffix: &str,
-    ) -> miette::Result<Option<&'a str>> {
+    ) -> Result<Option<&'a str>, WheelVitalsError> {
         // Find all directories that end in the suffix
         let mut candidates = top_level_names.into_iter().filter(|dir_name| {
             let Some(candidate) = dir_name.strip_suffix(suffix) else {
@@ -129,13 +173,13 @@ impl Wheel {
 
         // Error out if there are multiple directories
         if candidates.next().is_some() {
-            miette::bail!("found multiple {suffix}/ directories in wheel");
+            return Err(WheelVitalsError::MultipleSpecialDirs(suffix.to_owned()));
         }
 
         Ok(Some(candidate))
     }
 
-    fn get_vitals(&self) -> miette::Result<WheelVitals> {
+    fn get_vitals(&self) -> Result<WheelVitals, WheelVitalsError> {
         let mut archive = self.archive.lock();
 
         // Determine the top level filenames in the wheel
@@ -155,7 +199,7 @@ impl Wheel {
             &self.name.version,
             ".dist-info",
         )?
-        .ok_or_else(|| miette::miette!(".dist-info/ missing"))?
+        .ok_or(WheelVitalsError::DistInfoMissing)?
         .to_owned();
 
         // Determine the name of the data directory
@@ -175,32 +219,39 @@ impl Wheel {
 
         let mut parsed = parse_format_metadata_and_check_version(&wheel_metadata, "Wheel-Version")?;
 
-        let root_is_purelib = match &parsed.take("Root-Is-Purelib")?[..] {
+        let root_is_purelib = match &parsed
+            .take("Root-Is-Purelib")
+            .map_err(|_| WheelCoreMetaDataError::MissingKey(String::from("Root-Is-Purelib")))?[..]
+        {
             "true" => true,
             "false" => false,
-            other => miette::bail!(
-                "Expected 'true' or 'false' for Root-Is-Purelib, not {}",
-                other,
-            ),
+            other => {
+                return Err(WheelCoreMetaDataError::FailedToParse(format!(
+                    "Expected 'true' or 'false' for Root-Is-Purelib, not {}",
+                    other,
+                ))
+                .into())
+            }
         };
 
         let metadata_path = format!("{dist_info}/METADATA");
         let metadata_blob = read_entry_to_end(&mut archive, &metadata_path)?;
-        let metadata = Self::parse_metadata(&metadata_blob)?;
+        let metadata = WheelCoreMetadata::try_from(metadata_blob.as_slice())?;
 
         if metadata.name != self.name.distribution {
-            miette::bail!(
+            return Err(WheelCoreMetaDataError::FailedToParse(format!(
                 "name mismatch between {dist_info}/METADATA and filename ({} != {}",
                 metadata.name.as_source_str(),
                 self.name.distribution.as_source_str()
-            );
+            ))
+            .into());
         }
         if metadata.version != self.name.version {
-            miette::bail!(
+            return Err(WheelCoreMetaDataError::FailedToParse(format!(
                 "version mismatch between {dist_info}/METADATA and filename ({} != {})",
-                metadata.version,
-                self.name.version
-            );
+                metadata.version, self.name.version
+            ))
+            .into());
         }
 
         Ok(WheelVitals {
@@ -218,7 +269,7 @@ impl MetadataArtifact for Wheel {
     type Metadata = WheelCoreMetadata;
 
     fn parse_metadata(bytes: &[u8]) -> miette::Result<Self::Metadata> {
-        WheelCoreMetadata::try_from(bytes)
+        WheelCoreMetadata::try_from(bytes).into_diagnostic()
     }
 
     fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)> {
@@ -226,7 +277,7 @@ impl MetadataArtifact for Wheel {
             metadata_blob,
             metadata,
             ..
-        } = self.get_vitals()?;
+        } = self.get_vitals().into_diagnostic()?;
         Ok((metadata_blob, metadata))
     }
 }
@@ -234,13 +285,15 @@ impl MetadataArtifact for Wheel {
 fn parse_format_metadata_and_check_version(
     input: &[u8],
     version_field: &str,
-) -> miette::Result<RFC822ish> {
-    let input: &str = std::str::from_utf8(input).into_diagnostic()?;
-    let mut parsed = RFC822ish::from_str(input).into_diagnostic()?;
+) -> Result<RFC822ish, WheelVitalsError> {
+    let input = String::from_utf8_lossy(input);
+    let mut parsed = RFC822ish::from_str(&input).map_err(WheelVitalsError::FailedToParseWheel)?;
 
-    let version = parsed.take(version_field)?;
+    let version = parsed
+        .take(version_field)
+        .map_err(|_| WheelVitalsError::MissingKeyInWheel(version_field.into()))?;
     if !version.starts_with("1.") {
-        miette::bail!("unsupported {}: {:?}", version_field, version);
+        return Err(WheelVitalsError::UnsupportedWheelVersion(version));
     }
 
     Ok(parsed)
@@ -250,13 +303,12 @@ fn parse_format_metadata_and_check_version(
 fn read_entry_to_end<R: ReadAndSeek>(
     archive: &mut ZipArchive<R>,
     name: &str,
-) -> miette::Result<Vec<u8>> {
+) -> Result<Vec<u8>, WheelVitalsError> {
     let mut bytes = Vec::new();
     archive
         .by_name(name)
-        .map_err(|_| miette::miette!("could not find {name} in wheel file"))?
-        .read_to_end(&mut bytes)
-        .into_diagnostic()?;
+        .map_err(|err| WheelVitalsError::from_zip(name.to_string(), err))?
+        .read_to_end(&mut bytes)?;
 
     Ok(bytes)
 }
@@ -303,11 +355,40 @@ impl InstallPaths {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum UnpackError {
+    #[error(transparent)]
+    FailedToParseWheelVitals(#[from] WheelVitalsError),
+
+    #[error("missing installation path for {0}")]
+    MissingInstallPath(String),
+
+    #[error("Failed to read the wheel file {0}")]
+    ZipError(String, #[source] ZipError),
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error("RECORD file is invalid")]
+    RecordCsv(#[from] csv::Error),
+
+    #[error("RECORD file doesn't match wheel contents: {0}")]
+    RecordFile(String),
+}
+
+impl UnpackError {
+    pub fn from_zip_error(file: String, error: ZipError) -> Self {
+        match error {
+            ZipError::Io(err) => Self::IoError(err),
+            _ => Self::ZipError(file, error),
+        }
+    }
+}
+
 impl Wheel {
     /// Unpacks a wheel to the given filesystem.
     /// TODO: Write better docs.
     /// The following functionality is still missing:
-    /// - Checking and writing of RECORD file
     /// - entry_points.txt
     /// - Rewrite #!python.
     /// - Generate script wrappers.
@@ -316,32 +397,69 @@ impl Wheel {
     /// - REQUESTED (<https://peps.python.org/pep-0376/#requested>)
     /// - direct_url.json (<https://peps.python.org/pep-0610/>)
     /// - support "headers" category
-    pub fn unpack<FS: Filesystem>(&self, mut dest: FS, paths: &InstallPaths) -> miette::Result<()> {
-        let vitals = self.get_vitals()?;
+    pub fn unpack(&self, dest: &Path, paths: &InstallPaths) -> Result<(), UnpackError> {
+        let vitals = self
+            .get_vitals()
+            .map_err(UnpackError::FailedToParseWheelVitals)?;
 
         let transformer = WheelPathTransformer {
             data: vitals.data,
             root_is_purelib: vitals.root_is_purelib,
             paths,
         };
+        let site_packages = dest.join(
+            paths
+                .mapping
+                .get("purelib")
+                .ok_or_else(|| UnpackError::MissingInstallPath(String::from("purelib")))?
+                .as_path(),
+        );
 
         let mut archive = self.archive.lock();
-        for index in 0..archive.len() {
-            let mut zip_entry = archive.by_index(index).into_diagnostic()?;
-            let relative_path = zip_entry
-                .enclosed_name()
-                .ok_or_else(|| miette::miette!("file {} is an invalid path", zip_entry.name()))?;
 
-            // Determine the destination path.
-            let Some((destination, is_script)) =
-                transformer.analyze_path(relative_path).into_diagnostic()?
-            else {
+        // Read the RECORD file from the wheel
+        let record_filename = format!("{}/RECORD", &vitals.dist_info);
+        let record = Record::from_reader(
+            &mut archive
+                .by_name(&record_filename)
+                .map_err(|err| WheelVitalsError::from_zip(record_filename.clone(), err))?,
+        )?;
+        let record_relative_path = Path::new(&record_filename);
+
+        let mut resulting_records = Vec::new();
+        for index in 0..archive.len() {
+            let mut zip_entry = archive
+                .by_index(index)
+                .map_err(|e| UnpackError::from_zip_error(format!("<index {index}>"), e))?;
+            let Some(relative_path) = zip_entry.enclosed_name().map(ToOwned::to_owned) else {
+                // Skip invalid paths
                 continue;
             };
 
+            // Skip the RECORD file itself. We will overwrite it at the end of this operation to
+            // reflect all files that were added. PEP 491 defines some extra files that refer to the
+            // RECORD file that we can skip. See <https://peps.python.org/pep-0491/>
+            // > 6. RECORD.jws is used for digital signatures. It is not mentioned in RECORD.
+            // > 7. RECORD.p7s is allowed as a courtesy to anyone who would prefer to use S/MIME
+            // >    signatures to secure their wheel files. It is not mentioned in RECORD.
+            if relative_path == record_relative_path
+                || relative_path == record_relative_path.with_extension("jws")
+                || relative_path == record_relative_path.with_extension("p7s")
+            {
+                continue;
+            }
+
+            // Determine the destination path.
+            let Some((relative_destination, is_script)) =
+                transformer.analyze_path(&relative_path)?
+            else {
+                continue;
+            };
+            let destination = dest.join(relative_destination);
+
             // If the entry refers to a directory we simply create it.
             if zip_entry.is_dir() {
-                dest.mkdir(&destination).into_diagnostic()?;
+                fs::create_dir_all(&destination)?;
                 continue;
             }
 
@@ -352,16 +470,97 @@ impl Wheel {
                 .unwrap_or(false);
 
             // If the file is a script
-            if is_script {
-                todo!("implement scripts")
+            let (size, encoded_hash) = if is_script {
+                todo!("implement scripts");
             } else {
-                dest.write_file(&destination, &mut zip_entry, executable)
-                    .into_diagnostic()?;
+                // Otherwise copy the file to its final destination.
+                write_wheel_file(&mut zip_entry, &destination, executable)?
+            };
+
+            // Make sure the hash matches with what we expect
+            if let Some(encoded_hash) = encoded_hash {
+                let relative_path_string = relative_path.display().to_string();
+
+                // Find the record in the RECORD entries
+                let recorded_hash = record
+                    .iter()
+                    .find(|entry| {
+                        // Strip any preceding slashes from the path since all paths in the wheel
+                        // RECORD should be relative.
+                        entry.path.trim_start_matches('/') == relative_path_string
+                    })
+                    .and_then(|entry| entry.hash.as_ref())
+                    .ok_or_else(|| {
+                        UnpackError::RecordFile(format!(
+                            "missing hash for {} (expected {})",
+                            relative_path.display(),
+                            encoded_hash
+                        ))
+                    })?;
+
+                // Ensure that the hashes match
+                if &encoded_hash != recorded_hash {
+                    return Err(UnpackError::RecordFile(format!(
+                        "hash mismatch for {}. Recorded: {}, Actual: {}",
+                        relative_path.display(),
+                        recorded_hash,
+                        encoded_hash,
+                    )));
+                }
+
+                // Store the hash
+                resulting_records.push(RecordEntry {
+                    path: pathdiff::diff_paths(&destination, &site_packages)
+                        .unwrap_or_else(|| {
+                            dunce::canonicalize(&destination).expect("failed to canonicalize path")
+                        })
+                        .display()
+                        .to_string()
+                        // Replace \ with /. This is not strictly necessary, and the spec even
+                        // specifies that the OS separators should be used, but in the case that we
+                        // are unpacking for a different OS from Windows, it makes sense to use
+                        // forward slashes everywhere. Windows can work with both anyway.
+                        .replace('\\', "/"),
+                    hash: Some(encoded_hash),
+                    size,
+                })
             }
         }
 
+        // Write the resulting RECORD file
+        Record::from_iter(resulting_records)
+            .write_to_path(&site_packages.join(record_relative_path))?;
+
         Ok(())
     }
+}
+
+/// Write a file from a wheel archive to disk.
+fn write_wheel_file(
+    mut zip_entry: &mut ZipFile,
+    destination: &PathBuf,
+    _executable: bool,
+) -> Result<(Option<u64>, Option<String>), UnpackError> {
+    let mut reader = rattler_digest::HashingReader::<_, Sha256>::new(&mut zip_entry);
+
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true);
+    #[cfg(unix)]
+    if _executable {
+        options.mode(0o777);
+    } else {
+        options.mode(0o666);
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = options.open(destination)?;
+    let size = std::io::copy(&mut reader, &mut file)?;
+    let (_, digest) = reader.finalize();
+    Ok((
+        Some(size),
+        Some(format!("sha256={}", BASE64URL_NOPAD.encode(&digest))),
+    ))
 }
 
 /// Implements the logic to determine where a files from a wheel should be placed on the filesystem
@@ -419,24 +618,20 @@ impl<'a> WheelPathTransformer<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::fs::RootedFilesystem;
     use tempfile::tempdir;
 
     /// A test to use as an entry point for wheel extraction.
     #[test]
     fn test_wheel_unpack() {
-        let wheel = Wheel::from_path(
-            &Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../test-data/wheels/miniblack-23.1.0-py3-none-any.whl"),
-        )
-        .unwrap();
+        let wheel =
+            Wheel::from_path(&Path::new(env!("CARGO_MANIFEST_DIR")).join(
+                "../../test-data/wheels/purelib_and_platlib-1.0.0-cp38-cp38-linux_x86_64.whl",
+            ))
+            .unwrap();
         let tmpdir = tempdir().unwrap();
 
         wheel
-            .unpack(
-                RootedFilesystem::from(tmpdir.path()),
-                &InstallPaths::for_venv((3, 8), false),
-            )
+            .unpack(tmpdir.path(), &InstallPaths::for_venv((3, 8), false))
             .unwrap();
 
         let retained_path = tmpdir.into_path();
