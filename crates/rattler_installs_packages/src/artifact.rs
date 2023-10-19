@@ -25,6 +25,9 @@ use std::{
 use thiserror::Error;
 use zip::{read::ZipFile, result::ZipError, ZipArchive};
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 /// Trait that represents an artifact type in the PyPI ecosystem.
 /// Currently implemented for [`Wheel`] files.
 #[async_trait]
