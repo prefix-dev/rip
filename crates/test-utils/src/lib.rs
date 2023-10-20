@@ -65,12 +65,7 @@ pub fn download_and_cache_file(url: Url, expected_sha256: &str) -> Result<PathBu
         .last()
         .ok_or_else(|| Error::InvalidUrl(String::from("missing filename")))?;
 
-    let mut lock = fslock::LockFile::open(&cache_dir.join(".lock"))
-        .map_err(Error::FailedToAcquireCacheLock)?;
-    lock.lock_with_pid()
-        .map_err(Error::FailedToAcquireCacheLock)?;
-
-    // Check if the file is already there
+    // Determine the final location of the file
     let final_parent_dir = cache_dir.join(expected_sha256);
     let final_path = final_parent_dir.join(filename);
 
@@ -78,6 +73,13 @@ pub fn download_and_cache_file(url: Url, expected_sha256: &str) -> Result<PathBu
     std::fs::create_dir_all(&final_parent_dir)
         .map_err(|e| Error::FailedToCreateCacheDir(final_parent_dir.display().to_string(), e))?;
 
+    // Aquire the lock on the cache directory
+    let mut lock = fslock::LockFile::open(&cache_dir.join(".lock"))
+        .map_err(Error::FailedToAcquireCacheLock)?;
+    lock.lock_with_pid()
+        .map_err(Error::FailedToAcquireCacheLock)?;
+
+    // Check if the file is already there
     if final_path.is_file() {
         return Ok(final_path);
     }
