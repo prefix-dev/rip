@@ -4,6 +4,7 @@ expression: record_content
 ---
 black/__init__.py,sha256=VWazgq80l38r1Cn5Ea7fH5bMuDdFuQJtYgBKGWJganI,46682
 blackd/__init__.py,sha256=cTJotjnER9YB0rDWo3hOWSg4v0mNAx5DFmCJdyB1s5k,8068
+miniblack-23.1.0.dist-info/INSTALLER,sha256=sOojXQj3PxwFYnOOnlKKonWqjWalJThPazpTVstLHiI,4
 miniblack-23.1.0.dist-info/METADATA,sha256=galtIfXUJ5UEq_3ERFi03BdCo6KHkz2r6jc0EYPsEPY,58963
 miniblack-23.1.0.dist-info/RECORD,,
 miniblack-23.1.0.dist-info/WHEEL,sha256=rE4t8wm7r0N5wTLLeSbOvJha-KwM1ALPuB-FmvNahDo,144

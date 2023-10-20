@@ -636,21 +636,12 @@ mod test {
     #[case("https://files.pythonhosted.org/packages/58/76/705b5c776f783d1ba7c630347463d4ae323282bbd859a8e9420c7ff79581/selenium-4.1.0-py3-none-any.whl", "27e7b64df961d609f3d57237caa0df123abbbe22d038f2ec9e332fb90ec1a939")]
     #[case("https://files.pythonhosted.org/packages/1e/27/47f73510c6b80d1ff0829474947537ae9ab8d516cc48c6320b7f3677fa54/selenium-2.53.2-py2.py3-none-any.whl", "fa8333cf3013497e60d87ba68cae65ead8e7fa208be88ab9c561556103f540ef")]
     fn test_wheels(#[case] url: Url, #[case] sha256: &str) {
-        let name = url
-            .path_segments()
-            .into_iter()
-            .flatten()
-            .last()
-            .map(ToOwned::to_owned);
-        let path = test_utils::download_and_cache_file(url, sha256).unwrap();
-
-        test_wheel_unpack(name, path);
+        test_wheel_unpack(test_utils::download_and_cache_file(url, sha256).unwrap());
     }
 
     #[test]
     fn test_wheel_platlib_and_purelib() {
         test_wheel_unpack(
-            None,
             Path::new(env!("CARGO_MANIFEST_DIR")).join(
                 "../../test-data/wheels/purelib_and_platlib-1.0.0-cp38-cp38-linux_x86_64.whl",
             ),
@@ -660,15 +651,18 @@ mod test {
     #[test]
     fn test_wheel_miniblack() {
         test_wheel_unpack(
-            None,
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../test-data/wheels/miniblack-23.1.0-py3-none-any.whl"),
         );
     }
 
-    fn test_wheel_unpack(name: Option<String>, path: PathBuf) {
+    fn test_wheel_unpack(path: PathBuf) {
         let wheel = Wheel::from_path(&path).unwrap();
         let tmpdir = tempdir().unwrap();
+        let filename = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .expect("could not determine filename");
 
         // Get the wheel vitals
         let vitals = wheel.get_vitals().unwrap();
@@ -686,10 +680,6 @@ mod test {
             &format!("failed to read RECORD from {}", record_path.display()),
         );
 
-        if let Some(name) = name {
-            insta::assert_snapshot!(name, record_content);
-        } else {
-            insta::assert_snapshot!(record_content);
-        }
+        insta::assert_snapshot!(filename, record_content);
     }
 }

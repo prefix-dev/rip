@@ -2,6 +2,7 @@
 source: crates/rattler_installs_packages/src/artifact.rs
 expression: record_content
 ---
+selenium-4.1.0.dist-info/INSTALLER,sha256=sOojXQj3PxwFYnOOnlKKonWqjWalJThPazpTVstLHiI,4
 selenium-4.1.0.dist-info/METADATA,sha256=jqvBEwtJJ2zh6CljTfTXmpF1aiFs-gvOVikxGbVyX40,6468
 selenium-4.1.0.dist-info/RECORD,,
 selenium-4.1.0.dist-info/WHEEL,sha256=sobxWSyDDkdg_rinUth-jxhXHqoNqlmNMJY3aTZn2Us,91
