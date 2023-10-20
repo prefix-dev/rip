@@ -82,8 +82,10 @@ pub fn find_distributions_in_venv(
 }
 
 /// Analyzes a `.dist-info` directory to see if it actually contains a python distribution (package).
-fn analyze_distribution(path: PathBuf) -> Result<Option<Distribution>, FindDistributionError> {
-    let Some((name, version)) = path
+fn analyze_distribution(
+    dist_info_path: PathBuf,
+) -> Result<Option<Distribution>, FindDistributionError> {
+    let Some((name, version)) = dist_info_path
         .file_name()
         .and_then(OsStr::to_str)
         .and_then(|n| n.strip_suffix(".dist-info"))
@@ -92,6 +94,12 @@ fn analyze_distribution(path: PathBuf) -> Result<Option<Distribution>, FindDistr
         // If we are unable to parse the distribution name we just skip.
         return Ok(None);
     };
+
+    // Check if the METADATA file is present. This is the only file that is mandatory, so if its
+    // missing this folder is not a python distribution.
+    if !dist_info_path.join("METADATA").is_file() {
+        return Ok(None);
+    }
 
     // Parse the name
     let Ok(name) = PackageName::from_str(name) else {
@@ -106,12 +114,12 @@ fn analyze_distribution(path: PathBuf) -> Result<Option<Distribution>, FindDistr
     };
 
     // Try to read the INSTALLER file from the distribution directory
-    let installer = std::fs::read_to_string(path.join("INSTALLER"))
+    let installer = std::fs::read_to_string(dist_info_path.join("INSTALLER"))
         .map(|i| i.trim().to_owned())
         .ok();
 
     // Check if there is a WHEEL file from where we can read tags
-    let wheel_path = path.join("WHEEL");
+    let wheel_path = dist_info_path.join("WHEEL");
     let tags = if wheel_path.is_file() {
         let mut parsed = RFC822ish::from_str(&std::fs::read_to_string(&wheel_path)?)
             .map_err(move |e| FindDistributionError::FailedToParseWheel(wheel_path, e))?;
@@ -121,7 +129,7 @@ fn analyze_distribution(path: PathBuf) -> Result<Option<Distribution>, FindDistr
     };
 
     Ok(Some(Distribution {
-        dist_info: path,
+        dist_info: dist_info_path,
         name: name.into(),
         version,
         installer,
