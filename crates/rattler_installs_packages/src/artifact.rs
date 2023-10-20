@@ -12,6 +12,7 @@ use data_encoding::BASE64URL_NOPAD;
 use miette::IntoDiagnostic;
 use parking_lot::Mutex;
 use rattler_digest::Sha256;
+use std::io::Write;
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
@@ -369,23 +370,35 @@ pub enum UnpackError {
     #[error("Failed to read the wheel file {0}")]
     ZipError(String, #[source] ZipError),
 
-    #[error(transparent)]
-    IoError(#[from] std::io::Error),
+    #[error("failed to write {0}")]
+    IoError(String, #[source] std::io::Error),
 
     #[error("RECORD file is invalid")]
     RecordCsv(#[from] csv::Error),
 
     #[error("RECORD file doesn't match wheel contents: {0}")]
     RecordFile(String),
+
+    #[error("unrecognized .data directory: {0}")]
+    UnsupportedDataDirectory(String),
 }
 
 impl UnpackError {
     pub fn from_zip_error(file: String, error: ZipError) -> Self {
         match error {
-            ZipError::Io(err) => Self::IoError(err),
+            ZipError::Io(err) => Self::IoError(file, err),
             _ => Self::ZipError(file, error),
         }
     }
+}
+
+/// Additional optional settings to pass to [`Wheel::unpack`].
+///
+/// Not all options in this struct are relevant. Typically you will default a number of fields.
+#[derive(Default)]
+pub struct InstallOptions {
+    /// When specified an INSTALLER file is written to the dist-info folder of the package.
+    pub installer: Option<String>,
 }
 
 impl Wheel {
@@ -396,11 +409,15 @@ impl Wheel {
     /// - Rewrite #!python.
     /// - Generate script wrappers.
     /// - bytecode compilation
-    /// - INSTALLER (<https://peps.python.org/pep-0376/#installer>)
     /// - REQUESTED (<https://peps.python.org/pep-0376/#requested>)
     /// - direct_url.json (<https://peps.python.org/pep-0610/>)
     /// - support "headers" category
-    pub fn unpack(&self, dest: &Path, paths: &InstallPaths) -> Result<(), UnpackError> {
+    pub fn unpack(
+        &self,
+        dest: &Path,
+        paths: &InstallPaths,
+        options: &InstallOptions,
+    ) -> Result<(), UnpackError> {
         let vitals = self
             .get_vitals()
             .map_err(UnpackError::FailedToParseWheelVitals)?;
@@ -462,7 +479,8 @@ impl Wheel {
 
             // If the entry refers to a directory we simply create it.
             if zip_entry.is_dir() {
-                fs::create_dir_all(&destination)?;
+                fs::create_dir_all(&destination)
+                    .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
                 continue;
             }
 
@@ -537,12 +555,43 @@ impl Wheel {
             size: None,
         });
 
+        // Write the INSTALLER if requested
+        if let Some(installer) = options.installer.as_ref() {
+            resulting_records.push(write_generated_file(
+                Path::new(&format!("{}/INSTALLER", &vitals.dist_info)),
+                &site_packages,
+                format!("{}\n", installer.trim()),
+            )?);
+        }
+
         // Write the resulting RECORD file
         Record::from_iter(resulting_records)
             .write_to_path(&site_packages.join(record_relative_path))?;
 
         Ok(())
     }
+}
+
+fn write_generated_file(
+    relative_path: &Path,
+    site_packages: &Path,
+    content: impl AsRef<[u8]>,
+) -> Result<RecordEntry, UnpackError> {
+    let (size, digest) = File::create(site_packages.join(relative_path))
+        .map(rattler_digest::HashingWriter::<_, Sha256>::new)
+        .and_then(|mut file| {
+            let content = content.as_ref();
+            file.write_all(content)?;
+            let (_, digest) = file.finalize();
+            Ok((content.len(), digest))
+        })
+        .map_err(|err| UnpackError::IoError(relative_path.display().to_string(), err))?;
+
+    Ok(RecordEntry {
+        path: relative_path.display().to_string(),
+        hash: Some(format!("sha256={}", BASE64URL_NOPAD.encode(&digest))),
+        size: Some(size as _),
+    })
 }
 
 /// Write a file from a wheel archive to disk.
@@ -562,10 +611,14 @@ fn write_wheel_file(
         options.mode(0o666);
     }
     if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)
+            .map_err(|err| UnpackError::IoError(parent.display().to_string(), err))?;
     }
-    let mut file = options.open(destination)?;
-    let size = std::io::copy(&mut reader, &mut file)?;
+    let mut file = options
+        .open(destination)
+        .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
+    let size = std::io::copy(&mut reader, &mut file)
+        .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
     let (_, digest) = reader.finalize();
     Ok((
         Some(size),
@@ -592,7 +645,7 @@ impl<'a> WheelPathTransformer<'a> {
     /// Given a path from a wheel zip, analyze the path and determine its final destination path.
     ///
     /// Returns `None` if the path should be ignored.
-    fn analyze_path(&self, path: &Path) -> std::io::Result<Option<(PathBuf, bool)>> {
+    fn analyze_path(&self, path: &Path) -> Result<Option<(PathBuf, bool)>, UnpackError> {
         let (category, rest_of_path) = if let Ok(data_path) = path.strip_prefix(&self.data) {
             let mut components = data_path.components();
             if let Some(category) = components.next() {
@@ -614,14 +667,10 @@ impl<'a> WheelPathTransformer<'a> {
             (category, path)
         };
 
-        let basepath = self.paths.mapping.get(category.as_ref()).ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                format!("unrecognized wheel file category {category}"),
-            )
-        })?;
-
-        Ok(Some((basepath.join(rest_of_path), category == "scripts")))
+        match self.paths.mapping.get(category.as_ref()) {
+            Some(basepath) => Ok(Some((basepath.join(rest_of_path), category == "scripts"))),
+            None => Err(UnpackError::UnsupportedDataDirectory(category.into_owned())),
+        }
     }
 }
 
@@ -671,7 +720,15 @@ mod test {
         let install_paths = InstallPaths::for_venv((3, 8), false);
 
         // Unpack the wheel
-        wheel.unpack(tmpdir.path(), &install_paths).unwrap();
+        wheel
+            .unpack(
+                tmpdir.path(),
+                &install_paths,
+                &InstallOptions {
+                    installer: Some(String::from("rip")),
+                },
+            )
+            .unwrap();
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = Path::new(install_paths.mapping.get("purelib").unwrap())
