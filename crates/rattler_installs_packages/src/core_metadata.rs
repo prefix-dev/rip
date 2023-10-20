@@ -1,13 +1,16 @@
 // Implementation comes from https://github.com/njsmith/posy/blob/main/src/vocab/core_metadata.rs
 // Licensed under MIT or Apache-2.0
 
+use crate::extra::ParseExtraError;
 use crate::{
-    extra::Extra, package_name::PackageName, rfc822ish::RFC822ish, Version, VersionSpecifiers,
+    extra::Extra, package_name::PackageName, rfc822ish::RFC822ish, ParsePackageNameError, Version,
+    VersionSpecifiers,
 };
-use miette::IntoDiagnostic;
 use once_cell::sync::Lazy;
+use pep440_rs::Pep440Error;
 use pep508_rs::Requirement;
 use std::{collections::HashSet, str::FromStr};
+use thiserror::Error;
 
 #[derive(Debug, Clone)]
 pub struct WheelCoreMetadata {
@@ -18,8 +21,41 @@ pub struct WheelCoreMetadata {
     pub extras: HashSet<Extra>,
 }
 
+#[derive(Debug, Error)]
+pub enum WheelCoreMetaDataError {
+    #[error(transparent)]
+    FailedToParseMetadata(#[from] <RFC822ish as FromStr>::Err),
+
+    #[error("missing key {0} in METADATA")]
+    MissingKey(String),
+
+    #[error("duplicate key {0} in METADATA")]
+    DuplicateKey(String),
+
+    #[error("invalid Metadata-Version: {0}")]
+    InvalidMetadataVersion(String),
+
+    #[error("invalid Version: {0}")]
+    InvalidVersion(String),
+
+    #[error("invalid Requires-Python: {0}")]
+    InvalidRequiresPython(#[source] Pep440Error),
+
+    #[error("unsupported METADATA version {0}")]
+    UnsupportedVersion(Version),
+
+    #[error(transparent)]
+    InvalidPackageName(#[from] ParsePackageNameError),
+
+    #[error("invalid extra identifier '{0}'")]
+    InvalidExtra(String, #[source] ParseExtraError),
+
+    #[error("{0}")]
+    FailedToParse(String),
+}
+
 impl TryFrom<&[u8]> for WheelCoreMetadata {
-    type Error = miette::Report;
+    type Error = WheelCoreMetaDataError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         let (name, version, mut parsed) = parse_common(value)?;
@@ -35,15 +71,20 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
         }
 
         let requires_python = parsed
-            .maybe_take("Requires-Python")?
+            .maybe_take("Requires-Python")
+            .map_err(|_| WheelCoreMetaDataError::DuplicateKey(String::from("Requires-Python")))?
             .as_deref()
             .map(VersionSpecifiers::from_str)
             .transpose()
-            .into_diagnostic()?;
+            .map_err(WheelCoreMetaDataError::InvalidRequiresPython)?;
 
         let mut extras: HashSet<Extra> = HashSet::new();
         for extra in parsed.take_all("Provides-Extra").drain(..) {
-            extras.insert(extra.parse()?);
+            extras.insert(
+                extra
+                    .parse()
+                    .map_err(|e| WheelCoreMetaDataError::InvalidExtra(extra, e))?,
+            );
         }
 
         Ok(WheelCoreMetadata {
@@ -56,9 +97,9 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
     }
 }
 
-fn parse_common(input: &[u8]) -> miette::Result<(PackageName, Version, RFC822ish)> {
+fn parse_common(input: &[u8]) -> Result<(PackageName, Version, RFC822ish), WheelCoreMetaDataError> {
     let input = String::from_utf8_lossy(input);
-    let mut parsed = RFC822ish::from_str(&input).into_diagnostic()?;
+    let mut parsed = RFC822ish::from_str(&input)?;
 
     static NEXT_MAJOR_METADATA_VERSION: Lazy<Version> =
         Lazy::new(|| Version::from_str("3").unwrap());
@@ -80,21 +121,28 @@ fn parse_common(input: &[u8]) -> miette::Result<(PackageName, Version, RFC822ish
     // pip does), and new metadata releases are so rare and so
     // much-discussed beforehand that if a tool's authors don't know
     // about it it's because the tool is abandoned anyway.
-    let metadata_version = parsed.take("Metadata-Version")?;
+    let metadata_version = parsed
+        .take("Metadata-Version")
+        .map_err(|_| WheelCoreMetaDataError::MissingKey(String::from("Metadata-Version")))?;
     let metadata_version: Version = metadata_version
         .parse()
-        .map_err(|err| miette::miette!("failed to parse {metadata_version}: {err}"))?;
+        .map_err(WheelCoreMetaDataError::InvalidMetadataVersion)?;
     if metadata_version >= *NEXT_MAJOR_METADATA_VERSION {
-        miette::bail!("unsupported Metadata-Version {}", metadata_version);
+        return Err(WheelCoreMetaDataError::UnsupportedVersion(metadata_version));
     }
 
-    let version_str = parsed.take("Version")?;
+    let version_str = parsed
+        .take("Version")
+        .map_err(|_| WheelCoreMetaDataError::MissingKey(String::from("Version")))?;
 
     Ok((
-        parsed.take("Name")?.parse()?,
+        parsed
+            .take("Name")
+            .map_err(|_| WheelCoreMetaDataError::MissingKey(String::from("Name")))?
+            .parse()?,
         version_str
             .parse()
-            .map_err(|err| miette::miette!("failed to parse version '{version_str}': {err}"))?,
+            .map_err(WheelCoreMetaDataError::InvalidVersion)?,
         parsed,
     ))
 }

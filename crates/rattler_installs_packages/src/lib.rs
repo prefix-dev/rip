@@ -19,12 +19,12 @@ mod seek_slice;
 mod utils;
 
 mod env_markers;
-pub mod fs;
 #[cfg(feature = "resolvo")]
 mod resolve;
 pub mod tags;
 
 mod distribution_finder;
+pub mod record;
 
 #[cfg(feature = "resolvo")]
 pub use resolve::{resolve, PinnedPackage};
