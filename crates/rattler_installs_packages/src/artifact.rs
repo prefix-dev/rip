@@ -357,6 +357,11 @@ impl InstallPaths {
             ]),
         }
     }
+
+    /// Returns the site-packages location. This is done by searching for the purelib location.
+    pub fn site_packages(&self) -> Option<&PathBuf> {
+        self.mapping.get("purelib")
+    }
 }
 
 #[derive(Debug, Error)]
@@ -678,8 +683,10 @@ impl<'a> WheelPathTransformer<'a> {
 mod test {
     use super::*;
     use rstest::rstest;
-    use tempfile::tempdir;
+    use tempfile::{tempdir, TempDir};
     use url::Url;
+
+    const INSTALLER: &str = "pixi_test";
 
     #[rstest]
     #[case("https://files.pythonhosted.org/packages/58/76/705b5c776f783d1ba7c630347463d4ae323282bbd859a8e9420c7ff79581/selenium-4.1.0-py3-none-any.whl", "27e7b64df961d609f3d57237caa0df123abbbe22d038f2ec9e332fb90ec1a939")]
@@ -705,13 +712,15 @@ mod test {
         );
     }
 
-    fn test_wheel_unpack(path: PathBuf) {
-        let wheel = Wheel::from_path(&path).unwrap();
+    struct UnpackedWheel {
+        tmpdir: TempDir,
+        vitals: WheelVitals,
+        install_paths: InstallPaths,
+    }
+
+    fn unpack_wheel(path: &Path) -> UnpackedWheel {
+        let wheel = Wheel::from_path(path).unwrap();
         let tmpdir = tempdir().unwrap();
-        let filename = path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .expect("could not determine filename");
 
         // Get the wheel vitals
         let vitals = wheel.get_vitals().unwrap();
@@ -725,18 +734,54 @@ mod test {
                 tmpdir.path(),
                 &install_paths,
                 &InstallOptions {
-                    installer: Some(String::from("rip")),
+                    installer: Some(String::from(INSTALLER)),
                 },
             )
             .unwrap();
 
+        UnpackedWheel {
+            tmpdir,
+            vitals,
+            install_paths,
+        }
+    }
+
+    fn test_wheel_unpack(path: PathBuf) {
+        let filename = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .expect("could not determine filename");
+        let unpacked = unpack_wheel(&path);
+
         // Determine the location where we would expect the RECORD file to exist
-        let record_path = Path::new(install_paths.mapping.get("purelib").unwrap())
-            .join(format!("{}/RECORD", vitals.dist_info,));
-        let record_content = std::fs::read_to_string(&tmpdir.path().join(&record_path)).expect(
-            &format!("failed to read RECORD from {}", record_path.display()),
-        );
+        let record_path = unpacked
+            .install_paths
+            .site_packages()
+            .unwrap()
+            .join(format!("{}/RECORD", unpacked.vitals.dist_info,));
+        let record_content = std::fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
+            .expect(&format!(
+                "failed to read RECORD from {}",
+                record_path.display()
+            ));
 
         insta::assert_snapshot!(filename, record_content);
+    }
+
+    #[test]
+    fn test_installer() {
+        let unpacked =
+            unpack_wheel(&Path::new(env!("CARGO_MANIFEST_DIR")).join(
+                "../../test-data/wheels/purelib_and_platlib-1.0.0-cp38-cp38-linux_x86_64.whl",
+            ));
+
+        let relative_path = unpacked
+            .install_paths
+            .site_packages()
+            .unwrap()
+            .join(format!("{}/INSTALLER", unpacked.vitals.dist_info));
+        let installer_content =
+            std::fs::read_to_string(unpacked.tmpdir.path().join(relative_path)).unwrap();
+        assert_eq!(installer_content, format!("{INSTALLER}\n"));
     }
 }

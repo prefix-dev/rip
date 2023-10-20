@@ -5,7 +5,7 @@ expression: record_content
 ../../../selenium/webdriver/firefox/amd64/x_ignore_nofocus.so,sha256=_rACRCJ5PFRrxrHwxMVQbUncne826HyeKoOLdbsltb8,41262
 ../../../selenium/webdriver/firefox/x86/x_ignore_nofocus.so,sha256=sGarS2BVGdLrA7BwlEgcwCmXnDCW7fMmLGTaAoyq_tk,30887
 selenium-2.53.2.dist-info/DESCRIPTION.rst,sha256=HVLMWELMiZ0Tr7I7ZN91GQHEHmmk7h4zA98fEADK2xI,4131
-selenium-2.53.2.dist-info/INSTALLER,sha256=sOojXQj3PxwFYnOOnlKKonWqjWalJThPazpTVstLHiI,4
+selenium-2.53.2.dist-info/INSTALLER,sha256=FpzDrzfcP6oI1mbsvYAjw7hT2I4P4wr99k5NKqmKJt0,10
 selenium-2.53.2.dist-info/METADATA,sha256=cy1uq1JhbVnd0UF2hY6n80_84YdW8SZhbLCmqCaEEUk,5051
 selenium-2.53.2.dist-info/RECORD,,
 selenium-2.53.2.dist-info/WHEEL,sha256=GrqQvamwgBV4nLoJe0vhYRSWzWsx7xjlt74FT0SWYfE,110
