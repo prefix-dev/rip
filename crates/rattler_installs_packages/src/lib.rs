@@ -25,6 +25,7 @@ pub mod tags;
 
 mod distribution_finder;
 pub mod record;
+pub mod uninstall;
 
 #[cfg(feature = "resolvo")]
 pub use resolve::{resolve, PinnedPackage};

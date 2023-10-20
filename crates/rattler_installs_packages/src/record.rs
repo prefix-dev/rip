@@ -9,12 +9,13 @@ use std::path::Path;
 /// Represents the RECORD file found in a wheels .dist-info folder.
 ///
 /// See <https://www.python.org/dev/peps/pep-0376/#record> for more information about the format.
+#[derive(Debug, Clone)]
 pub struct Record {
     entries: Vec<RecordEntry>,
 }
 
 /// A single entry in a `RECORD` file
-#[derive(Deserialize, Serialize, PartialOrd, PartialEq, Ord, Eq)]
+#[derive(Debug, Deserialize, Serialize, PartialOrd, PartialEq, Ord, Eq, Clone)]
 pub struct RecordEntry {
     /// The path relative to the root of the environment or archive
     pub path: String,
@@ -27,6 +28,11 @@ pub struct RecordEntry {
 }
 
 impl Record {
+    /// Reads the contents of a `RECORD` file from disk.
+    pub fn from_path(path: &Path) -> csv::Result<Self> {
+        Self::from_reader(std::fs::File::open(path)?)
+    }
+
     /// Reads the contents of a `RECORD` file from a reader.
     pub fn from_reader(reader: impl Read) -> csv::Result<Self> {
         Ok(Self {
