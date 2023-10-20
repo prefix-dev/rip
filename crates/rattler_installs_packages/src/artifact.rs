@@ -401,7 +401,7 @@ impl UnpackError {
 ///
 /// Not all options in this struct are relevant. Typically you will default a number of fields.
 #[derive(Default)]
-pub struct InstallOptions {
+pub struct UnpackWheelOptions {
     /// When specified an INSTALLER file is written to the dist-info folder of the package.
     pub installer: Option<String>,
 }
@@ -421,7 +421,7 @@ impl Wheel {
         &self,
         dest: &Path,
         paths: &InstallPaths,
-        options: &InstallOptions,
+        options: &UnpackWheelOptions,
     ) -> Result<(), UnpackError> {
         let vitals = self
             .get_vitals()
@@ -733,7 +733,7 @@ mod test {
             .unpack(
                 tmpdir.path(),
                 &install_paths,
-                &InstallOptions {
+                &UnpackWheelOptions {
                     installer: Some(String::from(INSTALLER)),
                 },
             )
