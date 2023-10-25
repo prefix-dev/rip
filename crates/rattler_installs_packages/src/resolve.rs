@@ -7,9 +7,10 @@
 //!
 //! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
 use crate::tags::WheelTags;
+use crate::wheel::Wheel;
 use crate::{
     ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement,
-    Version, Wheel,
+    Version,
 };
 use elsa::FrozenMap;
 use itertools::Itertools;

@@ -40,7 +40,7 @@ pub enum CacheMode {
 
 #[derive(Debug, Clone)]
 pub struct Http {
-    client: Client,
+    pub(crate) client: Client,
     http_cache: Arc<FileStore>,
     _hash_cache: Arc<FileStore>,
 }
