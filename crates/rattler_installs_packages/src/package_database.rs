@@ -6,7 +6,7 @@ use crate::{
     project_info::{ArtifactInfo, ProjectInfo},
     FileStore, NormalizedPackageName, Version,
 };
-use async_http_range_reader::AsyncHttpRangeReader;
+use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
 use elsa::sync::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
 use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
@@ -172,36 +172,9 @@ impl PackageDb {
                 return self.get_pep658_metadata::<A>(artifact_info).await;
             }
 
-            dbg!("trying to read: {}", &artifact_info.url);
-
-            // First check if we can lazily load the metadata
-            if A::supports_sparse_metadata() {
-                // Check if the artifact is the same type as the info.
-                let name = A::Name::try_as(&artifact_info.filename)
-                    .expect("the specified artifact does not refer to type requested to read");
-
-                dbg!("trying to lazy read: {}", &artifact_info.url);
-
-                match AsyncHttpRangeReader::new(
-                    self.http.client.clone(),
-                    artifact_info.url.clone(),
-                    16384,
-                )
-                .await
-                {
-                    Ok(mut reader) => match A::read_metadata_bytes(name, &mut reader).await {
-                        Ok((blob, metadata)) => {
-                            self.put_metadata_in_cache(&artifact_info, &blob)?;
-                            return Ok((artifact_info, metadata));
-                        }
-                        Err(err) => {
-                            tracing::warn!("failed to sparsely read wheel file: {err}, falling back to downloading the whole file");
-                        }
-                    },
-                    Err(e) => {
-                        dbg!("failed to open lazy stream", e);
-                    }
-                }
+            // Try to load the data by sparsely reading the artifact (if supported)
+            if let Some(metadata) = self.get_lazy_metadata::<A>(artifact_info).await? {
+                return Ok((artifact_info, metadata));
             }
 
             // Otherwise download the entire artifact
@@ -228,6 +201,39 @@ impl PackageDb {
                 .map(|artifact_info| artifact_info.borrow())
                 .collect::<Vec<_>>()
         );
+    }
+
+    async fn get_lazy_metadata<A: MetadataArtifact>(
+        &self,
+        artifact_info: &ArtifactInfo,
+    ) -> miette::Result<Option<A::Metadata>> {
+        if A::supports_sparse_metadata() {
+            tracing::info!(url=%artifact_info.url, "lazy reading artifact");
+
+            // Check if the artifact is the same type as the info.
+            let name = A::Name::try_as(&artifact_info.filename)
+                .expect("the specified artifact does not refer to type requested to read");
+
+            if let Ok(mut reader) = AsyncHttpRangeReader::new(
+                self.http.client.clone(),
+                artifact_info.url.clone(),
+                CheckSupportMethod::Head,
+            )
+            .await
+            {
+                match A::read_metadata_bytes(name, &mut reader).await {
+                    Ok((blob, metadata)) => {
+                        self.put_metadata_in_cache(artifact_info, &blob)?;
+                        return Ok(Some(metadata));
+                    }
+                    Err(err) => {
+                        tracing::warn!("failed to sparsely read wheel file: {err}, falling back to downloading the whole file");
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Retrieve the PEP658 metadata for the given artifact.

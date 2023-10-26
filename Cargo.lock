@@ -124,6 +124,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compression"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "942c7cd7ae39e91bde4820d74132e9862e62c2f386c3aa90ccf55949f5bad63a"
+dependencies = [
+ "flate2",
+ "futures-core",
+ "futures-io",
+ "memchr",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -158,9 +171,9 @@ dependencies = [
 
 [[package]]
 name = "async_http_range_reader"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af67b6c4d8a2c5f9a29bdda4f0f1efd5139384c29f1b199fb4127f7436bc0820"
+checksum = "f19c246be3876c6b6b6ae210174c137140de56e7588198ada05de9b9884e88a5"
 dependencies = [
  "bisection",
  "futures",
@@ -181,6 +194,7 @@ version = "0.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "795310de3218cde15219fc98c1cf7d8fe9db4865aab27fcf1d535d6cb61c6b54"
 dependencies = [
+ "async-compression",
  "crc32fast",
  "futures-util",
  "log",

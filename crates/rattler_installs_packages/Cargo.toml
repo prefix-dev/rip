@@ -59,8 +59,8 @@ zip = "0.6.6"
 resolvo = { version = "0.1.0", optional = true }
 which = "4.4.2"
 pathdiff = "0.2.1"
-async_http_range_reader = "0.2.0"
-async_zip = { version = "0.0.15", features = ["tokio"] }
+async_http_range_reader = "0.3.0"
+async_zip = { version = "0.0.15", features = ["tokio", "deflate"] }
 
 [dev-dependencies]
 criterion = "0.5"

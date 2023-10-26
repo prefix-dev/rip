@@ -110,6 +110,12 @@ impl Wheel {
         name: &WheelName,
         stream: &mut AsyncHttpRangeReader,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelVitalsError> {
+        // Make sure we have the back part of the stream.
+        stream
+            .prefetch(stream.len().saturating_sub(16384)..stream.len())
+            .await;
+
+        // Construct a zip reader to uses the stream.
         let mut reader = ZipFileReader::new(stream.compat())
             .await
             .map_err(|err| WheelVitalsError::from_async_zip("/".into(), err))?;
@@ -179,9 +185,14 @@ impl Wheel {
         let metadata = WheelCoreMetadata::try_from(contents.as_slice())?;
 
         let stream = reader.into_inner().into_inner();
-        dbg!(
-            "lazily fetch metadata using {} range requests",
-            stream.requested_ranges().await.len()
+        let ranges = stream.requested_ranges().await;
+        let total_bytes_fetched: u64 = ranges.iter().map(|r| r.end - r.start).sum();
+        tracing::debug!(
+            "fetched {} ranges, total of {} bytes, total file length {} ({}%)",
+            ranges.len(),
+            total_bytes_fetched,
+            stream.len(),
+            (total_bytes_fetched as f64 / stream.len() as f64 * 100000.0).round() / 100.0
         );
 
         Ok((contents, metadata))
@@ -339,7 +350,7 @@ pub enum WheelVitalsError {
     #[error("Failed to read the wheel file {0}")]
     ZipError(String, #[source] ZipError),
 
-    #[error("Failed to read the wheel file {0}")]
+    #[error("Failed to read the wheel file {0}: {1}")]
     AsyncZipError(String, #[source] async_zip::error::ZipError),
 
     #[error("missing key from WHEEL '{0}'")]
