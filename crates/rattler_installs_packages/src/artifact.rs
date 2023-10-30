@@ -3,7 +3,6 @@ use async_http_range_reader::AsyncHttpRangeReader;
 use async_trait::async_trait;
 
 /// Trait that represents an artifact type in the PyPI ecosystem.
-/// Currently implemented for [`Wheel`] files.
 pub trait Artifact: Sized {
     /// The name of the artifact which describes the artifact.
     ///
@@ -19,7 +18,6 @@ pub trait Artifact: Sized {
 }
 
 /// Trait that represents an artifact that contains metadata.
-/// Currently implemented for [`Wheel`] files.
 #[async_trait]
 pub trait MetadataArtifact: Artifact + Send {
     /// Associated type for the metadata of this artifact.
@@ -40,7 +38,7 @@ pub trait MetadataArtifact: Artifact + Send {
         unimplemented!()
     }
 
-    /// Returns true if the [`read_metadata_bytes`] is supported.
+    /// Returns true if the [`Self::read_metadata_bytes`] is supported.
     fn supports_sparse_metadata() -> bool {
         false
     }
