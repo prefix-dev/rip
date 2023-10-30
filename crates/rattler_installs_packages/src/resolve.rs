@@ -126,6 +126,9 @@ struct PypiDependencyProvider<'db, 'i> {
     compatible_tags: Option<&'i WheelTags>,
 
     cached_artifacts: FrozenMap<SolvableId, Vec<&'db ArtifactInfo>>,
+
+    favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+    locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
 }
 
 impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
@@ -135,6 +138,8 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         package_db: &'db PackageDb,
         markers: &'i MarkerEnvironment,
         compatible_tags: Option<&'i WheelTags>,
+        locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+        favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     ) -> miette::Result<Self> {
         Ok(Self {
             pool: Pool::new(),
@@ -142,6 +147,8 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             markers,
             compatible_tags,
             cached_artifacts: Default::default(),
+            favored_packages,
+            locked_packages,
         })
     }
 }
@@ -201,7 +208,17 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         let mut no_wheels = Vec::new();
         let mut incompatible_python = Vec::new();
         let mut incompatible_tags = Vec::new();
+        let locked_package = self.locked_packages.get(package_name.base());
+        let favored_package = self.favored_packages.get(package_name.base());
         for (version, artifacts) in artifacts.iter() {
+            // Skip this version if a locked or favored version exists for this version. It will be
+            // added below.
+            if locked_package.map(|p| &p.version) == Some(version)
+                || favored_package.map(|p| &p.version) == Some(version)
+            {
+                continue;
+            }
+
             let mut artifacts = artifacts
                 .iter()
                 .filter(|a| {
@@ -303,6 +320,28 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             );
         }
 
+        // Add a locked dependency
+        if let Some(locked) = self.locked_packages.get(package_name.base()) {
+            let solvable_id = self
+                .pool
+                .intern_solvable(name, PypiVersion::Version(locked.version.clone()));
+            candidates.candidates.push(solvable_id);
+            candidates.locked = Some(solvable_id);
+            self.cached_artifacts
+                .insert(solvable_id, locked.artifacts.clone());
+        }
+
+        // Add a favored dependency
+        if let Some(favored) = self.favored_packages.get(package_name.base()) {
+            let solvable_id = self
+                .pool
+                .intern_solvable(name, PypiVersion::Version(favored.version.clone()));
+            candidates.candidates.push(solvable_id);
+            candidates.favored = Some(solvable_id);
+            self.cached_artifacts
+                .insert(solvable_id, favored.artifacts.clone());
+        }
+
         Some(candidates)
     }
 
@@ -346,6 +385,11 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             .cached_artifacts
             .get(&solvable_id)
             .expect("the artifacts must already have been cached");
+
+        // If there are no artifacts we can stop here
+        if artifacts.is_empty() {
+            return dependencies;
+        }
 
         let (_, metadata) = task::block_in_place(|| {
             Handle::current()
@@ -435,6 +479,8 @@ pub struct PinnedPackage<'db> {
 
     /// The applicable artifacts for this package. These have been ordered by compatibility if
     /// `compatible_tags` have been provided to the solver.
+    ///
+    /// This list may be empty if the package was locked or favored.
     pub artifacts: Vec<&'db ArtifactInfo>,
 }
 
@@ -453,9 +499,17 @@ pub async fn resolve<'db>(
     requirements: impl IntoIterator<Item = &Requirement>,
     env_markers: &MarkerEnvironment,
     compatible_tags: Option<&WheelTags>,
+    locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+    favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
 ) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct a provider
-    let provider = PypiDependencyProvider::new(package_db, env_markers, compatible_tags)?;
+    let provider = PypiDependencyProvider::new(
+        package_db,
+        env_markers,
+        compatible_tags,
+        locked_packages,
+        favored_packages,
+    )?;
     let pool = &provider.pool;
 
     let requirements = requirements.into_iter();
