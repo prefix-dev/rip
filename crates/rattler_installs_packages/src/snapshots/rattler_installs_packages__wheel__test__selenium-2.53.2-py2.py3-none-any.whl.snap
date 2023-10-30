@@ -1,5 +1,6 @@
 ---
-source: crates/rattler_installs_packages/src/artifact.rs
+source: crates/rattler_installs_packages/src/wheel.rs
+assertion_line: 858
 expression: record_content
 ---
 ../../../selenium/webdriver/firefox/amd64/x_ignore_nofocus.so,sha256=_rACRCJ5PFRrxrHwxMVQbUncne826HyeKoOLdbsltb8,41262
@@ -85,4 +86,3 @@ selenium/webdriver/support/expected_conditions.py,sha256=9uJmqOTiBrgQkEw6wDhKk6B
 selenium/webdriver/support/select.py,sha256=gJfQJjAFqMWbjGWZ-ne7BsYruQO1UqhjwutWL29wkGs,9398
 selenium/webdriver/support/ui.py,sha256=jhw5wvDZ8MrUy6zN5Db79ytP-bOpI3NDWRFJCT5fgKs,848
 selenium/webdriver/support/wait.py,sha256=XQs-3mdmZVmgkM3EW1qBw5_BDv_zxIOXEWO0hgGZjGc,4070
-
