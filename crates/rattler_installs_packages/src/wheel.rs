@@ -28,6 +28,9 @@ use thiserror::Error;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use zip::{read::ZipFile, result::ZipError, ZipArchive};
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 /// Wheel file in the PyPI ecosystem.
 /// See the [Reference Page](https://packaging.python.org/en/latest/specifications/binary-distribution-format/#binary-distribution-format)
 /// for more information.
