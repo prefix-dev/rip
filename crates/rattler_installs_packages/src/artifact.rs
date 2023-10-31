@@ -760,10 +760,7 @@ mod test {
             .unwrap()
             .join(format!("{}/RECORD", unpacked.vitals.dist_info,));
         let record_content = std::fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
-            .expect(&format!(
-                "failed to read RECORD from {}",
-                record_path.display()
-            ));
+            .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
 
         insta::assert_snapshot!(filename, record_content);
     }

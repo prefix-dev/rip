@@ -171,7 +171,7 @@ mod test {
 
         insta::assert_ron_snapshot!(distributions, {
             "[].dist_info" => insta::dynamic_redaction(move |value, _path| {
-                value.as_str().unwrap().replace("\\", "/")
+                value.as_str().unwrap().replace('\\', "/")
             }),
         });
     }
