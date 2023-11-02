@@ -1,4 +1,5 @@
 use rip_bin::{global_multi_progress, IndicatifWriter};
+use std::collections::HashMap;
 use std::io::Write;
 use std::str::FromStr;
 
@@ -83,6 +84,8 @@ async fn actual_main() -> miette::Result<()> {
         &args.specs,
         &env_markers,
         Some(&compatible_tags),
+        HashMap::default(),
+        HashMap::default(),
     )
     .await
     {
