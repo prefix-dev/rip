@@ -114,6 +114,7 @@ impl Wheel {
         stream: &mut AsyncHttpRangeReader,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelVitalsError> {
         // Make sure we have the back part of the stream.
+        // Because the zip index is at the back
         stream
             .prefetch(stream.len().saturating_sub(16384)..stream.len())
             .await;
