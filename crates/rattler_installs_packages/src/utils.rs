@@ -1,8 +1,11 @@
 use futures::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 use include_dir::{include_dir, Dir};
 use std::io::{Read, Seek, SeekFrom};
+use std::path::PathBuf;
+use thiserror::Error;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use url::Url;
+use which::which;
 
 /// Keep retrying a certain IO function until it either succeeds or until it doesn't return
 /// [`std::io::ErrorKind::Interrupted`].
@@ -82,6 +85,23 @@ pub fn normalize_index_url(mut url: Url) -> Url {
         url.set_path(&format!("{path}/"));
     }
     url
+}
+
+/// Error that can occur while finding the python executable.
+#[derive(Debug, Error)]
+pub enum FindPythonError {
+    #[error("could not find python executable")]
+    NotFound,
+}
+
+/// Try to find the python executable in the current environment.
+pub fn python_executable() -> Result<PathBuf, FindPythonError> {
+    // When installed with homebrew on macOS, the python3 executable is called `python3` instead
+    // Also on some ubuntu installs this is the case
+    // For windows it should just be python
+    which("python3")
+        .or_else(|_| which("python"))
+        .map_err(|_| FindPythonError::NotFound)
 }
 
 pub(crate) static VENDORED_PACKAGING_DIR: Dir<'_> =
