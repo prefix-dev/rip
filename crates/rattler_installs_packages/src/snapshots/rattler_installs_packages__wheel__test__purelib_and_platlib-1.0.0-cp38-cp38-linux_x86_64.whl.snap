@@ -1,5 +1,6 @@
 ---
-source: crates/rattler_installs_packages/src/artifact.rs
+source: crates/rattler_installs_packages/src/wheel.rs
+assertion_line: 858
 expression: record_content
 ---
 pure.py,sha256=VRmPEZgJrqUEQPsd8wxEp7cMWzySWs7MojKDGZhjUCQ,28
@@ -7,4 +8,3 @@ purelib_and_platlib-1.0.0.dist-info/INSTALLER,sha256=FpzDrzfcP6oI1mbsvYAjw7hT2I4
 purelib_and_platlib-1.0.0.dist-info/METADATA,sha256=3YoTq5hsIcUfHSB9eMPScL0ntE8JfFNnwUAL9qUjy5g,62
 purelib_and_platlib-1.0.0.dist-info/RECORD,,
 purelib_and_platlib-1.0.0.dist-info/WHEEL,sha256=3L-5uHiSOZxNkLCtSZK7mYrls2MmCfq0WHor5xNVzco,86
-

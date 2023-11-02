@@ -1,5 +1,6 @@
 ---
-source: crates/rattler_installs_packages/src/artifact.rs
+source: crates/rattler_installs_packages/src/wheel.rs
+assertion_line: 858
 expression: record_content
 ---
 black/__init__.py,sha256=VWazgq80l38r1Cn5Ea7fH5bMuDdFuQJtYgBKGWJganI,46682
@@ -11,4 +12,3 @@ miniblack-23.1.0.dist-info/WHEEL,sha256=rE4t8wm7r0N5wTLLeSbOvJha-KwM1ALPuB-FmvNa
 miniblack-23.1.0.dist-info/entry_points.txt,sha256=qBIyywHwGRkJj7kieq86kqf77rz3qGC4Joj36lHnxwc,78
 miniblack-23.1.0.dist-info/licenses/AUTHORS.md,sha256=cpHlH2nYyIXWEnA0LccoGenN-g5HZ7341klZ7MwbdIU,8043
 miniblack-23.1.0.dist-info/licenses/LICENSE,sha256=nAQo8MO0d5hQz1vZbhGqqK_HLUqG1KNiI9erouWNbgA,1080
-

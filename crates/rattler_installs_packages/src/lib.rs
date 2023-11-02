@@ -26,6 +26,7 @@ pub mod tags;
 mod distribution_finder;
 pub mod record;
 pub mod uninstall;
+mod wheel;
 
 #[cfg(feature = "resolvo")]
 pub use resolve::{resolve, PinnedPackage};
@@ -33,7 +34,7 @@ pub use resolve::{resolve, PinnedPackage};
 pub use file_store::{CacheKey, FileStore};
 pub use package_database::PackageDb;
 
-pub use artifact::{Artifact, InstallPaths, MetadataArtifact, UnpackWheelOptions, Wheel};
+pub use artifact::{Artifact, MetadataArtifact};
 pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFormat, SDistName,
     WheelName,
@@ -45,5 +46,6 @@ pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError
 pub use pep440_rs::{Version, VersionSpecifier, VersionSpecifiers};
 pub use pep508_rs::{MarkerEnvironment, Requirement};
 pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, ProjectInfo, Yanked};
+pub use wheel::{InstallPaths, UnpackWheelOptions, Wheel};
 
 pub use utils::normalize_index_url;
