@@ -96,17 +96,16 @@ pub enum FindPythonError {
 
 /// Try to find the python executable in the current environment.
 pub fn python_executable() -> Result<PathBuf, FindPythonError> {
-    let python = which("python");
-
     // When installed with homebrew on macOS, the python3 executable is called `python3` instead
     #[cfg(target_os = "macos")]
-    let python = if python.is_err() {
+    let python = which("python");
+    if python.is_err() {
         which("python3").map_err(|_| FindPythonError::NotFound)
     } else {
         python.map_err(|_| FindPythonError::NotFound)
-    };
-
-    python.map_err(|_| FindPythonError::NotFound)
+    }
+    #[cfg(not(target_os = "macos"))]
+    which("python").map_err(|_| FindPythonError::NotFound)
 }
 
 pub(crate) static VENDORED_PACKAGING_DIR: Dir<'_> =
