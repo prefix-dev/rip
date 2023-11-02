@@ -99,12 +99,9 @@ pub fn python_executable() -> Result<PathBuf, FindPythonError> {
     // When installed with homebrew on macOS, the python3 executable is called `python3` instead
     // Also on some ubuntu installs this is the case
     // For windows it should just be python
-    let python = which("python3");
-    if python.is_err() {
-        which("python").map_err(|_| FindPythonError::NotFound)
-    } else {
-        python.map_err(|_| FindPythonError::NotFound)
-    }
+    which("python3")
+        .or_else(|_| which("python"))
+        .map_err(|_| FindPythonError::NotFound)
 }
 
 pub(crate) static VENDORED_PACKAGING_DIR: Dir<'_> =
