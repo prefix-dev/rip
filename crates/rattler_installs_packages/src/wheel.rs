@@ -114,9 +114,11 @@ impl Wheel {
         stream: &mut AsyncHttpRangeReader,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelVitalsError> {
         // Make sure we have the back part of the stream.
+        // Best guess for the central directory size inside the zip
+        const CENTRAL_DIRECTORY_SIZE = 16384usize;
         // Because the zip index is at the back
         stream
-            .prefetch(stream.len().saturating_sub(16384)..stream.len())
+            .prefetch(stream.len().saturating_sub(CENTRAL_DIRECTORY_SIZE)..stream.len())
             .await;
 
         // Construct a zip reader to uses the stream.
