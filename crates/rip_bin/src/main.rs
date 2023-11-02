@@ -1,4 +1,5 @@
 use rip_bin::{global_multi_progress, IndicatifWriter};
+use std::collections::HashMap;
 use std::io::Write;
 use std::str::FromStr;
 
@@ -66,13 +67,13 @@ async fn actual_main() -> miette::Result<()> {
         .wrap_err_with(|| {
             "failed to determine environment markers for the current machine (could not run Python)"
         })?;
-    tracing::info!(
+    tracing::debug!(
         "extracted the following environment markers from the system python interpreter:\n{:#?}",
         env_markers
     );
 
     let compatible_tags = WheelTags::from_env().await.into_diagnostic()?;
-    tracing::info!(
+    tracing::debug!(
         "extracted the following compatible wheel tags from the system python interpreter: {}",
         compatible_tags.tags().format(", ")
     );
@@ -83,6 +84,8 @@ async fn actual_main() -> miette::Result<()> {
         &args.specs,
         &env_markers,
         Some(&compatible_tags),
+        HashMap::default(),
+        HashMap::default(),
     )
     .await
     {

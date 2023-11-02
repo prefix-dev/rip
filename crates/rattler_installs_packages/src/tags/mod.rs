@@ -5,10 +5,13 @@
 mod from_env;
 
 use indexmap::IndexSet;
+use itertools::Itertools;
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use std::fmt::{Debug, Display, Formatter};
+use std::str::FromStr;
 
 /// A representation of a tag triple for a wheel.
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, SerializeDisplay, DeserializeFromStr)]
 pub struct WheelTag {
     /// The interpreter name, e.g. "py"
     pub interpreter: String,
@@ -18,6 +21,23 @@ pub struct WheelTag {
 
     /// The OS/platform the wheel supports, e.g. "win_am64".
     pub platform: String,
+}
+
+impl FromStr for WheelTag {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let Some((interpreter, abi, platform)) =
+            s.split('-').map(ToOwned::to_owned).collect_tuple()
+        else {
+            return Err(String::from("not enough '-' separators"));
+        };
+        Ok(Self {
+            interpreter,
+            abi,
+            platform,
+        })
+    }
 }
 
 impl Display for WheelTag {
@@ -58,5 +78,18 @@ impl FromIterator<WheelTag> for WheelTags {
         Self {
             tags: FromIterator::from_iter(iter),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_from_str() {
+        let tag = WheelTag::from_str("py2-none-any").unwrap();
+        assert_eq!(tag.interpreter, "py2");
+        assert_eq!(tag.abi, "none");
+        assert_eq!(tag.platform, "any");
     }
 }

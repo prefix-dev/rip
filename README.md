@@ -50,7 +50,7 @@ This is a list of current and planned features of `RIP`, the biggest are listed 
 
 * [x] Downloading and aggressive caching of PyPI metadata.
 * [x] Resolving of PyPI packages using [Resolvo](https://github.com/mamba-org/resolvo).
-* [ ] Installation of wheel files (planned)
+* [ ] Installation of wheel files (partial support see: https://github.com/prefix-dev/rip/issues/6)
 * [ ] Support sdist files (planned)
 
 More intricacies of the PyPI ecosystem need to be implemented, see our GitHub issues for more details.

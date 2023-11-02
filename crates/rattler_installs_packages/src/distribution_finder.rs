@@ -4,7 +4,9 @@
 //! The implementation is based on the <https://packaging.python.org/en/latest/specifications/recording-installed-packages>
 //! which is based on [PEP 376](https://peps.python.org/pep-0376/) and [PEP 627](https://peps.python.org/pep-0627/).
 
+use crate::tags::WheelTag;
 use crate::{rfc822ish::RFC822ish, InstallPaths, NormalizedPackageName, PackageName};
+use indexmap::IndexSet;
 use itertools::Itertools;
 use pep440_rs::Version;
 use serde::{Deserialize, Serialize};
@@ -32,7 +34,7 @@ pub struct Distribution {
 
     /// The specific tags of the distribution that was installed or `None` if this information
     /// could not be retrieved.
-    pub tags: Option<Vec<String>>,
+    pub tags: Option<IndexSet<WheelTag>>,
 }
 
 /// An error that can occur when running `find_distributions_in_venv`.
@@ -45,6 +47,10 @@ pub enum FindDistributionError {
     /// Failed to parse a WHEEL file
     #[error("failed to parse '{0}'")]
     FailedToParseWheel(PathBuf, #[source] <RFC822ish as FromStr>::Err),
+
+    /// Failed to parse WHEEL tags
+    #[error("failed to parse wheel tag {0}")]
+    FailedToParseWheelTag(String),
 }
 
 /// Locates the python distributions (packages) that have been installed in the virtualenv rooted at
@@ -123,7 +129,16 @@ fn analyze_distribution(
     let tags = if wheel_path.is_file() {
         let mut parsed = RFC822ish::from_str(&std::fs::read_to_string(&wheel_path)?)
             .map_err(move |e| FindDistributionError::FailedToParseWheel(wheel_path, e))?;
-        Some(parsed.take_all("Tag"))
+        Some(
+            parsed
+                .take_all("Tag")
+                .into_iter()
+                .map(|tag| {
+                    WheelTag::from_str(&tag)
+                        .map_err(|_| FindDistributionError::FailedToParseWheelTag(tag))
+                })
+                .collect::<Result<IndexSet<_>, _>>()?,
+        )
     } else {
         None
     };
@@ -156,7 +171,7 @@ mod test {
 
         insta::assert_ron_snapshot!(distributions, {
             "[].dist_info" => insta::dynamic_redaction(move |value, _path| {
-                value.as_str().unwrap().replace("\\", "/")
+                value.as_str().unwrap().replace('\\', "/")
             }),
         });
     }

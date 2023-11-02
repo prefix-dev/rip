@@ -1,5 +1,5 @@
 use crate::tags::{WheelTag, WheelTags};
-use crate::utils::VENDORED_PACKAGING_DIR;
+use crate::utils::{python_executable, FindPythonError, VENDORED_PACKAGING_DIR};
 use serde::Deserialize;
 use std::io;
 use std::io::ErrorKind;
@@ -9,8 +9,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum FromPythonError {
-    #[error("could not find python executable")]
-    CouldNotFindPythonExecutable,
+    #[error(transparent)]
+    CouldNotFindPythonExecutable(#[from] FindPythonError),
 
     #[error("{0}")]
     PythonError(String),
@@ -29,7 +29,7 @@ impl WheelTags {
     /// Try to determine the platform tags by executing the python command and extracting `sys_tags`
     /// using the vendored `packaging` module.
     pub async fn from_env() -> Result<Self, FromPythonError> {
-        Self::from_python(Path::new("python")).await
+        Self::from_python(python_executable()?.as_path()).await
     }
 
     /// Try to determine the platform tags by executing the python command and extracting `sys_tags`
@@ -50,7 +50,9 @@ impl WheelTags {
             .await
         {
             Err(e) if e.kind() == ErrorKind::NotFound => {
-                return Err(FromPythonError::CouldNotFindPythonExecutable)
+                return Err(FromPythonError::CouldNotFindPythonExecutable(
+                    FindPythonError::NotFound,
+                ))
             }
             Err(e) => return Err(FromPythonError::FailedToExecute(e)),
             Ok(output) => output,
@@ -95,7 +97,7 @@ mod test {
     #[tokio::test]
     pub async fn test_from_env() {
         match WheelTags::from_env().await {
-            Err(FromPythonError::CouldNotFindPythonExecutable) => {
+            Err(FromPythonError::CouldNotFindPythonExecutable(_)) => {
                 // This is fine, the test machine does not include a python binary.
             }
             Err(FromPythonError::PythonError(e)) => {

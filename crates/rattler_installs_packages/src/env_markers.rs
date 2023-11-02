@@ -1,3 +1,5 @@
+use crate::env_markers::FromPythonError::CouldNotFindPythonExecutable;
+use crate::utils::{python_executable, FindPythonError};
 use pep508_rs::MarkerEnvironment;
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -6,7 +8,6 @@ use std::ops::Deref;
 use std::path::Path;
 use std::process::ExitStatus;
 use thiserror::Error;
-use which::which;
 
 /// Describes the environment markers that can be used in dependency specifications to enable or
 /// disable certain dependencies based on runtime environment.
@@ -31,8 +32,8 @@ impl From<pep508_rs::MarkerEnvironment> for Pep508EnvMakers {
 
 #[derive(Debug, Error)]
 pub enum FromPythonError {
-    #[error("could not find python executable")]
-    CouldNotFindPythonExecutable,
+    #[error(transparent)]
+    CouldNotFindPythonExecutable(#[from] FindPythonError),
 
     #[error(transparent)]
     FailedToExecute(#[from] io::Error),
@@ -47,7 +48,7 @@ pub enum FromPythonError {
 impl Pep508EnvMakers {
     /// Try to determine the environment markers by executing python.
     pub async fn from_env() -> Result<Self, FromPythonError> {
-        let python = which("python").map_err(|_| FromPythonError::CouldNotFindPythonExecutable)?;
+        let python = python_executable()?;
         tracing::info!("using python executable at {}", python.display());
         Self::from_python(python.as_path()).await
     }
@@ -65,7 +66,7 @@ impl Pep508EnvMakers {
             .await
         {
             Err(e) if e.kind() == ErrorKind::NotFound => {
-                return Err(FromPythonError::CouldNotFindPythonExecutable)
+                return Err(CouldNotFindPythonExecutable(FindPythonError::NotFound))
             }
             Err(e) => return Err(FromPythonError::FailedToExecute(e)),
             Ok(output) => output,
@@ -97,7 +98,7 @@ mod test {
     #[tokio::test]
     pub async fn test_from_env() {
         match Pep508EnvMakers::from_env().await {
-            Err(FromPythonError::CouldNotFindPythonExecutable) => {
+            Err(CouldNotFindPythonExecutable(_)) => {
                 // This is fine, the test machine does not include a python binary.
             }
             Err(e) => panic!("{e}"),

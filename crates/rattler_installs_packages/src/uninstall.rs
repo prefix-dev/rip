@@ -111,7 +111,7 @@ mod test {
             .unwrap();
 
         // Uninstall the distribution
-        uninstall_distribution(&site_packages_dir, &dist_info_dir).unwrap();
+        uninstall_distribution(&site_packages_dir, dist_info_dir).unwrap();
 
         // Check that all files are gone
         for entry in record.iter() {

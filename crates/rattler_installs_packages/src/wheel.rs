@@ -115,7 +115,7 @@ impl Wheel {
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelVitalsError> {
         // Make sure we have the back part of the stream.
         // Best guess for the central directory size inside the zip
-        const CENTRAL_DIRECTORY_SIZE = 16384usize;
+        const CENTRAL_DIRECTORY_SIZE: u64 = 16384;
         // Because the zip index is at the back
         stream
             .prefetch(stream.len().saturating_sub(CENTRAL_DIRECTORY_SIZE)..stream.len())
