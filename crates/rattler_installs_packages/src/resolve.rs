@@ -13,7 +13,6 @@ use crate::{
     Version,
 };
 use elsa::FrozenMap;
-use itertools::Itertools;
 use pep440_rs::{Operator, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, VersionOrUrl};
 use resolvo::{
@@ -152,6 +151,78 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             locked_packages,
         })
     }
+
+    fn filter_candidates<'a>(
+        &self,
+        artifacts: &'a [ArtifactInfo],
+    ) -> Result<Vec<&'a ArtifactInfo>, &'static str> {
+        let mut artifacts = artifacts
+            .iter()
+            .filter(|a| a.filename.version().pre.is_none() && a.filename.version().dev.is_none())
+            .collect::<Vec<_>>();
+
+        if artifacts.is_empty() {
+            // Skip all prereleases
+            return Err("prereleases are not allowed");
+        }
+
+        // Filter only artifacts we can work with
+        artifacts.retain(|a| a.is::<Wheel>());
+        if artifacts.is_empty() {
+            // If there are no wheel artifacts, we're just gonna skip it
+            return Err("there are no wheels available");
+        }
+
+        // Filter yanked artifacts
+        artifacts.retain(|a| !a.yanked.yanked);
+        if artifacts.is_empty() {
+            return Err("it is yanked");
+        }
+
+        // Filter artifacts that are incompatible with the python version
+        artifacts.retain(|artifact| {
+            if let Some(requires_python) = artifact.requires_python.as_ref() {
+                if !requires_python.contains(&self.markers.python_full_version.version) {
+                    return false;
+                }
+            }
+            true
+        });
+
+        if artifacts.is_empty() {
+            return Err("none of the artifacts are compatible with the Python interpreter");
+        }
+
+        // Filter based on compatibility
+        if let Some(compatible_tags) = self.compatible_tags {
+            artifacts.retain(|artifact| match &artifact.filename {
+                ArtifactName::Wheel(wheel_name) => wheel_name
+                    .all_tags_iter()
+                    .any(|t| compatible_tags.is_compatible(&t)),
+                ArtifactName::SDist(_) => unreachable!("sdists have already been filtered"),
+            });
+
+            // Sort the artifacts from most compatible to least compatible, this ensures that we
+            // check the most compatible artifacts for dependencies first.
+            artifacts.sort_by_cached_key(|a| {
+                -a.filename
+                    .as_wheel()
+                    .expect("only wheels are considered")
+                    .all_tags_iter()
+                    .filter_map(|tag| compatible_tags.compatibility(&tag))
+                    .max()
+                    .unwrap_or(0)
+            });
+        }
+
+        if artifacts.is_empty() {
+            return Err(
+                "none of the artifacts are compatible with the Python interpreter or glibc version",
+            );
+        }
+
+        Ok(artifacts)
+    }
 }
 
 impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
@@ -206,9 +277,6 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             }
         };
         let mut candidates = Candidates::default();
-        let mut no_wheels = Vec::new();
-        let mut incompatible_python = Vec::new();
-        let mut incompatible_tags = Vec::new();
         let locked_package = self.locked_packages.get(package_name.base());
         let favored_package = self.favored_packages.get(package_name.base());
         for (version, artifacts) in artifacts.iter() {
@@ -220,105 +288,23 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 continue;
             }
 
-            let mut artifacts = artifacts
-                .iter()
-                .filter(|a| {
-                    a.filename.version().pre.is_none() && a.filename.version().dev.is_none()
-                })
-                .collect::<Vec<_>>();
-
-            if artifacts.is_empty() {
-                // Skip all prereleases
-                continue;
-            }
-
-            // Filter only artifacts we can work with
-            artifacts.retain(|a| a.is::<Wheel>());
-            if artifacts.is_empty() {
-                // If there are no wheel artifacts, we're just gonna skip it
-                no_wheels.push(version);
-                continue;
-            }
-
-            // Filter yanked artifacts
-            artifacts.retain(|a| !a.yanked.yanked);
-            if artifacts.is_empty() {
-                continue;
-            }
-
-            // Filter artifacts that are incompatible with the python version
-            artifacts.retain(|artifact| {
-                if let Some(requires_python) = artifact.requires_python.as_ref() {
-                    if !requires_python.contains(&self.markers.python_full_version.version) {
-                        return false;
-                    }
-                }
-                true
-            });
-
-            if artifacts.is_empty() {
-                incompatible_python.push(version);
-                continue;
-            }
-
-            // Filter based on compatibility
-            if let Some(compatible_tags) = self.compatible_tags {
-                artifacts.retain(|artifact| match &artifact.filename {
-                    ArtifactName::Wheel(wheel_name) => wheel_name
-                        .all_tags_iter()
-                        .any(|t| compatible_tags.is_compatible(&t)),
-                    ArtifactName::SDist(_) => unreachable!("sdists have already been filtered"),
-                });
-
-                // Sort the artifacts from most compatible to least compatible, this ensures that we
-                // check the most compatible artifacts for dependencies first.
-                artifacts.sort_by_cached_key(|a| {
-                    -a.filename
-                        .as_wheel()
-                        .expect("only wheels are considered")
-                        .all_tags_iter()
-                        .filter_map(|tag| compatible_tags.compatibility(&tag))
-                        .max()
-                        .unwrap_or(0)
-                });
-            }
-
-            if artifacts.is_empty() {
-                incompatible_tags.push(version);
-                continue;
-            }
-
+            // Add the solvable
             let solvable_id = self
                 .pool
                 .intern_solvable(name, PypiVersion::Version(version.clone()));
             candidates.candidates.push(solvable_id);
-            self.cached_artifacts.insert(solvable_id, artifacts);
-        }
 
-        // Print some information about skipped packages
-        if !no_wheels.is_empty() && package_name.extra().is_none() {
-            tracing::warn!(
-                "Not considering {} {} because there are no wheel artifacts available",
-                package_name,
-                no_wheels.iter().format(", "),
-            );
-        }
-
-        if !incompatible_python.is_empty() && package_name.extra().is_none() {
-            tracing::warn!(
-                "Not considering {} {} because none of the artifacts are compatible with Python {}",
-                package_name,
-                incompatible_python.iter().format(", "),
-                &self.markers.python_full_version.version
-            );
-        }
-
-        if !incompatible_tags.is_empty() && package_name.extra().is_none() {
-            tracing::warn!(
-                "Not considering {} {} because none of the artifacts are compatible with the Python interpreter",
-                package_name,
-                incompatible_tags.iter().format(", "),
-            );
+            // Determine the candidates
+            match self.filter_candidates(artifacts) {
+                Ok(artifacts) => {
+                    self.cached_artifacts.insert(solvable_id, artifacts);
+                }
+                Err(reason) => {
+                    candidates
+                        .excluded
+                        .push((solvable_id, self.pool.intern_string(reason)));
+                }
+            }
         }
 
         // Add a locked dependency
@@ -551,6 +537,8 @@ pub async fn resolve<'db>(
             return Err(miette::miette!(
                 "{}",
                 e.display_user_friendly(&solver, &DefaultSolvableDisplay)
+                    .to_string()
+                    .trim()
             ))
         }
     };
