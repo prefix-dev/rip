@@ -6,6 +6,7 @@
 //! with [`resolvo`].
 //!
 //! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
+use crate::sdist::SDist;
 use crate::tags::WheelTags;
 use crate::wheel::Wheel;
 use crate::{
@@ -233,9 +234,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             }
 
             // Filter only artifacts we can work with
-            artifacts.retain(|a| a.is::<Wheel>());
             if artifacts.is_empty() {
-                // If there are no wheel artifacts, we're just gonna skip it
+                // If there are no wheel or sdists artifacts, we're just gonna skip it
                 no_wheels.push(version);
                 continue;
             }
@@ -261,18 +261,30 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 continue;
             }
 
+            // Filter into Sdists and wheels
+            let mut sdists = artifacts
+                .iter()
+                .filter(|a| a.is::<SDist>())
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut wheels = artifacts
+                .iter()
+                .filter(|a| a.is::<Wheel>())
+                .cloned()
+                .collect::<Vec<_>>();
+
             // Filter based on compatibility
             if let Some(compatible_tags) = self.compatible_tags {
-                artifacts.retain(|artifact| match &artifact.filename {
+                wheels.retain(|artifact| match &artifact.filename {
                     ArtifactName::Wheel(wheel_name) => wheel_name
                         .all_tags_iter()
                         .any(|t| compatible_tags.is_compatible(&t)),
-                    ArtifactName::SDist(_) => unreachable!("sdists have already been filtered"),
+                    ArtifactName::SDist(_) => false,
                 });
 
                 // Sort the artifacts from most compatible to least compatible, this ensures that we
                 // check the most compatible artifacts for dependencies first.
-                artifacts.sort_by_cached_key(|a| {
+                wheels.sort_by_cached_key(|a| {
                     -a.filename
                         .as_wheel()
                         .expect("only wheels are considered")
@@ -283,6 +295,11 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 });
             }
 
+            // First add wheels and then sdists to artifacts
+            wheels.append(&mut sdists);
+            let artifacts = wheels;
+
+            // When we have no artifacts consider this empty
             if artifacts.is_empty() {
                 incompatible_tags.push(version);
                 continue;

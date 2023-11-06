@@ -28,6 +28,8 @@ pub mod record;
 pub mod uninstall;
 mod wheel;
 
+mod sdist;
+
 #[cfg(feature = "resolvo")]
 pub use resolve::{resolve, PinnedPackage};
 
