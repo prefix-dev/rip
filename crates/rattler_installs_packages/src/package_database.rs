@@ -113,7 +113,7 @@ impl PackageDb {
     pub async fn get_metadata<'a, A: MetadataArtifact, I: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [I],
-    ) -> miette::Result<(&'a ArtifactInfo, A::Metadata)> {
+    ) -> miette::Result<Option<(&'a ArtifactInfo, A::Metadata)>> {
         // Find all the artifacts that match the artifact we are looking for
         let matching_artifacts = artifacts
             .iter()
@@ -124,7 +124,7 @@ impl PackageDb {
         // Check if we already have information about any of the artifacts cached.
         for artifact_info in artifacts.iter().map(|b| b.borrow()) {
             if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info) {
-                return Ok((artifact_info, A::parse_metadata(&metadata_bytes)?));
+                return Ok(Some((artifact_info, A::parse_metadata(&metadata_bytes)?)));
             }
         }
 
@@ -150,7 +150,7 @@ impl PackageDb {
                         };
 
                         self.put_metadata_in_cache(artifact_info, &blob)?;
-                        return Ok((artifact_info, metadata));
+                        return Ok(Some((artifact_info, metadata)));
                     }
                     Err(err) => match err.downcast_ref::<HttpRequestError>() {
                         Some(HttpRequestError::NotCached(_)) => continue,
@@ -169,12 +169,12 @@ impl PackageDb {
             // Retrieve the metadata instead of the entire wheel
             // If the dist-info is available separately, we can use that instead
             if artifact_info.dist_info_metadata.available {
-                return self.get_pep658_metadata::<A>(artifact_info).await;
+                return Ok(Some(self.get_pep658_metadata::<A>(artifact_info).await?));
             }
 
             // Try to load the data by sparsely reading the artifact (if supported)
             if let Some(metadata) = self.get_lazy_metadata::<A>(artifact_info).await? {
-                return Ok((artifact_info, metadata));
+                return Ok(Some((artifact_info, metadata)));
             }
 
             // Otherwise download the entire artifact
@@ -190,17 +190,9 @@ impl PackageDb {
                 continue;
             };
             self.put_metadata_in_cache(artifact_info, &blob)?;
-            return Ok((artifact_info, metadata));
+            return Ok(Some((artifact_info, metadata)));
         }
-
-        miette::bail!(
-            "couldn't find any {} metadata for {:#?}",
-            std::any::type_name::<A>(),
-            artifacts
-                .iter()
-                .map(|artifact_info| artifact_info.borrow())
-                .collect::<Vec<_>>()
-        );
+        Ok(None)
     }
 
     async fn get_lazy_metadata<A: MetadataArtifact>(
@@ -403,6 +395,7 @@ mod test {
         let (_artifact, _metadata) = package_db
             .get_metadata::<Wheel, _>(&artifact_info)
             .await
+            .unwrap()
             .unwrap();
     }
 

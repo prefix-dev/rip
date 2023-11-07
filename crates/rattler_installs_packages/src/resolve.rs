@@ -6,6 +6,7 @@
 //! with [`resolvo`].
 //!
 //! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
+
 use crate::sdist::SDist;
 use crate::tags::WheelTags;
 use crate::wheel::Wheel;
@@ -409,10 +410,23 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             return dependencies;
         }
 
-        let (_, metadata) = task::block_in_place(|| {
-            Handle::current()
+        let metadata = task::block_in_place(|| {
+            // First try getting wheels
+            let result = Handle::current()
                 .block_on(self.package_db.get_metadata::<Wheel, _>(artifacts))
-                .unwrap()
+                .unwrap();
+
+            match result {
+                None => {
+                    // If nothing is found then try the sdists
+                    let (_, metadata) = Handle::current()
+                        .block_on(self.package_db.get_metadata::<SDist, _>(artifacts))
+                        .unwrap()
+                        .expect("no metadata found for sdist or wheels");
+                    metadata
+                }
+                Some((_, metadata)) => metadata,
+            }
         });
 
         // Add constraints that restrict that the extra packages are set to the same version.

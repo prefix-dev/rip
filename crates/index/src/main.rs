@@ -107,7 +107,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
 
         // Continue if there was an error in downloading and skip for now :)
         let metadata = if let Some(metadata) = metadata {
-            metadata.1
+            metadata.unwrap().1
         } else {
             continue;
         };
