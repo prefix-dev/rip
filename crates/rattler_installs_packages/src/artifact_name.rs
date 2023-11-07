@@ -205,6 +205,13 @@ pub enum SDistFormat {
     Tar,
 }
 
+impl SDistFormat {
+    /// In RIP we currently only support TarGz and Tar
+    pub fn is_supported(&self) -> bool {
+        matches!(self, Self::TarGz | Self::Tar)
+    }
+}
+
 /// An error that can occur when parsing an artifact name
 #[derive(Debug, Clone, Error)]
 #[allow(missing_docs)]

@@ -265,7 +265,14 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             // Filter into Sdists and wheels
             let mut sdists = artifacts
                 .iter()
-                .filter(|a| a.is::<SDist>())
+                // This filters out sdists and checks if
+                // the format is supported
+                // can get rid of this if we decide to support all formats
+                .filter(|a| {
+                    a.filename
+                        .as_sdist()
+                        .is_some_and(|f| f.format.is_supported())
+                })
                 .cloned()
                 .collect::<Vec<_>>();
             let mut wheels = artifacts
