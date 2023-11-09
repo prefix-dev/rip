@@ -101,7 +101,6 @@ impl MetadataArtifact for SDist {
 mod tests {
     use crate::MetadataArtifact;
     use insta::assert_debug_snapshot;
-    use itertools::Itertools;
     use std::path::Path;
 
     #[test]
