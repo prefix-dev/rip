@@ -61,6 +61,8 @@ which = "4.4.2"
 pathdiff = "0.2.1"
 async_http_range_reader = "0.3.0"
 async_zip = { version = "0.0.15", features = ["tokio", "deflate"] }
+tar = "0.4.40"
+flate2 = "1.0.28"
 
 [dev-dependencies]
 criterion = "0.5"

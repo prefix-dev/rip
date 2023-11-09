@@ -6,6 +6,8 @@
 //! with [`resolvo`].
 //!
 //! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
+
+use crate::sdist::SDist;
 use crate::tags::WheelTags;
 use crate::wheel::Wheel;
 use crate::{
@@ -167,10 +169,9 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         }
 
         // Filter only artifacts we can work with
-        artifacts.retain(|a| a.is::<Wheel>());
         if artifacts.is_empty() {
             // If there are no wheel artifacts, we're just gonna skip it
-            return Err("there are no wheels available");
+            return Err("there are no packages available");
         }
 
         // Filter yanked artifacts
@@ -179,32 +180,40 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             return Err("it is yanked");
         }
 
-        // Filter artifacts that are incompatible with the python version
-        artifacts.retain(|artifact| {
-            if let Some(requires_python) = artifact.requires_python.as_ref() {
-                if !requires_python.contains(&self.markers.python_full_version.version) {
-                    return false;
-                }
-            }
-            true
-        });
+        // Filter into Sdists and wheels
+        let mut sdists = artifacts
+            .iter()
+            // This filters out sdists and checks if
+            // the format is supported
+            // can get rid of this if we decide to support all formats
+            .filter(|a| {
+                a.filename
+                    .as_sdist()
+                    .is_some_and(|f| f.format.is_supported())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
 
-        if artifacts.is_empty() {
-            return Err("none of the artifacts are compatible with the Python interpreter");
-        }
+        // This should keep only the wheels
+        let mut wheels = artifacts
+            .iter()
+            .filter(|a| a.is::<Wheel>())
+            .cloned()
+            .collect::<Vec<_>>();
 
         // Filter based on compatibility
         if let Some(compatible_tags) = self.compatible_tags {
-            artifacts.retain(|artifact| match &artifact.filename {
+            wheels.retain(|artifact| match &artifact.filename {
                 ArtifactName::Wheel(wheel_name) => wheel_name
                     .all_tags_iter()
                     .any(|t| compatible_tags.is_compatible(&t)),
-                ArtifactName::SDist(_) => unreachable!("sdists have already been filtered"),
+                ArtifactName::SDist(_) => false,
             });
 
             // Sort the artifacts from most compatible to least compatible, this ensures that we
             // check the most compatible artifacts for dependencies first.
-            artifacts.sort_by_cached_key(|a| {
+            // this only needs to be done for wheels
+            wheels.sort_by_cached_key(|a| {
                 -a.filename
                     .as_wheel()
                     .expect("only wheels are considered")
@@ -214,6 +223,10 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
                     .unwrap_or(0)
             });
         }
+
+        // Append these together
+        wheels.append(&mut sdists);
+        let artifacts = wheels;
 
         if artifacts.is_empty() {
             return Err(
@@ -378,10 +391,23 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             return dependencies;
         }
 
-        let (_, metadata) = task::block_in_place(|| {
-            Handle::current()
+        let metadata = task::block_in_place(|| {
+            // First try getting wheels
+            let result = Handle::current()
                 .block_on(self.package_db.get_metadata::<Wheel, _>(artifacts))
-                .unwrap()
+                .unwrap();
+
+            match result {
+                None => {
+                    // If nothing is found then try the sdists
+                    let (_, metadata) = Handle::current()
+                        .block_on(self.package_db.get_metadata::<SDist, _>(artifacts))
+                        .unwrap()
+                        .expect("no metadata found for sdist or wheels");
+                    metadata
+                }
+                Some((_, metadata)) => metadata,
+            }
         });
 
         // Add constraints that restrict that the extra packages are set to the same version.
