@@ -171,7 +171,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         // Filter only artifacts we can work with
         if artifacts.is_empty() {
             // If there are no wheel artifacts, we're just gonna skip it
-            return Err("there are no artifacts available");
+            return Err("there are no packages available");
         }
 
         // Filter yanked artifacts
