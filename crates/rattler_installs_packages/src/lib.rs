@@ -30,6 +30,8 @@ mod wheel;
 
 mod sdist;
 
+mod venv;
+
 #[cfg(feature = "resolvo")]
 pub use resolve::{resolve, PinnedPackage};
 
