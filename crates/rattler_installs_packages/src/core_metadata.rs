@@ -16,9 +16,28 @@ use thiserror::Error;
 pub struct WheelCoreMetadata {
     pub name: PackageName,
     pub version: Version,
+    pub metadata_version: MetadataVersion,
     pub requires_dist: Vec<Requirement>,
     pub requires_python: Option<VersionSpecifiers>,
     pub extras: HashSet<Extra>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MetadataVersion(pub Version);
+
+impl MetadataVersion {
+    /// We consider that this implements PEP643
+    /// if the version is 2.3 or higher.
+    pub fn implements_pep643(&self) -> bool {
+        static VERSION_2_2: Lazy<MetadataVersion> = Lazy::new(|| {
+            MetadataVersion(Version::from_str("2.2").expect("cannot parse 2.2 version string"))
+        });
+
+        if self < &VERSION_2_2 {
+            return false;
+        }
+        true
+    }
 }
 
 #[derive(Debug, Error)]
@@ -58,7 +77,7 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
     type Error = WheelCoreMetaDataError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let (name, version, mut parsed) = parse_common(value)?;
+        let (name, version, metadata_version, mut parsed) = parse_common(value)?;
 
         let mut requires_dist = Vec::new();
         for req_str in parsed.take_all("Requires-Dist").into_iter() {
@@ -90,6 +109,7 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
         Ok(WheelCoreMetadata {
             name,
             version,
+            metadata_version,
             requires_dist,
             requires_python,
             extras,
@@ -97,7 +117,9 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
     }
 }
 
-fn parse_common(input: &[u8]) -> Result<(PackageName, Version, RFC822ish), WheelCoreMetaDataError> {
+fn parse_common(
+    input: &[u8],
+) -> Result<(PackageName, Version, MetadataVersion, RFC822ish), WheelCoreMetaDataError> {
     let input = String::from_utf8_lossy(input);
     let mut parsed = RFC822ish::from_str(&input)?;
 
@@ -143,6 +165,7 @@ fn parse_common(input: &[u8]) -> Result<(PackageName, Version, RFC822ish), Wheel
         version_str
             .parse()
             .map_err(WheelCoreMetaDataError::InvalidVersion)?,
+        MetadataVersion(metadata_version),
         parsed,
     ))
 }
