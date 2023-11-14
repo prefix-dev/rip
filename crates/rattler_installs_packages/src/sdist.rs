@@ -53,6 +53,7 @@ impl SDist {
     pub fn read_package_info(&self) -> miette::Result<(Vec<u8>, WheelCoreMetadata)> {
         if let Some(bytes) = self.find_entry("PKG-INFO")? {
             let metadata = Self::parse_metadata(&bytes)?;
+
             Ok((bytes, metadata))
         } else {
             Err(miette!("no PKG-INFO found in archive"))
@@ -115,26 +116,48 @@ impl MetadataArtifact for SDist {
 
     fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)> {
         // Assume we have a PKG-INFO
-        self.read_package_info()
+        let (bytes, metadata) = self.read_package_info()?;
+
+        // Only SDIST metadata from version 2.2 and up is considered reliable
+        // Filter out older versions
+        // TODO: when we have wheel building, build the wheel instead relying on this
+        if !metadata.metadata_version.implements_pep643() {
+            return Err(miette!("only consider SDist Metadata higher than 2.2"));
+        }
+        Ok((bytes, metadata))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::sdist::SDist;
     use crate::MetadataArtifact;
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use std::path::Path;
 
     #[test]
-    pub fn read_rich_metadata() {
+    pub fn reject_rich_metadata() {
         // Read path
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
         // Load sdist
-        let sdist = super::SDist::from_path(&path).unwrap();
+        let sdist = SDist::from_path(&path).unwrap();
 
-        let metadata = sdist.metadata().unwrap().1;
+        // Rich has an old metadata version
+        let metadata = sdist.metadata();
+        assert!(metadata.is_err());
+    }
+
+    #[test]
+    pub fn correct_metadata_fake_flask() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/fake-flask-3.0.0.tar.gz");
+
+        let sdist = SDist::from_path(&path).unwrap();
+        // Should not fail as it is a valid PKG-INFO
+        // and considered reliable
+        let (_, metadata) = sdist.metadata().unwrap();
         assert_debug_snapshot!(metadata);
     }
 

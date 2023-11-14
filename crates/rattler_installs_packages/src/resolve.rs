@@ -404,6 +404,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                         .block_on(self.package_db.get_metadata::<SDist, _>(artifacts))
                         .unwrap()
                         .expect("no metadata found for sdist or wheels");
+
+                    tracing::info!("found metadata for sdist: {:?}", metadata);
                     metadata
                 }
                 Some((_, metadata)) => metadata,
