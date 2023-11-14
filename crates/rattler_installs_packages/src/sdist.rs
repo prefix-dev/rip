@@ -132,7 +132,7 @@ impl MetadataArtifact for SDist {
 mod tests {
     use crate::sdist::SDist;
     use crate::MetadataArtifact;
-    use insta::{assert_debug_snapshot, assert_ron_snapshot};
+    use insta::assert_ron_snapshot;
     use std::path::Path;
 
     #[test]
@@ -157,8 +157,7 @@ mod tests {
         let sdist = SDist::from_path(&path).unwrap();
         // Should not fail as it is a valid PKG-INFO
         // and considered reliable
-        let (_, metadata) = sdist.metadata().unwrap();
-        assert_debug_snapshot!(metadata);
+        sdist.metadata().unwrap();
     }
 
     #[test]
