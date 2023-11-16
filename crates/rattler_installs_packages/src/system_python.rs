@@ -1,4 +1,6 @@
+use itertools::Itertools;
 use std::path::PathBuf;
+use std::str::FromStr;
 use thiserror::Error;
 
 // TODO: remove this once we are using this for sdist creation
@@ -45,36 +47,23 @@ impl PythonInterpreterVersion {
     ) -> Result<Self, ParsePythonInterpreterVersionError> {
         use ParsePythonInterpreterVersionError::InvalidVersion;
 
-        let mut parts = version_str.split_whitespace();
-        if parts
-            .next()
-            .ok_or_else(|| InvalidVersion(version_str.to_owned()))?
-            != "Python"
-        {
+        // Split "Python 3.9.1" into "Python" and "3.9.1"
+        let version_str = match version_str.split_once(' ') {
+            Some(("Python", version)) => version,
+            _ => return Err(InvalidVersion(version_str.to_owned())),
+        };
+
+        // Split the version into strings separated by '.' and parse them
+        let parts = version_str
+            .split('.')
+            .map(FromStr::from_str)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| InvalidVersion(version_str.to_owned()))?;
+
+        // Extract the major, minor and patch version
+        let Some((major, minor, patch)) = parts.into_iter().collect_tuple() else {
             return Err(InvalidVersion(version_str.to_owned()));
-        }
-        let version = parts
-            .next()
-            .ok_or_else(|| InvalidVersion(version_str.to_owned()))?;
-        let mut parts = version.split('.');
-
-        let major = parts
-            .next()
-            .ok_or_else(|| InvalidVersion(version_str.to_owned()))?
-            .parse()
-            .map_err(|_| InvalidVersion(version_str.to_owned()))?;
-
-        let minor = parts
-            .next()
-            .ok_or_else(|| InvalidVersion(version_str.to_owned()))?
-            .parse()
-            .map_err(|_| InvalidVersion(version_str.to_owned()))?;
-
-        let patch = parts
-            .next()
-            .ok_or_else(|| InvalidVersion(version_str.to_owned()))?
-            .parse()
-            .map_err(|_| InvalidVersion(version_str.to_owned()))?;
+        };
 
         Ok(Self::new(major, minor, patch))
     }
