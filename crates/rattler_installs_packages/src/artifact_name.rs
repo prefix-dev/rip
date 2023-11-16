@@ -252,7 +252,7 @@ impl FromStr for SDistName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (package_name, rest) = s
-            .split_once('-')
+            .rsplit_once('-')
             .ok_or(ParseArtifactNameError::InvalidName)?;
 
         // Determine the package format
@@ -395,6 +395,15 @@ mod test {
         assert_eq!(sn.version, "0.19a0".parse().unwrap());
 
         assert_eq!(sn.to_string(), "trio-0.19a0.tar.gz");
+    }
+
+    #[test]
+    fn test_name_double_dash_from_str() {
+        let sn: SDistName = "trio-three-0.19a0.tar.gz".parse().unwrap();
+        assert_eq!(sn.distribution, "trio-three".parse().unwrap());
+        assert_eq!(sn.version, "0.19a0".parse().unwrap());
+
+        assert_eq!(sn.to_string(), "trio-three-0.19a0.tar.gz");
     }
 
     #[test]

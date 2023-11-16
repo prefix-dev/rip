@@ -60,8 +60,6 @@ impl WheelTags {
 
         // Ensure that we have a valid success code
         if !output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stderr);
-            dbg!(stdout.as_ref());
             return Err(FromPythonError::FailedToRun(output.status));
         }
 
