@@ -11,7 +11,9 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 use url::Url;
 
 use rattler_installs_packages::tags::WheelTags;
-use rattler_installs_packages::{normalize_index_url, resolve, Pep508EnvMakers, Requirement};
+use rattler_installs_packages::{
+    normalize_index_url, resolve, Pep508EnvMakers, Requirement, ResolveOptions,
+};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -26,6 +28,45 @@ struct Args {
 
     #[clap(short)]
     verbose: bool,
+
+    #[clap(flatten)]
+    sdist_resolution: SDistResolution,
+}
+
+#[derive(Parser)]
+#[group(multiple = false)]
+struct SDistResolution {
+    /// Prefer any version with wheels over any version with sdists
+    #[clap(long)]
+    prefer_wheels: bool,
+
+    /// Prefer any version with sdists over any version with wheels
+    #[clap(long)]
+    prefer_sdists: bool,
+
+    /// Only select versions with wheels, ignore versions with sdists
+    #[clap(long)]
+    only_wheels: bool,
+
+    /// Only select versions with sdists, ignore versions with wheels
+    #[clap(long)]
+    only_sdists: bool,
+}
+
+impl From<SDistResolution> for rattler_installs_packages::SDistResolution {
+    fn from(value: SDistResolution) -> Self {
+        if value.only_sdists {
+            rattler_installs_packages::SDistResolution::OnlySDists
+        } else if value.only_wheels {
+            rattler_installs_packages::SDistResolution::OnlyWheels
+        } else if value.prefer_sdists {
+            rattler_installs_packages::SDistResolution::PreferSDists
+        } else if value.prefer_wheels {
+            rattler_installs_packages::SDistResolution::PreferWheels
+        } else {
+            rattler_installs_packages::SDistResolution::Normal
+        }
+    }
 }
 
 async fn actual_main() -> miette::Result<()> {
@@ -86,6 +127,9 @@ async fn actual_main() -> miette::Result<()> {
         Some(&compatible_tags),
         HashMap::default(),
         HashMap::default(),
+        ResolveOptions {
+            sdist_resolution: args.sdist_resolution.into(),
+        },
     )
     .await
     {

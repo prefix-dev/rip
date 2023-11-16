@@ -32,7 +32,7 @@ mod sdist;
 mod system_python;
 
 #[cfg(feature = "resolvo")]
-pub use resolve::{resolve, PinnedPackage};
+pub use resolve::{resolve, PinnedPackage, ResolveOptions, SDistResolution};
 
 pub use file_store::{CacheKey, FileStore};
 pub use package_database::PackageDb;
