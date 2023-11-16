@@ -38,6 +38,16 @@ pub struct PythonInterpreterVersion {
     pub patch: u32,
 }
 
+impl From<(u32, u32, u32)> for PythonInterpreterVersion {
+    fn from(value: (u32, u32, u32)) -> Self {
+        Self {
+            major: value.0,
+            minor: value.1,
+            patch: value.2,
+        }
+    }
+}
+
 impl PythonInterpreterVersion {
     /// Get the version of the python interpreter
     /// Expects the string from `python --version` as input

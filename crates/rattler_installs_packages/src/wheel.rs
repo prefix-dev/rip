@@ -423,7 +423,8 @@ impl InstallPaths {
     /// Populates mappings of installation targets for a virtualenv layout. The mapping depends on
     /// the python version and whether or not the installation targets windows. Specifucally on
     /// windows some of the paths are different. :shrug:
-    pub fn for_venv(version: PythonInterpreterVersion, windows: bool) -> Self {
+    pub fn for_venv<V: Into<PythonInterpreterVersion>>(version: V, windows: bool) -> Self {
+        let version = version.into();
         let site_packages = if windows {
             Path::new("Lib").join("site-packages")
         } else {
@@ -820,7 +821,7 @@ mod test {
         let vitals = wheel.get_vitals().unwrap();
 
         // Construct the path lookup to install packages to
-        let install_paths = InstallPaths::for_venv(PythonInterpreterVersion::new(3, 8, 5), false);
+        let install_paths = InstallPaths::for_venv((3, 8, 5), false);
 
         // Unpack the wheel
         wheel

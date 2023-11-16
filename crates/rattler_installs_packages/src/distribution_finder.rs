@@ -155,14 +155,13 @@ fn analyze_distribution(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::system_python::PythonInterpreterVersion;
 
     #[test]
     fn test_find_distributions() {
         // Describe the virtual environment
         let venv_path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/find_distributions/");
-        let install_paths = InstallPaths::for_venv(PythonInterpreterVersion::new(3, 8, 5), true);
+        let install_paths = InstallPaths::for_venv((3, 8, 5), true);
 
         // Find all distributions
         let mut distributions = find_distributions_in_venv(&venv_path, &install_paths).unwrap();
