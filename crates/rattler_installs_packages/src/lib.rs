@@ -29,6 +29,7 @@ pub mod uninstall;
 mod wheel;
 
 mod sdist;
+mod system_python;
 
 #[cfg(feature = "resolvo")]
 pub use resolve::{resolve, PinnedPackage};

@@ -1,5 +1,5 @@
 use crate::env_markers::FromPythonError::CouldNotFindPythonExecutable;
-use crate::utils::{python_executable, FindPythonError};
+use crate::system_python::{system_python_executable, FindPythonError};
 use pep508_rs::MarkerEnvironment;
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -48,7 +48,7 @@ pub enum FromPythonError {
 impl Pep508EnvMakers {
     /// Try to determine the environment markers by executing python.
     pub async fn from_env() -> Result<Self, FromPythonError> {
-        let python = python_executable()?;
+        let python = system_python_executable()?;
         tracing::info!("using python executable at {}", python.display());
         Self::from_python(python.as_path()).await
     }
