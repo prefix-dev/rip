@@ -578,22 +578,94 @@ pub struct PinnedPackage<'db> {
 pub enum SDistResolution {
     /// Both versions with wheels and/or sdists are allowed to be selected during resolution. But
     /// during resolution the metadata from wheels is preferred over sdists.
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - WheelA
+    /// - WheelB
+    /// Version@2
+    /// - SDist
+    /// - WheelA
+    /// - WheelB
+    /// Version@3
+    /// - SDist
+    /// ```
+    ///
+    /// Then the Version@3 will be selected because it has the highest version. This option makes no
+    /// distinction between whether the version has wheels or sdist.
     #[default]
     Normal,
 
     /// Allow sdists to be selected during resolution but only if all versions with wheels cannot
     /// be selected. This means that even if a higher version is technically available it might not
     /// be selected if it only has an available sdist.
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - SDist
+    /// - WheelA
+    /// - WheelB
+    /// Version@2
+    /// - SDist
+    /// ```
+    ///
+    /// Then the Version@1 will be selected even though the highest version is 2. This is because
+    /// version 2 has no available wheels. If version 1 would not exist though then version 2 is
+    /// selected because there are no other versions with a wheel.
     PreferWheels,
 
     /// Allow sdists to be selected during resolution and prefer them over wheels. This means that
     /// even if a higher version is available but it only includes wheels it might not be selected.
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - SDist
+    /// - WheelA
+    /// Version@2
+    /// - WheelA
+    /// ```
+    ///
+    /// Then the version@1 will be selected even though the highest version is 2. This is because
+    /// version 2 has no sdists available. If version 1 would not exist though then version 2 is
+    /// selected because there are no other versions with an sdist.
     PreferSDists,
 
     /// Don't select sdists during resolution
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - SDist
+    /// - WheelA
+    /// - WheelB
+    /// Version@2
+    /// - SDist
+    /// ```
+    ///
+    /// Then version 1 will be selected because it has wheels and version 2 does not. If version 1
+    /// would not exist there would be no solution because none of the versions have wheels.
     OnlyWheels,
 
     /// Only select sdists during resolution
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - SDist
+    /// Version@2
+    /// - WheelA
+    /// ```
+    ///
+    /// Then version 1 will be selected because it has an sdist and version 2 does not. If version 1
+    /// would not exist there would be no solution because none of the versions have sdists.
     OnlySDists,
 }
 
