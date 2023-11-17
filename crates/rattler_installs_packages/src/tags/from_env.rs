@@ -1,5 +1,6 @@
+use crate::system_python::{system_python_executable, FindPythonError};
 use crate::tags::{WheelTag, WheelTags};
-use crate::utils::{python_executable, FindPythonError, VENDORED_PACKAGING_DIR};
+use crate::utils::VENDORED_PACKAGING_DIR;
 use serde::Deserialize;
 use std::io;
 use std::io::ErrorKind;
@@ -29,7 +30,7 @@ impl WheelTags {
     /// Try to determine the platform tags by executing the python command and extracting `sys_tags`
     /// using the vendored `packaging` module.
     pub async fn from_env() -> Result<Self, FromPythonError> {
-        Self::from_python(python_executable()?.as_path()).await
+        Self::from_python(system_python_executable()?.as_path()).await
     }
 
     /// Try to determine the platform tags by executing the python command and extracting `sys_tags`
