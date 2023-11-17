@@ -69,8 +69,6 @@ jobs:
 
           - { name: "Windows-x86_64",    target: x86_64-pc-windows-msvc,           os: windows-latest }
           # - { name: "Windows-aarch64",   target: aarch64-pc-windows-msvc,          os: windows-latest,                  skip-tests: true }
-    env:
-      CARGO_TEST_OPTIONS: "--feature resolvo"
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
@@ -122,5 +120,6 @@ jobs:
           --workspace
           ${{ steps.build-options.outputs.CARGO_BUILD_OPTIONS}}
           ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}
+          --features resolvo
           --
           --nocapture
