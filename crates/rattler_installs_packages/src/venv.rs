@@ -3,32 +3,15 @@
 //! Later on we can look into actually creating the environment by linking to the python library,
 //! and creating the necessary files. See: [VEnv](https://packaging.python.org/en/latest/specifications/virtual-environments/#declaring-installation-environments-as-python-virtual-environments)
 #![allow(dead_code)]
-use crate::utils::{python_executable, FindPythonError};
+use crate::system_python::{
+    system_python_executable, FindPythonError, ParsePythonInterpreterVersionError,
+    PythonInterpreterVersion,
+};
+use crate::wheel::UnpackError;
+use crate::{InstallPaths, UnpackWheelOptions, Wheel};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum VEnvError {
-    #[error(transparent)]
-    FindPythonError(#[from] FindPythonError),
-    #[error("failed to run 'python -m venv': `{0}`")]
-    FailedToRun(String),
-    #[error(transparent)]
-    FailedToCreate(#[from] std::io::Error),
-}
-
-/// Represents a virtual environment
-/// that we can install wheels into
-pub struct VEnv {
-    location: PathBuf,
-}
-
-impl VEnv {
-    fn new(location: PathBuf) -> Self {
-        Self { location }
-    }
-}
 
 /// Specifies where to find the python executable
 pub enum PythonLocation {
@@ -42,38 +25,139 @@ impl PythonLocation {
     /// Location of python executable
     pub fn executable(&self) -> Result<PathBuf, FindPythonError> {
         match self {
-            PythonLocation::System => python_executable(),
+            PythonLocation::System => system_python_executable(),
             PythonLocation::Custom(path) => Ok(path.clone()),
         }
     }
 }
 
+#[derive(Error, Debug)]
+pub enum VEnvError {
+    #[error(transparent)]
+    FindPythonError(#[from] FindPythonError),
+    #[error(transparent)]
+    ParsePythonInterpreterVersionError(#[from] ParsePythonInterpreterVersionError),
+    #[error("failed to run 'python -m venv': `{0}`")]
+    FailedToRun(String),
+    #[error(transparent)]
+    FailedToCreate(#[from] std::io::Error),
+}
+
+/// Represents a virtual environment in which wheels can be installed
+pub struct VEnv {
+    /// Location of the virtual environment
+    location: PathBuf,
+    /// Install paths for this virtual environment
+    install_paths: InstallPaths,
+    /// Specifies if this is a windows venv
+    windows: bool,
+}
+
+impl VEnv {
+    fn new(location: PathBuf, install_paths: InstallPaths, windows: bool) -> Self {
+        Self {
+            location,
+            install_paths,
+            windows,
+        }
+    }
+
+    /// Install a wheel into this virtual environment
+    pub fn install_wheel(
+        &self,
+        wheel: &Wheel,
+        options: &UnpackWheelOptions,
+    ) -> Result<(), UnpackError> {
+        wheel.unpack(&self.location, &self.install_paths, options)
+    }
+
+    /// Path to binaries in venv
+    pub fn binaries(&self) -> PathBuf {
+        if self.windows {
+            self.location.join("Scripts")
+        } else {
+            self.location.join("bin")
+        }
+    }
+
+    /// Path to python executable in venv
+    pub fn python_executable(&self) -> PathBuf {
+        self.binaries().join("python")
+    }
+
+    /// Execute python script in venv
+    pub fn execute_script(&self, source: &Path) -> std::io::Result<Output> {
+        let mut cmd = Command::new(self.python_executable());
+        cmd.arg(source);
+        cmd.output()
+    }
+
+    /// Execute python command in venv
+    pub fn execute_command<S: AsRef<str>>(&self, command: S) -> std::io::Result<Output> {
+        let mut cmd = Command::new(self.python_executable());
+        cmd.arg("-c");
+        cmd.arg(command.as_ref());
+        cmd.output()
+    }
+}
+
 /// Create a virtual environment at specified directory
-pub fn create_venv(venv_dir: &Path, python: PythonLocation) -> Result<VEnv, VEnvError> {
+pub fn venv(venv_dir: &Path, python: PythonLocation) -> Result<VEnv, VEnvError> {
+    // Find python executable
     let python = python.executable()?;
-    let mut cmd = Command::new(python);
+
+    // Execute command
+    let mut cmd = Command::new(&python);
     cmd.arg("-m");
     cmd.arg("venv");
     cmd.arg(venv_dir);
     // Don't need pip for our use-case
     cmd.arg("--without-pip");
 
+    // Parse output
     let output = cmd.output()?;
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stderr);
         return Err(VEnvError::FailedToRun(stdout.to_string()));
     }
-    Ok(VEnv::new(venv_dir.to_path_buf()))
+
+    let windows = cfg!(windows);
+    let version = PythonInterpreterVersion::from_path(&python)?;
+    let install_paths = InstallPaths::for_venv(version, cfg!(windows));
+    Ok(VEnv::new(venv_dir.to_path_buf(), install_paths, windows))
 }
 
 #[cfg(test)]
 mod tests {
     use crate::venv::PythonLocation;
+    use std::path::Path;
 
     #[test]
     pub fn venv_creation() {
         let venv_dir = tempfile::tempdir().unwrap();
-        let venv = super::create_venv(venv_dir.path(), PythonLocation::System).unwrap();
-        assert!(venv.location.join("bin/python").is_file());
+        let venv = super::venv(venv_dir.path(), PythonLocation::System).unwrap();
+        // Does python exist
+        assert!(venv.python_executable().is_file());
+
+        // Install wheel
+        let wheel = crate::wheel::Wheel::from_path(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../test-data/wheels/wordle_python-2.3.32-py3-none-any.whl"),
+        )
+        .unwrap();
+        venv.install_wheel(&wheel, &Default::default()).unwrap();
+
+        // See if it worked
+        let output = venv
+            .execute_script(
+                &Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../test-data/scripts/test_wordle.py"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "('A   d   i   E   u   ', False)\n"
+        );
     }
 }

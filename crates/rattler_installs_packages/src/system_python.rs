@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -66,6 +66,7 @@ impl PythonInterpreterVersion {
         // Split the version into strings separated by '.' and parse them
         let parts = version_str
             .split('.')
+            .map(str::trim)
             .map(FromStr::from_str)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| InvalidVersion(version_str.to_owned()))?;
@@ -88,7 +89,12 @@ impl PythonInterpreterVersion {
 
     /// Get the python version from the system interpreter
     pub fn from_system() -> Result<Self, ParsePythonInterpreterVersionError> {
-        let output = std::process::Command::new(system_python_executable()?)
+        Self::from_path(&system_python_executable()?)
+    }
+
+    /// Get the python version a path to the python executable
+    pub fn from_path(path: &Path) -> Result<Self, ParsePythonInterpreterVersionError> {
+        let output = std::process::Command::new(path)
             .arg("--version")
             .output()
             .map_err(|_| FindPythonError::NotFound)?;
@@ -103,7 +109,7 @@ mod tests {
 
     #[test]
     pub fn parse_python_version() {
-        let version = PythonInterpreterVersion::from_python_output("Python 3.8.5").unwrap();
+        let version = PythonInterpreterVersion::from_python_output("Python 3.8.5\n").unwrap();
         assert_eq!(version.major, 3);
         assert_eq!(version.minor, 8);
         assert_eq!(version.patch, 5);
