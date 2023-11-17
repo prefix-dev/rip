@@ -1,6 +1,6 @@
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
 
 name: Rust
@@ -103,8 +103,8 @@ jobs:
 
       - name: Build
         run: >
-          cargo build 
-          --all-targets  
+          cargo build
+          --all-targets
           ${{ steps.build-options.outputs.CARGO_BUILD_OPTIONS}}
 
       - name: Disable testing the tools crate if cross compiling
@@ -116,9 +116,10 @@ jobs:
       - name: Run tests
         if: ${{ !matrix.skip-tests }}
         run: >
-          cargo test 
-          --workspace 
-          ${{ steps.build-options.outputs.CARGO_BUILD_OPTIONS}} 
-          ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}} 
-          -- 
+          cargo test
+          --workspace
+          ${{ steps.build-options.outputs.CARGO_BUILD_OPTIONS}}
+          ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}
+          --features resolvo
+          --
           --nocapture

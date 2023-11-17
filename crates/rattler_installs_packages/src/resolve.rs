@@ -11,10 +11,13 @@ use crate::sdist::SDist;
 use crate::tags::WheelTags;
 use crate::wheel::Wheel;
 use crate::{
-    ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement,
-    Version,
+    Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName,
+    Requirement, Version,
 };
 use elsa::FrozenMap;
+use futures::future::ready;
+use futures::{FutureExt, TryFutureExt};
+use itertools::Itertools;
 use pep440_rs::{Operator, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, VersionOrUrl};
 use resolvo::{
@@ -131,6 +134,8 @@ struct PypiDependencyProvider<'db, 'i> {
 
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+
+    options: &'i ResolveOptions,
 }
 
 impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
@@ -142,6 +147,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         compatible_tags: Option<&'i WheelTags>,
         locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+        options: &'i ResolveOptions,
     ) -> miette::Result<Self> {
         Ok(Self {
             pool: Pool::new(),
@@ -151,6 +157,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             cached_artifacts: Default::default(),
             favored_packages,
             locked_packages,
+            options,
         })
     }
 
@@ -180,48 +187,87 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             return Err("it is yanked");
         }
 
-        // Filter into Sdists and wheels
-        let mut sdists = artifacts
-            .iter()
-            // This filters out sdists and checks if
-            // the format is supported
-            // can get rid of this if we decide to support all formats
-            .filter(|a| {
+        // This should keep only the wheels
+        let mut wheels = if self.options.sdist_resolution.allow_wheels() {
+            let wheels = artifacts
+                .iter()
+                .filter(|a| a.is::<Wheel>())
+                .cloned()
+                .collect::<Vec<_>>();
+
+            if !self.options.sdist_resolution.allow_sdists() && wheels.is_empty() {
+                return Err("there are no wheels available");
+            }
+
+            wheels
+        } else {
+            vec![]
+        };
+
+        // Extract sdists
+        let mut sdists = if self.options.sdist_resolution.allow_sdists() {
+            let mut sdists = artifacts
+                .iter()
+                .filter(|a| a.is::<SDist>())
+                .cloned()
+                .collect::<Vec<_>>();
+
+            if wheels.is_empty() && sdists.is_empty() {
+                if self.options.sdist_resolution.allow_wheels() {
+                    return Err("there are no wheels or sdists");
+                } else {
+                    return Err("there are no sdists");
+                }
+            }
+
+            sdists.retain(|a| {
                 a.filename
                     .as_sdist()
                     .is_some_and(|f| f.format.is_supported())
-            })
-            .cloned()
-            .collect::<Vec<_>>();
+            });
 
-        // This should keep only the wheels
-        let mut wheels = artifacts
-            .iter()
-            .filter(|a| a.is::<Wheel>())
-            .cloned()
-            .collect::<Vec<_>>();
+            if wheels.is_empty() && sdists.is_empty() {
+                return Err("none of the sdists formats are supported");
+            }
+
+            sdists
+        } else {
+            vec![]
+        };
 
         // Filter based on compatibility
-        if let Some(compatible_tags) = self.compatible_tags {
-            wheels.retain(|artifact| match &artifact.filename {
-                ArtifactName::Wheel(wheel_name) => wheel_name
-                    .all_tags_iter()
-                    .any(|t| compatible_tags.is_compatible(&t)),
-                ArtifactName::SDist(_) => false,
-            });
+        if self.options.sdist_resolution.allow_wheels() {
+            if let Some(compatible_tags) = self.compatible_tags {
+                wheels.retain(|artifact| match &artifact.filename {
+                    ArtifactName::Wheel(wheel_name) => wheel_name
+                        .all_tags_iter()
+                        .any(|t| compatible_tags.is_compatible(&t)),
+                    ArtifactName::SDist(_) => false,
+                });
 
-            // Sort the artifacts from most compatible to least compatible, this ensures that we
-            // check the most compatible artifacts for dependencies first.
-            // this only needs to be done for wheels
-            wheels.sort_by_cached_key(|a| {
-                -a.filename
-                    .as_wheel()
-                    .expect("only wheels are considered")
-                    .all_tags_iter()
-                    .filter_map(|tag| compatible_tags.compatibility(&tag))
-                    .max()
-                    .unwrap_or(0)
-            });
+                // Sort the artifacts from most compatible to least compatible, this ensures that we
+                // check the most compatible artifacts for dependencies first.
+                // this only needs to be done for wheels
+                wheels.sort_by_cached_key(|a| {
+                    -a.filename
+                        .as_wheel()
+                        .expect("only wheels are considered")
+                        .all_tags_iter()
+                        .filter_map(|tag| compatible_tags.compatibility(&tag))
+                        .max()
+                        .unwrap_or(0)
+                });
+            }
+
+            if !self.options.sdist_resolution.allow_sdists() && wheels.is_empty() {
+                return Err(
+                    "none of the artifacts are compatible with the Python interpreter or glibc version",
+                );
+            }
+
+            if wheels.is_empty() && sdists.is_empty() {
+                return Err("none of the artifacts are compatible with the Python interpreter or glibc version and there are no supported sdists");
+            }
         }
 
         // Append these together
@@ -229,12 +275,18 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         let artifacts = wheels;
 
         if artifacts.is_empty() {
-            return Err(
-                "none of the artifacts are compatible with the Python interpreter or glibc version",
-            );
+            return Err("there are no supported artifacts");
         }
 
         Ok(artifacts)
+    }
+
+    fn solvable_has_artifact_type<S: Artifact>(&self, solvable_id: SolvableId) -> bool {
+        self.cached_artifacts
+            .get(&solvable_id)
+            .unwrap_or(&[])
+            .iter()
+            .any(|a| a.is::<S>())
     }
 }
 
@@ -251,6 +303,27 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         solvables: &mut [SolvableId],
     ) {
         solvables.sort_by(|&a, &b| {
+            // First sort the solvables based on the artifact types we have available for them and
+            // whether some of them are preferred. If one artifact type is preferred over another
+            // we sort those versions above the others even if the versions themselves are lower.
+            if matches!(self.options.sdist_resolution, SDistResolution::PreferWheels) {
+                let a_has_wheels = self.solvable_has_artifact_type::<Wheel>(a);
+                let b_has_wheels = self.solvable_has_artifact_type::<Wheel>(b);
+                match (a_has_wheels, b_has_wheels) {
+                    (true, false) => return Ordering::Less,
+                    (false, true) => return Ordering::Greater,
+                    _ => {}
+                }
+            } else if matches!(self.options.sdist_resolution, SDistResolution::PreferSDists) {
+                let a_has_sdists = self.solvable_has_artifact_type::<SDist>(a);
+                let b_has_sdists = self.solvable_has_artifact_type::<SDist>(b);
+                match (a_has_sdists, b_has_sdists) {
+                    (true, false) => return Ordering::Less,
+                    (false, true) => return Ordering::Greater,
+                    _ => {}
+                }
+            }
+
             let solvable_a = solver.pool().resolve_solvable(a);
             let solvable_b = solver.pool().resolve_solvable(b);
 
@@ -391,26 +464,27 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             return dependencies;
         }
 
-        let metadata = task::block_in_place(|| {
+        let Some((_, metadata)) = task::block_in_place(|| {
             // First try getting wheels
-            let result = Handle::current()
-                .block_on(self.package_db.get_metadata::<Wheel, _>(artifacts))
-                .unwrap();
-
-            match result {
-                None => {
-                    // If nothing is found then try the sdists
-                    let (_, metadata) = Handle::current()
-                        .block_on(self.package_db.get_metadata::<SDist, _>(artifacts))
-                        .unwrap()
-                        .expect("no metadata found for sdist or wheels");
-
-                    tracing::info!("found metadata for sdist: {:?}", metadata);
-                    metadata
-                }
-                Some((_, metadata)) => metadata,
-            }
-        });
+            Handle::current()
+                .block_on(
+                    self.package_db
+                        .get_metadata::<Wheel, _>(artifacts)
+                        .and_then(|result| match result {
+                            None => self
+                                .package_db
+                                .get_metadata::<SDist, _>(artifacts)
+                                .left_future(),
+                            result => ready(Ok(result)).right_future(),
+                        }),
+                )
+                .unwrap()
+        }) else {
+            panic!(
+                "could not find metadata for any sdist or wheel for {} {}. The following artifacts are available:\n{}",
+                package_name, package_version, artifacts.iter().format_with("\n", |a, f| f(&format_args!("- {}", a.filename)))
+            );
+        };
 
         // Add constraints that restrict that the extra packages are set to the same version.
         if let PypiPackageName::Base(package_name) = package_name {
@@ -481,7 +555,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
 }
 
 /// Represents a single locked down distribution (python package) after calling [`resolve`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PinnedPackage<'db> {
     /// The name of the package
     pub name: NormalizedPackageName,
@@ -497,6 +571,124 @@ pub struct PinnedPackage<'db> {
     ///
     /// This list may be empty if the package was locked or favored.
     pub artifacts: Vec<&'db ArtifactInfo>,
+}
+
+/// Defines how to handle sdists during resolution.
+#[derive(Default, Clone, Copy, Eq, PartialOrd, PartialEq)]
+pub enum SDistResolution {
+    /// Both versions with wheels and/or sdists are allowed to be selected during resolution. But
+    /// during resolution the metadata from wheels is preferred over sdists.
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - WheelA
+    /// - WheelB
+    /// Version@2
+    /// - SDist
+    /// - WheelA
+    /// - WheelB
+    /// Version@3
+    /// - SDist
+    /// ```
+    ///
+    /// Then the Version@3 will be selected because it has the highest version. This option makes no
+    /// distinction between whether the version has wheels or sdist.
+    #[default]
+    Normal,
+
+    /// Allow sdists to be selected during resolution but only if all versions with wheels cannot
+    /// be selected. This means that even if a higher version is technically available it might not
+    /// be selected if it only has an available sdist.
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - SDist
+    /// - WheelA
+    /// - WheelB
+    /// Version@2
+    /// - SDist
+    /// ```
+    ///
+    /// Then the Version@1 will be selected even though the highest version is 2. This is because
+    /// version 2 has no available wheels. If version 1 would not exist though then version 2 is
+    /// selected because there are no other versions with a wheel.
+    PreferWheels,
+
+    /// Allow sdists to be selected during resolution and prefer them over wheels. This means that
+    /// even if a higher version is available but it only includes wheels it might not be selected.
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - SDist
+    /// - WheelA
+    /// Version@2
+    /// - WheelA
+    /// ```
+    ///
+    /// Then the version@1 will be selected even though the highest version is 2. This is because
+    /// version 2 has no sdists available. If version 1 would not exist though then version 2 is
+    /// selected because there are no other versions with an sdist.
+    PreferSDists,
+
+    /// Don't select sdists during resolution
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - SDist
+    /// - WheelA
+    /// - WheelB
+    /// Version@2
+    /// - SDist
+    /// ```
+    ///
+    /// Then version 1 will be selected because it has wheels and version 2 does not. If version 1
+    /// would not exist there would be no solution because none of the versions have wheels.
+    OnlyWheels,
+
+    /// Only select sdists during resolution
+    ///
+    /// If we have the following scenario:
+    ///
+    /// ```txt
+    /// Version@1
+    /// - SDist
+    /// Version@2
+    /// - WheelA
+    /// ```
+    ///
+    /// Then version 1 will be selected because it has an sdist and version 2 does not. If version 1
+    /// would not exist there would be no solution because none of the versions have sdists.
+    OnlySDists,
+}
+
+impl SDistResolution {
+    /// Returns true if sdists are allowed to be selected during resolution
+    fn allow_sdists(&self) -> bool {
+        !matches!(self, SDistResolution::OnlyWheels)
+    }
+
+    /// Returns true if sdists are allowed to be selected during resolution
+    fn allow_wheels(&self) -> bool {
+        !matches!(self, SDistResolution::OnlySDists)
+    }
+}
+
+/// Additional options that may influence the solver. In general passing [`Default::default`] to
+/// the [`resolve`] function should provide sane defaults, however if you want to fine tune the
+/// resolver you can do so via this struct.
+#[derive(Default, Clone)]
+pub struct ResolveOptions {
+    /// Defines how to handle sdists during resolution. By default sdists will be treated the same
+    /// as wheels.
+    pub sdist_resolution: SDistResolution,
 }
 
 /// Resolves an environment that contains the given requirements and all dependencies of those
@@ -516,6 +708,7 @@ pub async fn resolve<'db>(
     compatible_tags: Option<&WheelTags>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+    options: &ResolveOptions,
 ) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct a provider
     let provider = PypiDependencyProvider::new(
@@ -524,6 +717,7 @@ pub async fn resolve<'db>(
         compatible_tags,
         locked_packages,
         favored_packages,
+        options,
     )?;
     let pool = &provider.pool;
 
@@ -604,3 +798,6 @@ pub async fn resolve<'db>(
 
     Ok(result.into_values().collect())
 }
+
+#[cfg(test)]
+mod test {}
