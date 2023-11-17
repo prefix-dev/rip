@@ -82,7 +82,11 @@ impl VEnv {
 
     /// Path to python executable in venv
     pub fn python_executable(&self) -> PathBuf {
-        self.binaries().join("python")
+        if self.windows {
+            self.binaries().join("python.exe")
+        } else {
+            self.binaries().join("python")
+        }
     }
 
     /// Execute python script in venv
@@ -102,7 +106,18 @@ impl VEnv {
 }
 
 /// Create a virtual environment at specified directory
+/// for the platform we are running on
 pub fn venv(venv_dir: &Path, python: PythonLocation) -> Result<VEnv, VEnvError> {
+    custom_venv(venv_dir, python, cfg!(windows))
+}
+
+/// Create a virtual environment at specified directory
+/// allows specifying if this is a windows venv
+pub fn custom_venv(
+    venv_dir: &Path,
+    python: PythonLocation,
+    windows: bool,
+) -> Result<VEnv, VEnvError> {
     // Find python executable
     let python = python.executable()?;
 
@@ -121,9 +136,8 @@ pub fn venv(venv_dir: &Path, python: PythonLocation) -> Result<VEnv, VEnvError> 
         return Err(VEnvError::FailedToRun(stdout.to_string()));
     }
 
-    let windows = cfg!(windows);
     let version = PythonInterpreterVersion::from_path(&python)?;
-    let install_paths = InstallPaths::for_venv(version, cfg!(windows));
+    let install_paths = InstallPaths::for_venv(version, windows);
     Ok(VEnv::new(venv_dir.to_path_buf(), install_paths, windows))
 }
 
