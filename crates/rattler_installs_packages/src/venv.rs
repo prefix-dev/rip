@@ -170,8 +170,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            String::from_utf8(output.stdout).unwrap(),
-            "('A   d   i   E   u   ', False)\n"
+            String::from_utf8(output.stdout).unwrap().trim(),
+            "('A   d   i   E   u   ', False)"
         );
     }
 }
