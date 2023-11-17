@@ -127,7 +127,7 @@ async fn actual_main() -> miette::Result<()> {
         Some(&compatible_tags),
         HashMap::default(),
         HashMap::default(),
-        ResolveOptions {
+        &ResolveOptions {
             sdist_resolution: args.sdist_resolution.into(),
         },
     )

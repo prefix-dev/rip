@@ -11,12 +11,13 @@ use crate::sdist::SDist;
 use crate::tags::WheelTags;
 use crate::wheel::Wheel;
 use crate::{
-    ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName, Requirement,
-    Version,
+    Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName,
+    Requirement, Version,
 };
 use elsa::FrozenMap;
 use futures::future::ready;
 use futures::{FutureExt, TryFutureExt};
+use itertools::Itertools;
 use pep440_rs::{Operator, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, VersionOrUrl};
 use resolvo::{
@@ -134,7 +135,7 @@ struct PypiDependencyProvider<'db, 'i> {
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
 
-    options: ResolveOptions,
+    options: &'i ResolveOptions,
 }
 
 impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
@@ -146,7 +147,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         compatible_tags: Option<&'i WheelTags>,
         locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
-        options: ResolveOptions,
+        options: &'i ResolveOptions,
     ) -> miette::Result<Self> {
         Ok(Self {
             pool: Pool::new(),
@@ -279,6 +280,14 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
 
         Ok(artifacts)
     }
+
+    fn solvable_has_artifact_type<S: Artifact>(&self, solvable_id: SolvableId) -> bool {
+        self.cached_artifacts
+            .get(&solvable_id)
+            .unwrap_or(&[])
+            .iter()
+            .any(|a| a.is::<S>())
+    }
 }
 
 impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
@@ -294,29 +303,23 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         solvables: &mut [SolvableId],
     ) {
         solvables.sort_by(|&a, &b| {
-            if matches!(
-                self.options.sdist_resolution,
-                SDistResolution::PreferWheels | SDistResolution::PreferSDists
-            ) {
-                // If one of the solvables has sdists and the other doesn't then prefer the one
-                // without.
-                let a_has_sdists = self
-                    .cached_artifacts
-                    .get(&a)
-                    .unwrap_or(&[])
-                    .iter()
-                    .any(|a| a.is::<SDist>());
-                let b_has_sdists = self
-                    .cached_artifacts
-                    .get(&b)
-                    .unwrap_or(&[])
-                    .iter()
-                    .any(|a| a.is::<SDist>());
-                match (a_has_sdists, b_has_sdists, self.options.sdist_resolution) {
-                    (true, false, SDistResolution::PreferWheels) => return Ordering::Less,
-                    (false, true, SDistResolution::PreferWheels) => return Ordering::Greater,
-                    (true, false, SDistResolution::PreferSDists) => return Ordering::Greater,
-                    (false, true, SDistResolution::PreferSDists) => return Ordering::Less,
+            // First sort the solvables based on the artifact types we have available for them and
+            // whether some of them are preferred. If one artifact type is preferred over another
+            // we sort those versions above the others even if the versions themselves are lower.
+            if matches!(self.options.sdist_resolution, SDistResolution::PreferWheels) {
+                let a_has_wheels = self.solvable_has_artifact_type::<Wheel>(a);
+                let b_has_wheels = self.solvable_has_artifact_type::<Wheel>(b);
+                match (a_has_wheels, b_has_wheels) {
+                    (true, false) => return Ordering::Less,
+                    (false, true) => return Ordering::Greater,
+                    _ => {}
+                }
+            } else if matches!(self.options.sdist_resolution, SDistResolution::PreferSDists) {
+                let a_has_sdists = self.solvable_has_artifact_type::<SDist>(a);
+                let b_has_sdists = self.solvable_has_artifact_type::<SDist>(b);
+                match (a_has_sdists, b_has_sdists) {
+                    (true, false) => return Ordering::Less,
+                    (false, true) => return Ordering::Greater,
                     _ => {}
                 }
             }
@@ -461,7 +464,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             return dependencies;
         }
 
-        let (_, metadata) = task::block_in_place(|| {
+        let Some((_, metadata)) = task::block_in_place(|| {
             // First try getting wheels
             Handle::current()
                 .block_on(
@@ -476,8 +479,12 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                         }),
                 )
                 .unwrap()
-        })
-        .expect("could not find metadata for sdist or wheels");
+        }) else {
+            panic!(
+                "could not find metadata for any sdist or wheel for {} {}. The following artifacts are available:\n{}",
+                package_name, package_version, artifacts.iter().format_with("\n", |a, f| f(&format_args!("- {}", a.filename)))
+            );
+        };
 
         // Add constraints that restrict that the extra packages are set to the same version.
         if let PypiPackageName::Base(package_name) = package_name {
@@ -548,7 +555,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
 }
 
 /// Represents a single locked down distribution (python package) after calling [`resolve`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PinnedPackage<'db> {
     /// The name of the package
     pub name: NormalizedPackageName,
@@ -569,7 +576,8 @@ pub struct PinnedPackage<'db> {
 /// Defines how to handle sdists during resolution.
 #[derive(Default, Clone, Copy, Eq, PartialOrd, PartialEq)]
 pub enum SDistResolution {
-    /// Treat sdists the same as wheels.
+    /// Both versions with wheels and/or sdists are allowed to be selected during resolution. But
+    /// during resolution the metadata from wheels is preferred over sdists.
     #[default]
     Normal,
 
@@ -604,7 +612,7 @@ impl SDistResolution {
 /// Additional options that may influence the solver. In general passing [`Default::default`] to
 /// the [`resolve`] function should provide sane defaults, however if you want to fine tune the
 /// resolver you can do so via this struct.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ResolveOptions {
     /// Defines how to handle sdists during resolution. By default sdists will be treated the same
     /// as wheels.
@@ -628,7 +636,7 @@ pub async fn resolve<'db>(
     compatible_tags: Option<&WheelTags>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
-    options: ResolveOptions,
+    options: &ResolveOptions,
 ) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct a provider
     let provider = PypiDependencyProvider::new(
@@ -718,3 +726,6 @@ pub async fn resolve<'db>(
 
     Ok(result.into_values().collect())
 }
+
+#[cfg(test)]
+mod test {}
