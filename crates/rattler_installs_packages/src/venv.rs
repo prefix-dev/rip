@@ -122,15 +122,15 @@ pub fn custom_venv(
     let python = python.executable()?;
 
     // Execute command
-    let mut cmd = Command::new(&python);
-    cmd.arg("-m");
-    cmd.arg("venv");
-    cmd.arg(venv_dir);
     // Don't need pip for our use-case
-    cmd.arg("--without-pip");
+    let output = Command::new(&python)
+        .arg("-m")
+        .arg("venv")
+        .arg(venv_dir)
+        .arg("--without-pip")
+        .output()?;
 
     // Parse output
-    let output = cmd.output()?;
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stderr);
         return Err(VEnvError::FailedToRun(stdout.to_string()));
