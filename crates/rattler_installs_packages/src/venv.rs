@@ -103,53 +103,54 @@ impl VEnv {
         cmd.arg(command.as_ref());
         cmd.output()
     }
-}
 
-/// Create a virtual environment at specified directory
-/// for the platform we are running on
-pub fn venv(venv_dir: &Path, python: PythonLocation) -> Result<VEnv, VEnvError> {
-    custom_venv(venv_dir, python, cfg!(windows))
-}
-
-/// Create a virtual environment at specified directory
-/// allows specifying if this is a windows venv
-pub fn custom_venv(
-    venv_dir: &Path,
-    python: PythonLocation,
-    windows: bool,
-) -> Result<VEnv, VEnvError> {
-    // Find python executable
-    let python = python.executable()?;
-
-    // Execute command
-    // Don't need pip for our use-case
-    let output = Command::new(&python)
-        .arg("-m")
-        .arg("venv")
-        .arg(venv_dir)
-        .arg("--without-pip")
-        .output()?;
-
-    // Parse output
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stderr);
-        return Err(VEnvError::FailedToRun(stdout.to_string()));
+    /// Create a virtual environment at specified directory
+    /// for the platform we are running on
+    pub fn create(venv_dir: &Path, python: PythonLocation) -> Result<VEnv, VEnvError> {
+        Self::create_custom(venv_dir, python, cfg!(windows))
     }
 
-    let version = PythonInterpreterVersion::from_path(&python)?;
-    let install_paths = InstallPaths::for_venv(version, windows);
-    Ok(VEnv::new(venv_dir.to_path_buf(), install_paths, windows))
+    /// Create a virtual environment at specified directory
+    /// allows specifying if this is a windows venv
+    pub fn create_custom(
+        venv_dir: &Path,
+        python: PythonLocation,
+        windows: bool,
+    ) -> Result<VEnv, VEnvError> {
+        // Find python executable
+        let python = python.executable()?;
+
+        // Execute command
+        // Don't need pip for our use-case
+        let output = Command::new(&python)
+            .arg("-m")
+            .arg("venv")
+            .arg(venv_dir)
+            .arg("--without-pip")
+            .output()?;
+
+        // Parse output
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stderr);
+            return Err(VEnvError::FailedToRun(stdout.to_string()));
+        }
+
+        let version = PythonInterpreterVersion::from_path(&python)?;
+        let install_paths = InstallPaths::for_venv(version, windows);
+        Ok(VEnv::new(venv_dir.to_path_buf(), install_paths, windows))
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::VEnv;
     use crate::venv::PythonLocation;
     use std::path::Path;
 
     #[test]
     pub fn venv_creation() {
         let venv_dir = tempfile::tempdir().unwrap();
-        let venv = super::venv(venv_dir.path(), PythonLocation::System).unwrap();
+        let venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
         // Does python exist
         assert!(venv.python_executable().is_file());
 
