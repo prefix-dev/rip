@@ -3,7 +3,7 @@ use crate::{
     record::{Record, RecordEntry},
     rfc822ish::RFC822ish,
     utils::ReadAndSeek,
-    Artifact, MetadataArtifact, PackageName, WheelName,
+    Artifact, MetadataArtifact, PackageDb, PackageName, WheelName,
 };
 use async_http_range_reader::AsyncHttpRangeReader;
 use async_trait::async_trait;
@@ -298,7 +298,7 @@ impl MetadataArtifact for Wheel {
         WheelCoreMetadata::try_from(bytes).into_diagnostic()
     }
 
-    fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)> {
+    async fn metadata(&self, _: &PackageDb) -> miette::Result<(Vec<u8>, Self::Metadata)> {
         let WheelVitals {
             metadata_blob,
             metadata,

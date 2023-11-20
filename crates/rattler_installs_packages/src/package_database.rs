@@ -13,12 +13,7 @@ use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
-use std::{
-    borrow::Borrow,
-    fmt::Display,
-    io::Read,
-    path::{Path, PathBuf},
-};
+use std::{borrow::Borrow, fmt::Display, io::Read, path::Path};
 use url::Url;
 
 /// Cache of the available packages, artifacts and their metadata.
@@ -145,17 +140,21 @@ impl PackageDb {
                     Ok(artifact) => {
                         // Apparently the artifact has been downloaded, but its metadata has not been
                         // cached yet. Lets store it there.
-                        let metadata = artifact.metadata();
-                        let Ok((blob, metadata)) = metadata else {
-                            tracing::warn!(
-                                "Error reading metadata from artifact '{}' skipping",
-                                artifact_info.filename
-                            );
-                            continue;
-                        };
-
-                        self.put_metadata_in_cache(artifact_info, &blob)?;
-                        return Ok(Some((artifact_info, metadata)));
+                        let metadata = artifact.metadata(self).await;
+                        match metadata {
+                            Ok((blob, metadata)) => {
+                                self.put_metadata_in_cache(artifact_info, &blob)?;
+                                return Ok(Some((artifact_info, metadata)));
+                            }
+                            Err(err) => {
+                                tracing::warn!(
+                                    "Error reading metadata from artifact '{}' skipping ({:?})",
+                                    artifact_info.filename,
+                                    err
+                                );
+                                continue;
+                            }
+                        }
                     }
                     Err(err) => match err.downcast_ref::<HttpRequestError>() {
                         Some(HttpRequestError::NotCached(_)) => continue,
@@ -186,16 +185,21 @@ impl PackageDb {
             let artifact = self
                 .get_artifact_with_cache::<A>(artifact_info, CacheMode::Default)
                 .await?;
-            let metadata = artifact.metadata();
-            let Ok((blob, metadata)) = metadata else {
-                tracing::warn!(
-                    "Error reading metadata from artifact '{}' skipping",
-                    artifact_info.filename
-                );
-                continue;
-            };
-            self.put_metadata_in_cache(artifact_info, &blob)?;
-            return Ok(Some((artifact_info, metadata)));
+            let metadata = artifact.metadata(self).await;
+            match metadata {
+                Ok((blob, metadata)) => {
+                    self.put_metadata_in_cache(artifact_info, &blob)?;
+                    return Ok(Some((artifact_info, metadata)));
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Error reading metadata from artifact '{}' skipping ({:?})",
+                        artifact_info.filename,
+                        err
+                    );
+                    continue;
+                }
+            }
         }
         Ok(None)
     }

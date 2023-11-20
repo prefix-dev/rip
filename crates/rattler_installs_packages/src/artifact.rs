@@ -1,4 +1,4 @@
-use crate::{artifact_name::InnerAsArtifactName, utils::ReadAndSeek};
+use crate::{artifact_name::InnerAsArtifactName, utils::ReadAndSeek, PackageDb};
 use async_http_range_reader::AsyncHttpRangeReader;
 use async_trait::async_trait;
 
@@ -28,7 +28,7 @@ pub trait MetadataArtifact: Artifact + Send {
 
     /// Parses the metadata from the artifact itself. Also returns the metadata bytes so we can
     /// cache it for later.
-    fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)>;
+    async fn metadata(&self, package_db: &PackageDb) -> miette::Result<(Vec<u8>, Self::Metadata)>;
 
     /// Try to sparsely read the metadata
     async fn read_metadata_bytes(

@@ -27,8 +27,7 @@ distutils.sysconfig.get_python_inc = get_python_inc
 # End janky workaround
 ################################################################
 
-
-(work_dir, goal, binary_wheel_tag) = sys.argv[1:]
+work_dir, goal = sys.argv[1:]
 
 work_dir = Path(work_dir)
 build_system = loads((work_dir / "build-system.json").read_text("utf-8"))
@@ -50,16 +49,16 @@ if qualname_separator:
     for attr in qualname.split("."):
         backend = getattr(backend, attr)
 
-if not (work_dir / "get_requires_for_build_wheel").exists():
-    try:
-        f = backend.get_requires_for_build_wheel
-    except AttributeError:
-        requires = []
-    else:
-        requires = f()
-    (work_dir / "get_requires_for_build_wheel").write_text(dumps(requires), "utf-8")
-    if requires:
-        exit(0)
+# if not (work_dir / "get_requires_for_build_wheel").exists():
+#     try:
+#         f = backend.get_requires_for_build_wheel
+#     except AttributeError:
+#         requires = []
+#     else:
+#         requires = f()
+#     (work_dir / "get_requires_for_build_wheel").write_text(dumps(requires), "utf-8")
+#     if requires:
+#         exit(0)
 
 metadata_dir = work_dir / "prepare_metadata_for_build_wheel"
 
@@ -77,5 +76,4 @@ wheel_basename = backend.build_wheel(
 )
 
 (work_dir / "build_wheel.out").write_text(wheel_basename, "utf-8")
-(work_dir / "build_wheel.binary_wheel_tag").write_text(binary_wheel_tag, "utf-8")
 exit(0)
