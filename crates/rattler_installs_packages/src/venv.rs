@@ -69,9 +69,9 @@ impl VEnv {
     }
 
     /// Execute python script in venv
-    pub fn execute_script(&self, source: &Path) -> std::io::Result<Output> {
+    pub fn execute_script(&self, script: &Path) -> std::io::Result<Output> {
         let mut cmd = Command::new(self.python_executable());
-        cmd.arg(source);
+        cmd.arg(script);
         cmd.output()
     }
 

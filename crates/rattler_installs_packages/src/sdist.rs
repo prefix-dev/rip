@@ -1,12 +1,19 @@
 use crate::core_metadata::WheelCoreMetadata;
 use crate::utils::ReadAndSeek;
-use crate::{Artifact, MetadataArtifact, SDistFormat, SDistName};
+use crate::venv::{PythonLocation, VEnv};
+use crate::{
+    resolve, Artifact, MetadataArtifact, PackageDb, Pep508EnvMakers, SDistFormat, SDistName,
+    UnpackWheelOptions, Wheel,
+};
 use flate2::read::GzDecoder;
 use miette::{miette, IntoDiagnostic};
 use parking_lot::Mutex;
+use pep508_rs::{MarkerEnvironment, Requirement};
+use serde::Serialize;
 use std::ffi::OsStr;
-use std::io::Read;
-use std::path::Path;
+use std::io::{Read, Seek};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::str::FromStr;
 use tar::Archive;
 
@@ -16,8 +23,17 @@ pub struct SDist {
     name: SDistName,
 
     /// Source dist archive
-    archive: Mutex<Archive<Box<dyn Read + Send>>>,
+    file: Mutex<Box<dyn ReadAndSeek + Send>>,
 }
+
+#[derive(Debug, Serialize)]
+pub struct BuildSystem {
+    backend_path: Vec<PathBuf>,
+    build_backend: String,
+}
+
+// include static build_frontend.py string
+const BUILD_FRONTEND_PY: &str = include_str!("./build_frontend.py");
 
 impl SDist {
     /// Create this struct from a path
@@ -34,7 +50,9 @@ impl SDist {
 
     /// Find entry in tar archive
     fn find_entry(&self, name: impl AsRef<str>) -> miette::Result<Option<Vec<u8>>> {
-        let mut archive = self.archive.lock();
+        let mut lock = self.file.lock();
+        let mut archive = Self::as_archive(&mut lock, self.name.format)?;
+
         // Loop over entries
         for entry in archive.entries().into_diagnostic()? {
             let mut entry = entry.into_diagnostic()?;
@@ -73,34 +91,165 @@ impl SDist {
             Err(miette!("no pyproject.toml found in archive"))
         }
     }
+
+    /// Try to build the wheel file
+    pub async fn build(&self, package_db: &PackageDb) -> miette::Result<()> {
+        let build_info = self.read_build_info()?;
+
+        // requires: vec!["setuptools".into(), "wheel".into()],
+        // build_backend: "setuptools.build_meta:__legacy__".into(),
+
+        let backend = build_info
+            .build_backend
+            .unwrap_or("setuptools.build_meta:__legacy__".to_string());
+
+        let requirements = if build_info.requires.is_empty() {
+            vec![
+                Requirement::from_str("setuptools").into_diagnostic()?,
+                Requirement::from_str("wheel").into_diagnostic()?,
+            ]
+        } else {
+            build_info.requires.clone()
+        };
+
+        // create a venv
+        let venv_dir = tempfile::tempdir().into_diagnostic()?;
+        let venv = VEnv::create(venv_dir.path(), PythonLocation::System).into_diagnostic()?;
+
+        // now resolve for the right wheels
+        let env_markers = Pep508EnvMakers::from_env().await.into_diagnostic()?;
+
+        let resolved_wheels = resolve(
+            &package_db,
+            requirements.iter(),
+            &env_markers,
+            None,                // compatible_tags: Option<&WheelTags>,
+            Default::default(), // locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+            Default::default(), // favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+            &Default::default(), // options: &ResolveOptions,
+        )
+        .await?;
+
+        let options = UnpackWheelOptions { installer: None };
+
+        for package_info in resolved_wheels {
+            let artifact_info = package_info.artifacts.first().unwrap();
+            println!("Installing artifact: {}", artifact_info.filename);
+            let artifact = package_db.get_artifact::<Wheel>(artifact_info).await?;
+            venv.install_wheel(&artifact, &options).into_diagnostic()?;
+        }
+
+        println!(
+            "Finished installing wheels into {}",
+            venv_dir.path().display()
+        );
+
+        let venv_path = venv_dir.into_path();
+
+        let work_dir = tempfile::tempdir().into_diagnostic()?;
+        let work_dir = work_dir.into_path();
+
+        self.extract_to(&work_dir)?;
+
+        std::fs::write(work_dir.join("build_frontend.py"), BUILD_FRONTEND_PY).into_diagnostic()?;
+        std::fs::write(
+            work_dir.join("build-system.json"),
+            serde_json::to_string_pretty(&BuildSystem {
+                backend_path: Default::default(),
+                build_backend: backend,
+            })
+            .unwrap(),
+        )
+        .into_diagnostic()?;
+
+        let pkg_dir = work_dir.join(format!(
+            "{}-{}",
+            self.name.distribution.as_source_str(),
+            self.name.version
+        ));
+
+        // three args: work_dir, goal, binary_wheel_tag
+        let output = Command::new(venv.python_executable())
+            .current_dir(&pkg_dir)
+            .arg(work_dir.join("build_frontend.py"))
+            .arg(&work_dir)
+            .arg("WheelMetadata")
+            .arg("xyz")
+            .output()
+            .into_diagnostic()?;
+
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stderr);
+            return Err(miette!("failed to run build_frontend.py: {}", stdout));
+        }
+
+        let metadata_link =
+            std::fs::read_to_string(work_dir.join("prepare_metadata_for_build_wheel.out"))
+                .into_diagnostic()?;
+        let dist_info_folder = work_dir
+            .join("prepare_metadata_for_build_wheel")
+            .join(metadata_link);
+        let metadata_contents =
+            std::fs::read(dist_info_folder.join("METADATA")).into_diagnostic()?;
+        let metadata =
+            WheelCoreMetadata::try_from(metadata_contents.as_slice()).into_diagnostic()?;
+
+        println!("Metadata: {:#?}", metadata);
+
+        Ok(())
+    }
+
+    fn as_archive<'a>(
+        file: &'a mut Box<dyn ReadAndSeek + Send>,
+        format: SDistFormat,
+    ) -> miette::Result<Archive<SDistArchiveReader<'a>>> {
+        file.rewind().into_diagnostic()?;
+
+        match format {
+            SDistFormat::TarGz => {
+                let bytes = GzDecoder::new(file);
+                Ok(Archive::new(SDistArchiveReader::Gz(bytes)))
+            }
+            SDistFormat::Tar => Ok(Archive::new(SDistArchiveReader::Raw(file))),
+            _ => return Err(miette!("unsupported format {:?}", format)),
+        }
+    }
+
+    fn extract_to(&self, work_dir: &Path) -> miette::Result<()> {
+        let mut lock = self.file.lock();
+        let mut archive = Self::as_archive(&mut lock, self.name.format)?;
+        // reset archive
+        archive.unpack(work_dir).into_diagnostic()?;
+        Ok(())
+    }
 }
 
 impl Artifact for SDist {
     type Name = SDistName;
 
     fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
-        let sdist = match name.format {
-            SDistFormat::TarGz => {
-                let bytes = Box::new(GzDecoder::new(bytes));
-                Self {
-                    name,
-                    archive: Mutex::new(Archive::new(bytes)),
-                }
-            }
-            SDistFormat::Tar => {
-                let bytes: Box<dyn Read + Send> = Box::new(bytes);
-                Self {
-                    name,
-                    archive: Mutex::new(Archive::new(bytes)),
-                }
-            }
-            _ => return Err(miette!("unsupported format {:?}", name.format)),
-        };
-        Ok(sdist)
+        Ok(Self {
+            name,
+            file: Mutex::new(bytes),
+        })
     }
 
     fn name(&self) -> &Self::Name {
         &self.name
+    }
+}
+
+enum SDistArchiveReader<'a> {
+    Raw(&'a mut Box<dyn ReadAndSeek + Send>),
+    Gz(GzDecoder<&'a mut Box<dyn ReadAndSeek + Send>>),
+}
+
+impl<'a> Read for SDistArchiveReader<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Raw(r) => r.read(buf),
+            Self::Gz(r) => r.read(buf),
+        }
     }
 }
 
@@ -180,5 +329,27 @@ mod tests {
           r#backend-path: None,
         )
         "###);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich() {
+        // Read path
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        // Load sdist
+        let sdist = super::SDist::from_path(&path).unwrap();
+        let tempdir = tempfile::tempdir().unwrap();
+
+        let package_db = crate::PackageDb::new(
+            Default::default(),
+            &[url::Url::parse("https://pypi.org/simple/").unwrap()],
+            tempdir.path(),
+        )
+        .unwrap();
+
+        // Build the sdist
+        let result = sdist.build(&package_db).await.unwrap();
+        println!("result: {:#?}", result);
     }
 }

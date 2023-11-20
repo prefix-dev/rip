@@ -91,7 +91,7 @@ async fn actual_main() -> miette::Result<()> {
     let package_db = rattler_installs_packages::PackageDb::new(
         Default::default(),
         &[normalize_index_url(args.index_url.clone())],
-        cache_dir,
+        &cache_dir,
     )
     .into_diagnostic()
     .wrap_err_with(|| {

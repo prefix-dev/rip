@@ -41,7 +41,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
     let package_db = rattler_installs_packages::PackageDb::new(
         Default::default(),
         &[normalize_index_url(index_url)],
-        cache_dir.clone(),
+        &cache_dir,
     )
     .into_diagnostic()?;
 

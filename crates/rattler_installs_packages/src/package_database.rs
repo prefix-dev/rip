@@ -13,7 +13,12 @@ use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
-use std::{borrow::Borrow, fmt::Display, io::Read, path::PathBuf};
+use std::{
+    borrow::Borrow,
+    fmt::Display,
+    io::Read,
+    path::{Path, PathBuf},
+};
 use url::Url;
 
 /// Cache of the available packages, artifacts and their metadata.
@@ -32,7 +37,7 @@ pub struct PackageDb {
 
 impl PackageDb {
     /// Constructs a new [`PackageDb`] that reads information from the specified URLs.
-    pub fn new(client: Client, index_urls: &[Url], cache_dir: PathBuf) -> std::io::Result<Self> {
+    pub fn new(client: Client, index_urls: &[Url], cache_dir: &Path) -> std::io::Result<Self> {
         Ok(Self {
             http: Http::new(
                 client,
