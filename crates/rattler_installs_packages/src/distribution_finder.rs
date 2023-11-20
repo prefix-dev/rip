@@ -60,9 +60,9 @@ pub fn find_distributions_in_venv(
     paths: &InstallPaths,
 ) -> Result<Vec<Distribution>, FindDistributionError> {
     // We will look for distributions in the purelib/platlib directories
-    let locations = [paths.mapping.get("purelib"), paths.mapping.get("platlib")]
+    let locations = [paths.purelib(), paths.platlib()]
         .into_iter()
-        .filter_map(|p| Some(root.join(p?)))
+        .map(|p| root.join(p))
         .unique()
         .filter(|p| p.is_dir())
         .collect_vec();

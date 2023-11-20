@@ -49,16 +49,13 @@ pub struct VEnv {
     location: PathBuf,
     /// Install paths for this virtual environment
     install_paths: InstallPaths,
-    /// Specifies if this is a windows venv
-    windows: bool,
 }
 
 impl VEnv {
-    fn new(location: PathBuf, install_paths: InstallPaths, windows: bool) -> Self {
+    fn new(location: PathBuf, install_paths: InstallPaths) -> Self {
         Self {
             location,
             install_paths,
-            windows,
         }
     }
 
@@ -69,24 +66,6 @@ impl VEnv {
         options: &UnpackWheelOptions,
     ) -> Result<(), UnpackError> {
         wheel.unpack(&self.location, &self.install_paths, options)
-    }
-
-    /// Path to binaries in venv
-    pub fn binaries(&self) -> PathBuf {
-        if self.windows {
-            self.location.join("Scripts")
-        } else {
-            self.location.join("bin")
-        }
-    }
-
-    /// Path to python executable in venv
-    pub fn python_executable(&self) -> PathBuf {
-        if self.windows {
-            self.binaries().join("python.exe")
-        } else {
-            self.binaries().join("python")
-        }
     }
 
     /// Execute python script in venv
@@ -102,6 +81,18 @@ impl VEnv {
         cmd.arg("-c");
         cmd.arg(command.as_ref());
         cmd.output()
+    }
+
+    /// Path to python executable in venv
+    pub fn python_executable(&self) -> PathBuf {
+        let executable = if self.install_paths.is_windows() {
+            "python.exe"
+        } else {
+            "python"
+        };
+        self.location
+            .join(self.install_paths.scripts())
+            .join(executable)
     }
 
     /// Create a virtual environment at specified directory
@@ -137,7 +128,7 @@ impl VEnv {
 
         let version = PythonInterpreterVersion::from_path(&python)?;
         let install_paths = InstallPaths::for_venv(version, windows);
-        Ok(VEnv::new(venv_dir.to_path_buf(), install_paths, windows))
+        Ok(VEnv::new(venv_dir.to_path_buf(), install_paths))
     }
 }
 
