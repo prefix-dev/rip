@@ -15,7 +15,7 @@ use pep440_rs::Version;
 use rattler_digest::Sha256;
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     ffi::OsStr,
     fs,
     fs::File,
@@ -411,20 +411,24 @@ pub fn read_entry_to_end<R: ReadAndSeek>(
     Ok(bytes)
 }
 
-/// A dictionary of installation categories to where they should be stored relative to the
+/// A struct of installation categories to where they should be stored relative to the
 /// installation destination.
 #[derive(Debug, Clone)]
 pub struct InstallPaths {
-    /// Mapping from category to installation path
-    pub mapping: HashMap<String, PathBuf>,
+    purelib: PathBuf,
+    platlib: PathBuf,
+    scripts: PathBuf,
+    data: PathBuf,
+    windows: bool,
 }
 
 impl InstallPaths {
     /// Populates mappings of installation targets for a virtualenv layout. The mapping depends on
-    /// the python version and whether or not the installation targets windows. Specifucally on
+    /// the python version and whether or not the installation targets windows. Specifically on
     /// windows some of the paths are different. :shrug:
     pub fn for_venv<V: Into<PythonInterpreterVersion>>(version: V, windows: bool) -> Self {
         let version = version.into();
+
         let site_packages = if windows {
             Path::new("Lib").join("site-packages")
         } else {
@@ -433,29 +437,67 @@ impl InstallPaths {
                 version.major, version.minor
             ))
         };
+        let scripts = if windows {
+            PathBuf::from("Scripts")
+        } else {
+            PathBuf::from("bin")
+        };
+
+        // Data should just be the root of the venv
+        let data = PathBuf::from("");
+
+        // purelib and platlib locations are not relevant when using venvs
+        // https://stackoverflow.com/a/27882460/3549270
         Self {
-            mapping: HashMap::from([
-                (
-                    String::from("scripts"),
-                    if windows {
-                        PathBuf::from("Scripts")
-                    } else {
-                        PathBuf::from("bin")
-                    },
-                ),
-                // purelib and platlib locations are not relevant when using venvs
-                // https://stackoverflow.com/a/27882460/3549270
-                (String::from("purelib"), site_packages.clone()),
-                (String::from("platlib"), site_packages),
-                // Move the content of the folder to the root of the venv
-                (String::from("data"), PathBuf::from("")),
-            ]),
+            purelib: site_packages.clone(),
+            platlib: site_packages,
+            scripts,
+            data,
+            windows,
         }
     }
 
+    /// Determines whether this is a windows InstallPath
+    pub fn is_windows(&self) -> bool {
+        self.windows
+    }
+
     /// Returns the site-packages location. This is done by searching for the purelib location.
-    pub fn site_packages(&self) -> Option<&PathBuf> {
-        self.mapping.get("purelib")
+    pub fn site_packages(&self) -> &Path {
+        &self.purelib
+    }
+
+    /// Reference to pure python library location.
+    pub fn purelib(&self) -> &Path {
+        &self.purelib
+    }
+
+    /// Reference to platform specific library location.
+    pub fn platlib(&self) -> &Path {
+        &self.platlib
+    }
+
+    /// Returns the binaries location.
+    pub fn scripts(&self) -> &Path {
+        &self.scripts
+    }
+
+    /// Returns the location of the data directory
+    pub fn data(&self) -> &Path {
+        &self.data
+    }
+
+    /// Matches the different categories to their install paths.
+    pub fn match_category<S: AsRef<str>>(&self, category: S) -> Option<&Path> {
+        let category = category.as_ref();
+        match category {
+            "purelib" => Some(self.purelib()),
+            "platlib" => Some(self.platlib()),
+            "scripts" => Some(self.scripts()),
+            "data" => Some(self.data()),
+            // TODO: support headers?
+            &_ => None,
+        }
     }
 }
 
@@ -527,13 +569,7 @@ impl Wheel {
             root_is_purelib: vitals.root_is_purelib,
             paths,
         };
-        let site_packages = dest.join(
-            paths
-                .mapping
-                .get("purelib")
-                .ok_or_else(|| UnpackError::MissingInstallPath(String::from("purelib")))?
-                .as_path(),
-        );
+        let site_packages = dest.join(paths.site_packages());
 
         let mut archive = self.archive.lock();
 
@@ -767,7 +803,7 @@ impl<'a> WheelPathTransformer<'a> {
             (category, path)
         };
 
-        match self.paths.mapping.get(category.as_ref()) {
+        match self.paths.match_category(category.as_ref()) {
             Some(basepath) => Ok(Some((basepath.join(rest_of_path), category == "scripts"))),
             None => Err(UnpackError::UnsupportedDataDirectory(category.into_owned())),
         }
@@ -852,7 +888,6 @@ mod test {
         let record_path = unpacked
             .install_paths
             .site_packages()
-            .unwrap()
             .join(format!("{}/RECORD", unpacked.vitals.dist_info,));
         let record_content = std::fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
             .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
@@ -870,7 +905,6 @@ mod test {
         let relative_path = unpacked
             .install_paths
             .site_packages()
-            .unwrap()
             .join(format!("{}/INSTALLER", unpacked.vitals.dist_info));
         let installer_content =
             std::fs::read_to_string(unpacked.tmpdir.path().join(relative_path)).unwrap();

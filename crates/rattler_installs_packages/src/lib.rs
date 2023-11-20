@@ -31,6 +31,8 @@ mod wheel;
 mod sdist;
 mod system_python;
 
+mod venv;
+
 #[cfg(feature = "resolvo")]
 pub use resolve::{resolve, PinnedPackage, ResolveOptions, SDistResolution};
 
