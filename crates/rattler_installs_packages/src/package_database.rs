@@ -179,8 +179,7 @@ impl PackageDb {
         let wheels = artifacts
             .iter()
             .map(|artifact_info| artifact_info.borrow())
-            .filter(|artifact_info| artifact_info.is::<Wheel>())
-            .collect::<Vec<_>>();
+            .filter(|artifact_info| artifact_info.is::<Wheel>());
 
         // Get the information from the first artifact. We assume the metadata is consistent across
         // all matching artifacts
