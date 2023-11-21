@@ -63,7 +63,7 @@ impl SDist {
     /// Find entry in tar archive
     fn find_entry(&self, name: impl AsRef<str>) -> miette::Result<Option<Vec<u8>>> {
         let mut lock = self.file.lock();
-        let mut archive = Self::as_archive(&mut lock, self.name.format)?;
+        let mut archive = generic_archive_reader(&mut lock, self.name.format)?;
 
         // Loop over entries
         for entry in archive.entries().into_diagnostic()? {
@@ -251,25 +251,9 @@ impl SDist {
         Ok(wheel_file)
     }
 
-    fn as_archive(
-        file: &mut Box<dyn ReadAndSeek + Send>,
-        format: SDistFormat,
-    ) -> miette::Result<Archive<SDistArchiveReader>> {
-        file.rewind().into_diagnostic()?;
-
-        match format {
-            SDistFormat::TarGz => {
-                let bytes = GzDecoder::new(file);
-                Ok(Archive::new(SDistArchiveReader::Gz(bytes)))
-            }
-            SDistFormat::Tar => Ok(Archive::new(SDistArchiveReader::Raw(file))),
-            _ => Err(miette!("unsupported format {:?}", format)),
-        }
-    }
-
     fn extract_to(&self, work_dir: &Path) -> miette::Result<()> {
         let mut lock = self.file.lock();
-        let mut archive = Self::as_archive(&mut lock, self.name.format)?;
+        let mut archive = generic_archive_reader(&mut lock, self.name.format)?;
         // reset archive
         archive.unpack(work_dir).into_diagnostic()?;
         Ok(())
@@ -292,17 +276,33 @@ impl Artifact for SDist {
     }
 }
 
-enum SDistArchiveReader<'a> {
+enum RawAndGzReader<'a> {
     Raw(&'a mut Box<dyn ReadAndSeek + Send>),
     Gz(GzDecoder<&'a mut Box<dyn ReadAndSeek + Send>>),
 }
 
-impl<'a> Read for SDistArchiveReader<'a> {
+impl<'a> Read for RawAndGzReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
             Self::Raw(r) => r.read(buf),
             Self::Gz(r) => r.read(buf),
         }
+    }
+}
+
+fn generic_archive_reader(
+    file: &mut Box<dyn ReadAndSeek + Send>,
+    format: SDistFormat,
+) -> miette::Result<Archive<RawAndGzReader>> {
+    file.rewind().into_diagnostic()?;
+
+    match format {
+        SDistFormat::TarGz => {
+            let bytes = GzDecoder::new(file);
+            Ok(Archive::new(RawAndGzReader::Gz(bytes)))
+        }
+        SDistFormat::Tar => Ok(Archive::new(RawAndGzReader::Raw(file))),
+        _ => Err(miette!("unsupported format {:?}", format)),
     }
 }
 
@@ -352,21 +352,6 @@ mod tests {
             tempdir,
         )
     }
-
-    // #[tokio::test]
-    // pub async fn reject_rich_metadata() {
-    //     // Read path
-    //     let path =
-    //         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
-
-    //     // Load sdist
-    //     let sdist = SDist::from_path(&path).unwrap();
-
-    //     // Rich has an old metadata version
-    //     let package_db = get_package_db();
-    //     let metadata = sdist.metadata(&package_db).await;
-    //     assert!(metadata.is_err());
-    // }
 
     #[tokio::test]
     pub async fn correct_metadata_fake_flask() {
