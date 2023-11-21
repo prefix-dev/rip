@@ -267,7 +267,7 @@ impl PackageDb {
                 )
                 .await?;
 
-            let mut bytes = response.into_body().force_local().await.into_diagnostic()?;
+            let mut bytes = response.into_body().into_local().await.into_diagnostic()?;
             let mut source = String::new();
             bytes.read_to_string(&mut source).into_diagnostic()?;
             html::parse_package_names_html(&source)
@@ -301,7 +301,7 @@ impl PackageDb {
         // Turn the response into a seekable response.
         let bytes = artifact_bytes
             .into_body()
-            .force_local()
+            .into_local()
             .await
             .into_diagnostic()?;
         A::new(name.clone(), bytes)

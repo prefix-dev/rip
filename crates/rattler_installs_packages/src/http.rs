@@ -16,6 +16,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 use thiserror::Error;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
 use url::Url;
 
 // Attached to HTTP responses, to make testing easier
@@ -359,6 +360,7 @@ fn body_to_streaming_or_local(
     StreamingOrLocal::Streaming(Box::new(
         stream
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-            .into_async_read(),
+            .into_async_read()
+            .compat(),
     ))
 }
