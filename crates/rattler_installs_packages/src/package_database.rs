@@ -218,6 +218,9 @@ impl PackageDb {
         Ok(None)
     }
 
+    // TODO: As mentioned in the other todo below,
+    //       extract the builder into a separate struct
+    //       and pass that here
     async fn get_metadata_sdists<'a, I: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [I],
@@ -250,6 +253,8 @@ impl PackageDb {
         Ok(None)
     }
 
+    // TODO: instead of passing the PackageDB to SDist when building we should actually
+    //       create a separate struct that does the build process
     /// Returns the metadata from a set of artifacts. This function assumes that metadata is
     /// consistent for all artifacts of a single version.
     pub async fn get_metadata<'a, I: Borrow<ArtifactInfo>>(
