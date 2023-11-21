@@ -1,6 +1,6 @@
 use std::io::{Read, Seek};
 
-/// Defines that a type can be read and seeked. This trait has a blanked implementation for any type
+/// Defines that a type can be read and seeked. This trait has a blanket implementation for any type
 /// that implements both [`Read`] and [`Seek`].
 pub trait ReadAndSeek: Read + Seek {}
 

@@ -69,6 +69,7 @@ impl StreamingOrLocal {
                         Ok(bytes.len())
                     }
                     Ok(Err(err)) => Err(err),
+                    // Resume the panic on the main task
                     Err(Ok(panic)) => std::panic::resume_unwind(panic),
                     Err(Err(_)) => Err(std::io::ErrorKind::Interrupted.into()),
                 }
