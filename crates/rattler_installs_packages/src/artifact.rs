@@ -1,6 +1,4 @@
 use crate::{artifact_name::InnerAsArtifactName, utils::ReadAndSeek};
-use async_http_range_reader::AsyncHttpRangeReader;
-use async_trait::async_trait;
 
 /// Trait that represents an artifact type in the PyPI ecosystem.
 pub trait Artifact: Sized {
@@ -15,31 +13,4 @@ pub trait Artifact: Sized {
 
     /// Returns the name of this instance
     fn name(&self) -> &Self::Name;
-}
-
-/// Trait that represents an artifact that contains metadata.
-#[async_trait]
-pub trait MetadataArtifact: Artifact + Send {
-    /// Associated type for the metadata of this artifact.
-    type Metadata;
-
-    /// Parses the metadata associated with an artifact.
-    fn parse_metadata(bytes: &[u8]) -> miette::Result<Self::Metadata>;
-
-    /// Parses the metadata from the artifact itself. Also returns the metadata bytes so we can
-    /// cache it for later.
-    fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)>;
-
-    /// Try to sparsely read the metadata
-    async fn read_metadata_bytes(
-        _name: &<Self as Artifact>::Name,
-        _stream: &mut AsyncHttpRangeReader,
-    ) -> miette::Result<(Vec<u8>, Self::Metadata)> {
-        unimplemented!()
-    }
-
-    /// Returns true if the [`Self::read_metadata_bytes`] is supported.
-    fn supports_sparse_metadata() -> bool {
-        false
-    }
 }
