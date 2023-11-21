@@ -39,7 +39,7 @@ pub use resolve::{resolve, PinnedPackage, ResolveOptions, SDistResolution};
 pub use file_store::{CacheKey, FileStore};
 pub use package_database::PackageDb;
 
-pub use artifact::{Artifact, MetadataArtifact};
+pub use artifact::Artifact;
 pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFormat, SDistName,
     WheelName,

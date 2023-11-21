@@ -464,22 +464,19 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             return dependencies;
         }
 
-        let Some((_, metadata)) = task::block_in_place(|| {
-            // First try getting wheels
-            Handle::current()
-                .block_on(
-                    self.package_db
-                        .get_metadata::<Wheel, _>(artifacts)
-                        .and_then(|result| match result {
-                            None => self
-                                .package_db
-                                .get_metadata::<SDist, _>(artifacts)
-                                .left_future(),
+        let Some((_, metadata)) =
+            task::block_in_place(|| {
+                // First try getting wheels
+                Handle::current()
+                    .block_on(self.package_db.get_metadata(artifacts).and_then(
+                        |result| match result {
+                            None => self.package_db.get_metadata(artifacts).left_future(),
                             result => ready(Ok(result)).right_future(),
-                        }),
-                )
-                .unwrap()
-        }) else {
+                        },
+                    ))
+                    .unwrap()
+            })
+        else {
             panic!(
                 "could not find metadata for any sdist or wheel for {} {}. The following artifacts are available:\n{}",
                 package_name, package_version, artifacts.iter().format_with("\n", |a, f| f(&format_args!("- {}", a.filename)))

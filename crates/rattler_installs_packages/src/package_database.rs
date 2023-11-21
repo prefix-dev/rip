@@ -1,10 +1,12 @@
+use crate::core_metadata::WheelCoreMetadata;
+use crate::sdist::SDist;
 use crate::{
-    artifact::{Artifact, MetadataArtifact},
+    artifact::Artifact,
     artifact_name::InnerAsArtifactName,
     html::{self, parse_project_info_html},
     http::{CacheMode, Http, HttpRequestError},
     project_info::{ArtifactInfo, ProjectInfo},
-    FileStore, NormalizedPackageName, Version,
+    FileStore, NormalizedPackageName, Version, Wheel, WheelName,
 };
 use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
 use elsa::sync::FrozenMap;
@@ -108,49 +110,57 @@ impl PackageDb {
         Ok(())
     }
 
-    /// Returns the metadata from a set of artifacts. This function assumes that metadata is
-    /// consistent for all artifacts of a single version.
-    pub async fn get_metadata<'a, A: MetadataArtifact, I: Borrow<ArtifactInfo>>(
+    /// Check if we already have one of the artifacts cached. Only do this if we have more than
+    /// one artifact because otherwise, we'll do a request anyway if we dont have the file
+    /// cached.
+    async fn metadata_for_cached_artifacts<'a, I: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [I],
-    ) -> miette::Result<Option<(&'a ArtifactInfo, A::Metadata)>> {
-        // Find all the artifacts that match the artifact we are looking for
-        let matching_artifacts = artifacts
-            .iter()
-            .map(|artifact_info| artifact_info.borrow())
-            .filter(|artifact_info| artifact_info.is::<A>())
-            .collect::<Vec<_>>();
-
-        // Check if we already have information about any of the artifacts cached.
+    ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         for artifact_info in artifacts.iter().map(|b| b.borrow()) {
-            if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info) {
-                return Ok(Some((artifact_info, A::parse_metadata(&metadata_bytes)?)));
-            }
-        }
-
-        // Check if we already have one of the artifacts cached. Only do this if we have more than
-        // one artifact because otherwise, we'll do a request anyway if we dont have the file
-        // cached.
-        if matching_artifacts.len() > 1 {
-            for &artifact_info in matching_artifacts.iter() {
+            if artifact_info.is::<Wheel>() {
                 let result = self
-                    .get_artifact_with_cache::<A>(artifact_info, CacheMode::OnlyIfCached)
+                    .get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::OnlyIfCached)
                     .await;
                 match result {
                     Ok(artifact) => {
                         // Apparently the artifact has been downloaded, but its metadata has not been
                         // cached yet. Lets store it there.
                         let metadata = artifact.metadata();
-                        let Ok((blob, metadata)) = metadata else {
-                            tracing::warn!(
-                                "Error reading metadata from artifact '{}' skipping",
-                                artifact_info.filename
-                            );
-                            continue;
-                        };
+                        match metadata {
+                            Ok((blob, metadata)) => {
+                                self.put_metadata_in_cache(artifact_info, &blob)?;
+                                return Ok(Some((artifact_info, metadata)));
+                            }
+                            Err(err) => {
+                                tracing::warn!(
+                                    "Error reading metadata from artifact '{}' skipping ({:?})",
+                                    artifact_info.filename,
+                                    err
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    Err(err) => match err.downcast_ref::<HttpRequestError>() {
+                        Some(HttpRequestError::NotCached(_)) => continue,
+                        _ => return Err(err),
+                    },
+                }
+            }
+            // We know that it is an sdist
+            else {
+                let result = self
+                    .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::OnlyIfCached)
+                    .await;
 
-                        self.put_metadata_in_cache(artifact_info, &blob)?;
-                        return Ok(Some((artifact_info, metadata)));
+                match result {
+                    Ok(sdist) => {
+                        // Save the pep643 metadata in the cache if it is available
+                        let metadata = sdist.pep643_metadata();
+                        if let Some((bytes, _)) = metadata {
+                            self.put_metadata_in_cache(artifact_info, &bytes)?;
+                        }
                     }
                     Err(err) => match err.downcast_ref::<HttpRequestError>() {
                         Some(HttpRequestError::NotCached(_)) => continue,
@@ -159,68 +169,117 @@ impl PackageDb {
                 }
             }
         }
+        Ok(None)
+    }
 
-        // We have exhausted all options to read the metadata from the cache. We'll have to hit the
-        // network to get to the information.
+    async fn get_metadata_wheels<'a, I: Borrow<ArtifactInfo>>(
+        &self,
+        artifacts: &'a [I],
+    ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
+        let wheels = artifacts
+            .iter()
+            .map(|artifact_info| artifact_info.borrow())
+            .filter(|artifact_info| artifact_info.is::<Wheel>());
 
         // Get the information from the first artifact. We assume the metadata is consistent across
         // all matching artifacts
-        for artifact_info in matching_artifacts {
+        for artifact_info in wheels {
             // Retrieve the metadata instead of the entire wheel
             // If the dist-info is available separately, we can use that instead
             if artifact_info.dist_info_metadata.available {
-                return Ok(Some(self.get_pep658_metadata::<A>(artifact_info).await?));
+                return Ok(Some(self.get_pep658_metadata(artifact_info).await?));
             }
 
             // Try to load the data by sparsely reading the artifact (if supported)
-            if let Some(metadata) = self.get_lazy_metadata::<A>(artifact_info).await? {
+            if let Some(metadata) = self.get_lazy_metadata_wheel(artifact_info).await? {
                 return Ok(Some((artifact_info, metadata)));
             }
 
             // Otherwise download the entire artifact
             let artifact = self
-                .get_artifact_with_cache::<A>(artifact_info, CacheMode::Default)
+                .get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::Default)
                 .await?;
             let metadata = artifact.metadata();
-            let Ok((blob, metadata)) = metadata else {
-                tracing::warn!(
-                    "Error reading metadata from artifact '{}' skipping",
-                    artifact_info.filename
-                );
-                continue;
-            };
-            self.put_metadata_in_cache(artifact_info, &blob)?;
-            return Ok(Some((artifact_info, metadata)));
+            match metadata {
+                Ok((blob, metadata)) => {
+                    self.put_metadata_in_cache(artifact_info, &blob)?;
+                    return Ok(Some((artifact_info, metadata)));
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Error reading metadata from artifact '{}' skipping ({:?})",
+                        artifact_info.filename,
+                        err
+                    );
+                    continue;
+                }
+            }
         }
         Ok(None)
     }
 
-    async fn get_lazy_metadata<A: MetadataArtifact>(
+    /// Returns the metadata from a set of artifacts. This function assumes that metadata is
+    /// consistent for all artifacts of a single version.
+    pub async fn get_metadata<'a, I: Borrow<ArtifactInfo>>(
+        &self,
+        artifacts: &'a [I],
+    ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
+        // Check if we already have information about any of the artifacts cached.
+        // Return if we do
+        for artifact_info in artifacts.iter().map(|b| b.borrow()) {
+            if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info) {
+                return Ok(Some((
+                    artifact_info,
+                    WheelCoreMetadata::try_from(metadata_bytes.as_slice()).into_diagnostic()?,
+                )));
+            }
+        }
+
+        // Apparently we dont have any metadata cached yet.
+        // Next up check if we have downloaded any artifacts but do not have the metadata stored yet
+        // In this case we can just return it
+        let result = self.metadata_for_cached_artifacts(artifacts).await?;
+        if result.is_some() {
+            return Ok(result);
+        }
+
+        // We have exhausted all options to read the metadata from the cache. We'll have to hit the
+        // network to get to the information.
+        // Let's try to get information for any wheels that we have
+        // first
+        let result = self.get_metadata_wheels(artifacts).await?;
+        if result.is_some() {
+            return Ok(result);
+        }
+
+        // TODO: at this point try to read the metadata from the sdist by building it
+        Ok(None)
+    }
+
+    async fn get_lazy_metadata_wheel(
         &self,
         artifact_info: &ArtifactInfo,
-    ) -> miette::Result<Option<A::Metadata>> {
-        if A::supports_sparse_metadata() {
-            tracing::info!(url=%artifact_info.url, "lazy reading artifact");
+    ) -> miette::Result<Option<WheelCoreMetadata>> {
+        tracing::info!(url=%artifact_info.url, "lazy reading artifact");
 
-            // Check if the artifact is the same type as the info.
-            let name = A::Name::try_as(&artifact_info.filename)
-                .expect("the specified artifact does not refer to type requested to read");
+        // Check if the artifact is the same type as the info.
+        let name = WheelName::try_as(&artifact_info.filename)
+            .expect("the specified artifact does not refer to type requested to read");
 
-            if let Ok(mut reader) = AsyncHttpRangeReader::new(
-                self.http.client.clone(),
-                artifact_info.url.clone(),
-                CheckSupportMethod::Head,
-            )
-            .await
-            {
-                match A::read_metadata_bytes(name, &mut reader).await {
-                    Ok((blob, metadata)) => {
-                        self.put_metadata_in_cache(artifact_info, &blob)?;
-                        return Ok(Some(metadata));
-                    }
-                    Err(err) => {
-                        tracing::warn!("failed to sparsely read wheel file: {err}, falling back to downloading the whole file");
-                    }
+        if let Ok(mut reader) = AsyncHttpRangeReader::new(
+            self.http.client.clone(),
+            artifact_info.url.clone(),
+            CheckSupportMethod::Head,
+        )
+        .await
+        {
+            match Wheel::read_metadata_bytes(name, &mut reader).await {
+                Ok((blob, metadata)) => {
+                    self.put_metadata_in_cache(artifact_info, &blob)?;
+                    return Ok(Some(metadata));
+                }
+                Err(err) => {
+                    tracing::warn!("failed to sparsely read wheel file: {err}, falling back to downloading the whole file");
                 }
             }
         }
@@ -231,10 +290,14 @@ impl PackageDb {
     /// Retrieve the PEP658 metadata for the given artifact.
     /// This assumes that the metadata is available in the repository
     /// This can be checked with the ArtifactInfo
-    async fn get_pep658_metadata<'a, A: MetadataArtifact>(
+    async fn get_pep658_metadata<'a>(
         &self,
         artifact_info: &'a ArtifactInfo,
-    ) -> miette::Result<(&'a ArtifactInfo, A::Metadata)> {
+    ) -> miette::Result<(&'a ArtifactInfo, WheelCoreMetadata)> {
+        // Check if the artifact is the same type as the info.
+        WheelName::try_as(&artifact_info.filename)
+            .expect("the specified artifact does not refer to type requested to read");
+
         // Turn into PEP658 compliant URL
         let mut url = artifact_info.url.clone();
         url.set_path(&url.path().replace(".whl", ".whl.metadata"));
@@ -248,7 +311,7 @@ impl PackageDb {
             .await
             .into_diagnostic()?;
 
-        let metadata = A::parse_metadata(&bytes)?;
+        let metadata = WheelCoreMetadata::try_from(bytes.as_slice()).into_diagnostic()?;
         self.put_metadata_in_cache(artifact_info, &bytes)?;
         Ok((artifact_info, metadata))
     }
@@ -366,7 +429,6 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::wheel::Wheel;
     use crate::PackageName;
     use tempfile::TempDir;
 
@@ -393,7 +455,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let (_artifact, _metadata) = package_db
-            .get_metadata::<Wheel, _>(&artifact_info)
+            .get_metadata(&artifact_info)
             .await
             .unwrap()
             .unwrap();
@@ -423,10 +485,7 @@ mod test {
             .find(|a| a.dist_info_metadata.available)
             .unwrap();
 
-        let (_artifact, _metadata) = package_db
-            .get_pep658_metadata::<Wheel>(artifact_info)
-            .await
-            .unwrap();
+        let (_artifact, _metadata) = package_db.get_pep658_metadata(artifact_info).await.unwrap();
     }
 }
 

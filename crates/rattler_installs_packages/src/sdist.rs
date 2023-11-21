@@ -1,6 +1,6 @@
 use crate::core_metadata::WheelCoreMetadata;
 use crate::utils::ReadAndSeek;
-use crate::{Artifact, MetadataArtifact, SDistFormat, SDistName};
+use crate::{Artifact, SDistFormat, SDistName};
 use flate2::read::GzDecoder;
 use miette::{miette, IntoDiagnostic};
 use parking_lot::Mutex;
@@ -52,7 +52,7 @@ impl SDist {
     /// Read .PKG-INFO from the archive
     pub fn read_package_info(&self) -> miette::Result<(Vec<u8>, WheelCoreMetadata)> {
         if let Some(bytes) = self.find_entry("PKG-INFO")? {
-            let metadata = Self::parse_metadata(&bytes)?;
+            let metadata = WheelCoreMetadata::try_from(bytes.as_slice()).into_diagnostic()?;
 
             Ok((bytes, metadata))
         } else {
@@ -71,6 +71,18 @@ impl SDist {
                 .ok_or_else(|| miette!("no build-system found in pyproject.toml"))?)
         } else {
             Err(miette!("no pyproject.toml found in archive"))
+        }
+    }
+
+    /// Checks if this artifact implements PEP 643
+    /// and returns the metadata if it does
+    pub fn pep643_metadata(&self) -> Option<(Vec<u8>, WheelCoreMetadata)> {
+        // Assume we have a PKG-INFO
+        let (bytes, metadata) = self.read_package_info().ok()?;
+        if metadata.metadata_version.implements_pep643() {
+            Some((bytes, metadata))
+        } else {
+            None
         }
     }
 }
@@ -104,34 +116,9 @@ impl Artifact for SDist {
     }
 }
 
-/// We can re-use the metadata type from the wheel if the SDist has a PKG-INFO.
-type SDistMetadata = WheelCoreMetadata;
-
-impl MetadataArtifact for SDist {
-    type Metadata = SDistMetadata;
-
-    fn parse_metadata(bytes: &[u8]) -> miette::Result<Self::Metadata> {
-        WheelCoreMetadata::try_from(bytes).into_diagnostic()
-    }
-
-    fn metadata(&self) -> miette::Result<(Vec<u8>, Self::Metadata)> {
-        // Assume we have a PKG-INFO
-        let (bytes, metadata) = self.read_package_info()?;
-
-        // Only SDIST metadata from version 2.2 and up is considered reliable
-        // Filter out older versions
-        // TODO: when we have wheel building, build the wheel instead relying on this
-        if !metadata.metadata_version.implements_pep643() {
-            return Err(miette!("only consider SDist Metadata higher than 2.2"));
-        }
-        Ok((bytes, metadata))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::sdist::SDist;
-    use crate::MetadataArtifact;
     use insta::assert_ron_snapshot;
     use std::path::Path;
 
@@ -145,8 +132,8 @@ mod tests {
         let sdist = SDist::from_path(&path).unwrap();
 
         // Rich has an old metadata version
-        let metadata = sdist.metadata();
-        assert!(metadata.is_err());
+        let metadata = sdist.pep643_metadata();
+        assert!(metadata.is_none());
     }
 
     #[test]
@@ -157,7 +144,7 @@ mod tests {
         let sdist = SDist::from_path(&path).unwrap();
         // Should not fail as it is a valid PKG-INFO
         // and considered reliable
-        sdist.metadata().unwrap();
+        sdist.pep643_metadata().unwrap();
     }
 
     #[test]

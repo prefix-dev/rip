@@ -100,10 +100,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
             continue;
         }
 
-        let metadata = package_db
-            .get_metadata::<Wheel, _>(&available_artifacts)
-            .await
-            .ok();
+        let metadata = package_db.get_metadata(&available_artifacts).await.ok();
 
         // Continue if there was an error in downloading and skip for now :)
         let metadata = if let Some(metadata) = metadata {
