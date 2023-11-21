@@ -3,10 +3,9 @@ use crate::{
     record::{Record, RecordEntry},
     rfc822ish::RFC822ish,
     utils::ReadAndSeek,
-    Artifact, MetadataArtifact, PackageDb, PackageName, WheelName,
+    Artifact, PackageName, WheelName,
 };
 use async_http_range_reader::AsyncHttpRangeReader;
-use async_trait::async_trait;
 use async_zip::base::read::seek::ZipFileReader;
 use data_encoding::BASE64URL_NOPAD;
 use miette::IntoDiagnostic;
@@ -288,17 +287,9 @@ impl Wheel {
             metadata,
         })
     }
-}
 
-#[async_trait]
-impl MetadataArtifact for Wheel {
-    type Metadata = WheelCoreMetadata;
-
-    fn parse_metadata(bytes: &[u8]) -> miette::Result<Self::Metadata> {
-        WheelCoreMetadata::try_from(bytes).into_diagnostic()
-    }
-
-    async fn metadata(&self, _: &PackageDb) -> miette::Result<(Vec<u8>, Self::Metadata)> {
+    /// Get the metadata from the wheel archive
+    pub fn metadata(&self) -> miette::Result<(Vec<u8>, WheelCoreMetadata)> {
         let WheelVitals {
             metadata_blob,
             metadata,
@@ -307,14 +298,11 @@ impl MetadataArtifact for Wheel {
         Ok((metadata_blob, metadata))
     }
 
-    fn supports_sparse_metadata() -> bool {
-        true
-    }
-
-    async fn read_metadata_bytes(
+    /// Read metadata from bytes-stream
+    pub async fn read_metadata_bytes(
         name: &WheelName,
         stream: &mut AsyncHttpRangeReader,
-    ) -> miette::Result<(Vec<u8>, Self::Metadata)> {
+    ) -> miette::Result<(Vec<u8>, WheelCoreMetadata)> {
         Self::get_lazy_vitals(name, stream).await.into_diagnostic()
     }
 }

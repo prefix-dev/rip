@@ -3,11 +3,10 @@ use crate::tags::WheelTags;
 use crate::utils::ReadAndSeek;
 use crate::venv::{PythonLocation, VEnv};
 use crate::{
-    resolve::resolve, Artifact, MetadataArtifact, PackageDb, Pep508EnvMakers, SDistFormat,
-    SDistName, UnpackWheelOptions, Wheel,
+    resolve::resolve, Artifact, PackageDb, Pep508EnvMakers, SDistFormat, SDistName,
+    UnpackWheelOptions, Wheel,
 };
 use async_once_cell::OnceCell;
-use async_trait::async_trait;
 use flate2::read::GzDecoder;
 use miette::{miette, Context, IntoDiagnostic};
 use parking_lot::Mutex;
@@ -82,7 +81,7 @@ impl SDist {
     /// Read .PKG-INFO from the archive
     pub fn read_package_info(&self) -> miette::Result<(Vec<u8>, WheelCoreMetadata)> {
         if let Some(bytes) = self.find_entry("PKG-INFO")? {
-            let metadata = Self::parse_metadata(&bytes)?;
+            let metadata = WheelCoreMetadata::try_from(bytes.as_slice()).into_diagnostic()?;
 
             Ok((bytes, metadata))
         } else {
@@ -213,6 +212,16 @@ impl SDist {
         Ok(metadata_contents)
     }
 
+    /// Build an parse the metadata
+    pub async fn build_parse_metadata(
+        &self,
+        package_db: &PackageDb,
+    ) -> miette::Result<(Vec<u8>, WheelCoreMetadata)> {
+        let bytes = self.build_metadata(package_db).await?;
+        let metadata = WheelCoreMetadata::try_from(bytes.as_slice()).into_diagnostic()?;
+        Ok((bytes, metadata))
+    }
+
     #[allow(dead_code)]
     pub async fn build_wheel(&self, package_db: &PackageDb) -> miette::Result<PathBuf> {
         self.venv
@@ -257,6 +266,18 @@ impl SDist {
         // reset archive
         archive.unpack(work_dir).into_diagnostic()?;
         Ok(())
+    }
+
+    /// Checks if this artifact implements PEP 643
+    /// and returns the metadata if it does
+    pub fn pep643_metadata(&self) -> Option<(Vec<u8>, WheelCoreMetadata)> {
+        // Assume we have a PKG-INFO
+        let (bytes, metadata) = self.read_package_info().ok()?;
+        if metadata.metadata_version.implements_pep643() {
+            Some((bytes, metadata))
+        } else {
+            None
+        }
     }
 }
 
@@ -306,36 +327,10 @@ fn generic_archive_reader(
     }
 }
 
-/// We can re-use the metadata type from the wheel if the SDist has a PKG-INFO.
-type SDistMetadata = WheelCoreMetadata;
-
-#[async_trait]
-impl MetadataArtifact for SDist {
-    type Metadata = SDistMetadata;
-
-    fn parse_metadata(bytes: &[u8]) -> miette::Result<Self::Metadata> {
-        WheelCoreMetadata::try_from(bytes).into_diagnostic()
-    }
-
-    async fn metadata(&self, package_db: &PackageDb) -> miette::Result<(Vec<u8>, Self::Metadata)> {
-        // Assume we have a PKG-INFO
-        let (bytes, metadata) = self.read_package_info()?;
-
-        // Only SDIST metadata from version 2.2 and up is considered reliable
-        // Get metadata by building for older versions
-        if !metadata.metadata_version.implements_pep643() {
-            let bytes = self.build_metadata(package_db).await?;
-            let metadata = Self::Metadata::try_from(bytes.as_slice()).into_diagnostic()?;
-            return Ok((bytes, metadata));
-        }
-        Ok((bytes, metadata))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::sdist::SDist;
-    use crate::{MetadataArtifact, PackageDb};
+    use crate::PackageDb;
     use insta::assert_ron_snapshot;
     use std::path::Path;
     use tempfile::TempDir;
@@ -362,7 +357,7 @@ mod tests {
         // Should not fail as it is a valid PKG-INFO
         // and considered reliable
         let package_db = get_package_db();
-        sdist.metadata(&package_db.0).await.unwrap();
+        sdist.pep643_metadata().unwrap();
     }
 
     #[test]
