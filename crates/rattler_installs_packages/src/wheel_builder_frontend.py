@@ -4,6 +4,7 @@ from pathlib import Path
 from importlib import import_module
 from json import loads
 from types import ModuleType
+import json
 
 ################################################################
 # Begin janky attempt to workaround
@@ -37,15 +38,20 @@ def get_backend_from_entry_point(entrypoint: str) -> ModuleType:
 
     return backend
 
-def get_requires_for_build_wheel(backend: ModuleType) -> [str]:
+def get_requires_for_build_wheel(backend: ModuleType, work_dir: Path) -> [str]:
     """
     Return an list of requirements. This is only necessary if we do not
     have a pyproject.toml file.
     """
     f = getattr(backend, "get_requires_for_build_wheel")
     if f is None:
-        return []
-    return f()
+        result = []
+    else:
+        result = f()
+
+    j = json.dumps(result)
+    out_json_file = work_dir / "extra_requirements.json"
+    out_json_file.write_text(j)
 
 def metadata_dir(work_dir: Path):
     return work_dir / "metadata"
@@ -55,11 +61,12 @@ def prepare_metadata_for_build_wheel(backend: ModuleType, work_dir: Path):
     Prepare any files that need to be generated before building the wheel.
     """
     if hasattr(backend, "prepare_metadata_for_build_wheel"):
+        result_file = work_dir / "metadata_result"
         d = metadata_dir(work_dir)
         d.mkdir()
         dist_info = backend.prepare_metadata_for_build_wheel(str(d))
         result = str(d / dist_info)
-        print(result)
+        result_file.write_text(result)
     else:
         exit(123)
 
@@ -87,8 +94,7 @@ if __name__ == "__main__":
     work_dir = Path(work_dir)
 
     if goal == "GetRequiresForBuildWheel":
-        requires = get_requires_for_build_wheel(backend)
-        print(json.dumps(requires))
+        get_requires_for_build_wheel(backend, work_dir)
     if goal == "WheelMetadata":
         prepare_metadata_for_build_wheel(backend, work_dir)
     elif goal == "Wheel":
