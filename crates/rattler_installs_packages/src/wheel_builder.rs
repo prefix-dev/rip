@@ -89,7 +89,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             return Ok(venv.clone());
         } else {
             let venv_dir = tempfile::tempdir().unwrap();
-            let venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
+            let venv = VEnv::create(&venv_dir.into_path(), PythonLocation::System).unwrap();
             cache.insert(sdist.name().clone(), Rc::new(venv));
             return Ok(cache.get(sdist.name()).unwrap().clone());
         }
@@ -100,9 +100,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         sdist: &SDist,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         let venv = self.get_venv(sdist)?;
-        println!("venv: {:?}", venv.python_executable());
         let build_info = sdist.read_build_info().expect("Could not read build info");
-        println!("build_info: {:?}", build_info);
 
         let requirements = if build_info.requires.is_empty() {
             vec![
@@ -142,7 +140,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             venv.install_wheel(&artifact, &options)?;
         }
 
-        let backend = build_info
+        let build_backend_entry_point = build_info
             .build_backend
             .unwrap_or("setuptools.build_meta:__legacy__".to_string());
 
@@ -162,7 +160,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             .current_dir(&pkg_dir)
             .arg(work_dir.path().join("build_frontend.py"))
             .arg(work_dir.path())
-            .arg(backend)
+            .arg(build_backend_entry_point)
             .arg("WheelMetadata")
             .output()
             .expect("bla");
@@ -176,24 +174,15 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let path = PathBuf::from(stdout.trim());
+        let folder = PathBuf::from(stdout.trim());
+        let path = folder.join("METADATA");
+
+        // keep temporary directory around for debugging
+        let _ = work_dir.into_path();
+
         let metadata = std::fs::read(&path).expect("bla");
         let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice()).expect("bla");
-        println!("wheel_metadata: {:?}", wheel_metadata);
         Ok((metadata, wheel_metadata))
-        //     Ok(TemporaryVEnv {
-        //         venv,
-        //         work_dir: work_dir.into_path(),
-        //         venv_dir,
-        //     })
-
-        // let mut pip = venv.pip();
-        // pip.install(sdist)?;
-
-        // let mut wheel = venv.wheel();
-        // wheel.build(sdist)?;
-
-        // wheel.get_metadata()
     }
 
     pub fn build_wheel(&self, sdist: &SDist) -> Result<(), WheelBuildError> {

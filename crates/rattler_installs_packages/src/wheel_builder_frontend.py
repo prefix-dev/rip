@@ -47,43 +47,51 @@ def get_requires_for_build_wheel(backend: ModuleType) -> [str]:
         return []
     return f()
 
+def metadata_dir(work_dir: Path):
+    return work_dir / "metadata"
+
 def prepare_metadata_for_build_wheel(backend: ModuleType, work_dir: Path):
     """
     Prepare any files that need to be generated before building the wheel.
     """
-    metadata_dir = work_dir / "prepare_metadata_for_build_wheel"
-
     if hasattr(backend, "prepare_metadata_for_build_wheel"):
-        metadata_dir.mkdir()
-        dist_info = backend.prepare_metadata_for_build_wheel(str(metadata_dir))
-        (work_dir / "prepare_metadata_for_build_wheel.out").write_text(dist_info, "utf-8")
-        exit(0)
+        d = metadata_dir(work_dir)
+        d.mkdir()
+        dist_info = backend.prepare_metadata_for_build_wheel(str(d))
+        result = str(d / dist_info)
+        print(result)
     else:
         exit(123)
+
+def wheel_dir(work_dir: Path):
+    return work_dir / "wheel"
 
 def build_wheel(backend: ModuleType, work_dir: Path):
     """Take a folder with an SDist and build a wheel from it."""
 
-    wheel_dir = work_dir / "build_wheel"
-    metadata_dir = work_dir / "prepare_metadata_for_build_wheel"
+    wheel_dir = wheel_dir(work_dir)
+    metadata_dir = metadata_dir(work_dir)
 
     wheel_dir.mkdir()
     wheel_basename = backend.build_wheel(
         str(wheel_dir),
-        metadata_directory=str(metadata_dir) if metadata_dir.exists() else None,
+        metadata_directory=str(metadata_dir),
     )
 
-    (work_dir / "build_wheel.out").write_text(wheel_basename, "utf-8")
+    print(str(wheel_dir / wheel_basename))
 
 if __name__ == "__main__":
     work_dir, entry_point, goal = sys.argv[1:]
     backend = get_backend_from_entry_point(entry_point)
 
+    work_dir = Path(work_dir)
+
     if goal == "GetRequiresForBuildWheel":
         requires = get_requires_for_build_wheel(backend)
+        print(json.dumps(requires))
     if goal == "WheelMetadata":
-        prepare_metadata_for_build_wheel()
+        prepare_metadata_for_build_wheel(backend, work_dir)
     elif goal == "Wheel":
-        build_wheel()
+        build_wheel(backend, work_dir)
 
     exit(0)
