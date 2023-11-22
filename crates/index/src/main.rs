@@ -45,6 +45,8 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
     )
     .into_diagnostic()?;
 
+    let wheel_builder = rattler_installs_packages::WheelBuilder::new(&package_db);
+
     let mut names = package_db.get_package_names().await?;
     names.shuffle(&mut rand::thread_rng());
 
@@ -100,7 +102,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
             continue;
         }
 
-        let metadata = package_db.get_metadata(&available_artifacts).await.ok();
+        let metadata = package_db.get_metadata(&available_artifacts, &wheel_builder).await.ok();
 
         // Continue if there was an error in downloading and skip for now :)
         let metadata = if let Some(metadata) = metadata {

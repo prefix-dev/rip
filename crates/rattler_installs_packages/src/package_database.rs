@@ -1,5 +1,6 @@
 use crate::core_metadata::WheelCoreMetadata;
 use crate::sdist::SDist;
+use crate::wheel_builder::WheelBuilder;
 use crate::{
     artifact::Artifact,
     artifact_name::InnerAsArtifactName,
@@ -224,6 +225,7 @@ impl PackageDb {
     async fn get_metadata_sdists<'a, I: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [I],
+        wheel_builder: &WheelBuilder<'a>,
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         let sdists = artifacts
             .iter()
@@ -234,7 +236,7 @@ impl PackageDb {
             let artifact = self
                 .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
                 .await?;
-            let metadata = artifact.build_parse_metadata(self).await;
+            let metadata = wheel_builder.get_metadata(&artifact);
             match metadata {
                 Ok((blob, metadata)) => {
                     self.put_metadata_in_cache(artifact_info, &blob)?;
@@ -253,13 +255,12 @@ impl PackageDb {
         Ok(None)
     }
 
-    // TODO: instead of passing the PackageDB to SDist when building we should actually
-    //       create a separate struct that does the build process
     /// Returns the metadata from a set of artifacts. This function assumes that metadata is
     /// consistent for all artifacts of a single version.
     pub async fn get_metadata<'a, I: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [I],
+        wheel_builder: &WheelBuilder<'a>,
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         // Check if we already have information about any of the artifacts cached.
         // Return if we do
@@ -291,7 +292,7 @@ impl PackageDb {
 
         // No wheels found with metadata, try to get metadata from sdists
         // by building them or using the appropriate hooks
-        let result = self.get_metadata_sdists(artifacts).await?;
+        let result = self.get_metadata_sdists(artifacts, wheel_builder).await?;
         if result.is_some() {
             return Ok(result);
         }

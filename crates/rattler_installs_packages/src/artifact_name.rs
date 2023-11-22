@@ -162,7 +162,7 @@ impl Display for BuildTag {
 }
 
 /// Structure that contains the information that is contained in a source distribution name
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub struct SDistName {
     /// Distribution name, e.g. ‘django’, ‘pyramid’.
     pub distribution: PackageName,
@@ -194,7 +194,7 @@ impl Display for SDistName {
 }
 
 /// Describes the format in which the source distribution is shipped.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 #[allow(missing_docs)]
 pub enum SDistFormat {
     Zip,
