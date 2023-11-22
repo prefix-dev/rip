@@ -502,7 +502,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let (_artifact, _metadata) = package_db
-            .get_metadata(&artifact_info)
+            .get_metadata(&artifact_info, None)
             .await
             .unwrap()
             .unwrap();

@@ -12,8 +12,26 @@ use std::{
 
 use pep508_rs::{MarkerEnvironment, Requirement};
 
+#[derive(Debug)]
+struct FakeTempDir {
+    path: PathBuf,
+}
+
+impl FakeTempDir {
+    pub fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        Self {
+            path: dir.into_path(),
+        }
+    }
+
+    pub fn path(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
 use crate::{
-    core_metadata::WheelCoreMetadata,
+    core_metadata::{WheelCoreMetaDataError, WheelCoreMetadata},
     resolve,
     sdist::SDist,
     tags::WheelTags,
@@ -22,9 +40,11 @@ use crate::{
     Artifact, PackageDb, ResolveOptions, SDistName, SDistResolution, UnpackWheelOptions, Wheel,
 };
 
+#[derive(Debug)]
 pub struct CacheValue {
-    folder: tempfile::TempDir,
+    folder: FakeTempDir,
     package_dir: PathBuf,
+    #[allow(dead_code)]
     build_system: pyproject_toml::BuildSystem,
     entry_point: String,
     requirements: Vec<Requirement>,
@@ -55,17 +75,26 @@ pub enum WheelBuildError {
     #[error("Could not build wheel: {0}")]
     Error(String),
 
-    #[error("Could not build wheel: {0}")]
+    #[error("Could not install artifact in virtual environment")]
     UnpackError(#[from] UnpackError),
 
     #[error("Could not build wheel: {0}")]
     IoError(#[from] std::io::Error),
-}
 
-enum WheelBuildGoal {
-    GetRequiresForBuildWheel,
-    WheelMetadata,
-    Wheel,
+    #[error("Could not run command {0} to build wheel: {1}")]
+    CouldNotRunCommand(String, std::io::Error),
+
+    #[error("Could not resolve environment for wheel building")]
+    CouldNotResolveEnvironment(Vec<Requirement>),
+
+    #[error("Error parsing JSON from extra_requirements.json: {0}")]
+    JSONError(#[from] serde_json::Error),
+
+    #[error("Could not parse generated wheel metadata: {0}")]
+    WheelCoreMetadataError(#[from] WheelCoreMetaDataError),
+
+    #[error("Could not get artifact")]
+    CouldNotGetArtifact,
 }
 
 impl<'db, 'i> WheelBuilder<'db, 'i> {
@@ -83,7 +112,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let resolve_options = if resolve_options.sdist_resolution == SDistResolution::OnlySDists {
             ResolveOptions {
                 sdist_resolution: SDistResolution::Normal,
-                ..resolve_options.clone()
             }
         } else {
             resolve_options.clone()
@@ -99,15 +127,15 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     }
 
     pub async fn get_venv(&self, sdist: &SDist) -> Result<Rc<CacheValue>, WheelBuildError> {
-        println!("LAKlkjdklasjd kalsjd alksjd aksldj aksjd ");
-        let mut cache = self.venv_cache.borrow_mut();
-        if let Some(venv) = cache.get(sdist.name()) {
-            tracing::info!("Hitting cached env for {:?}", sdist.name());
+        if let Some(venv) = self.venv_cache.borrow().get(sdist.name()) {
             return Ok(venv.clone());
         }
-        tracing::info!("Creating env for: {:?}", sdist.name());
+
         // If not in cache, create a new one
-        let folder = tempfile::tempdir().unwrap();
+        tracing::info!("Creating virtual env for: {:?}", sdist.name());
+
+        // let folder = tempfile::tempdir().unwrap();
+        let folder = FakeTempDir::new();
         let venv = VEnv::create(&folder.path().join("venv"), PythonLocation::System).unwrap();
 
         let build_system =
@@ -140,25 +168,26 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let resolved_wheels = resolve(
             self.package_db,
             requirements.iter(),
-            &self.env_markers,
+            self.env_markers,
             self.wheel_tags,
             locked_packages,
             favored_packages,
             &self.resolve_options,
         )
         .await
-        .expect("Could not resolve environment");
+        .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(requirements.clone()))?;
 
         // TODO: what's this?
         let options = UnpackWheelOptions { installer: None };
 
-        for package_info in resolved_wheels {
+        for package_info in resolved_wheels.iter() {
             let artifact_info = package_info.artifacts.first().unwrap();
             let artifact = self
                 .package_db
                 .get_artifact::<Wheel>(artifact_info)
                 .await
-                .expect("Could not get artifact");
+                .map_err(|_| WheelBuildError::CouldNotGetArtifact)?;
+
             venv.install_wheel(&artifact, &options)?;
         }
 
@@ -169,15 +198,16 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             .unwrap_or_else(|| DEFAULT_BUILD_BACKEND.to_string());
 
         // Extract the sdist to the work folder
-        sdist.extract_to(folder.path()).expect("bla");
+        sdist.extract_to(folder.path())?;
 
-        std::fs::write(folder.path().join("build_frontend.py"), BUILD_FRONTEND_PY).expect("bla");
-        println!("LAKlkjdklasjd kalsjd alksjd aksldj aksjd ");
+        std::fs::write(folder.path().join("build_frontend.py"), BUILD_FRONTEND_PY)?;
+
         let package_dir = folder.path().join(format!(
             "{}-{}",
             sdist.name().distribution.as_source_str(),
             sdist.name().version
         ));
+
         let cache_value = CacheValue {
             folder,
             package_dir,
@@ -189,15 +219,22 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         let output = self
             .run_command(&cache_value, "GetRequiresForBuildWheel")
-            .expect("Could not run get requires.");
-        println!("output: {:?}", output);
-        let extra_requirements_json =
-            std::fs::read_to_string(cache_value.folder.path().join("extra_requirements.json"))
-                .expect("bla");
+            .map_err(|e| {
+                WheelBuildError::CouldNotRunCommand("GetRequiresForBuildWheel".into(), e)
+            })?;
 
-        let extra_requirements: Vec<String> = serde_json::from_str(&extra_requirements_json)
-            .expect("Could not parse extra requirements as a list of strings");
-        println!("extra requirements: {:?}", extra_requirements);
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stderr);
+            return Err(WheelBuildError::Error(format!(
+                "Could not build wheel: {}",
+                stdout
+            )));
+        }
+
+        let extra_requirements_json =
+            std::fs::read_to_string(cache_value.folder.path().join("extra_requirements.json"))?;
+
+        let extra_requirements: Vec<String> = serde_json::from_str(&extra_requirements_json)?;
 
         let requirements =
             HashSet::<Requirement>::from_iter(cache_value.requirements.iter().cloned());
@@ -213,24 +250,52 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         if !extra_requirements.is_empty() && requirements.len() != combined_requirements.len() {
             let locked_packages = HashMap::default();
+            // Todo: use the previous resolve for the favored packages?
             let favored_packages = HashMap::default();
-
-            let resolved_wheels = resolve(
+            let all_requirements = combined_requirements.to_vec();
+            let extra_resolved_wheels = resolve(
                 self.package_db,
-                requirements.iter().chain(extra_requirements.iter()),
-                &self.env_markers,
+                all_requirements.iter(),
+                self.env_markers,
                 self.wheel_tags,
                 locked_packages,
                 favored_packages,
                 &self.resolve_options,
             )
             .await
-            .expect("Could not resolve environment");
+            .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(all_requirements))?;
+
+            // install extra wheels
+            for package_info in extra_resolved_wheels {
+                if resolved_wheels.contains(&package_info) {
+                    continue;
+                }
+                tracing::info!(
+                    "Wheel building: installing extra requirements: {} - {}",
+                    package_info.name,
+                    package_info.version
+                );
+                let artifact_info = package_info.artifacts.first().unwrap();
+                let artifact = self
+                    .package_db
+                    .get_artifact::<Wheel>(artifact_info)
+                    .await
+                    .expect("Could not get artifact");
+
+                cache_value.venv.install_wheel(&artifact, &options)?;
+            }
         }
 
-        cache.insert(sdist.name().clone(), Rc::new(cache_value));
+        self.venv_cache
+            .borrow_mut()
+            .insert(sdist.name().clone(), Rc::new(cache_value));
 
-        return Ok(cache.get(sdist.name()).unwrap().clone());
+        return self
+            .venv_cache
+            .borrow()
+            .get(sdist.name())
+            .cloned()
+            .ok_or_else(|| WheelBuildError::Error("Could not get venv from cache".to_string()));
     }
 
     fn run_command(&self, cache: &CacheValue, stage: &str) -> std::io::Result<Output> {
@@ -260,13 +325,12 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             )));
         }
 
-        let result =
-            std::fs::read_to_string(cache.folder.path().join("metadata_result")).expect("bla");
+        let result = std::fs::read_to_string(cache.folder.path().join("metadata_result"))?;
         let folder = PathBuf::from(result.trim());
         let path = folder.join("METADATA");
 
-        let metadata = std::fs::read(&path).expect("bla");
-        let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice()).expect("bla");
+        let metadata = std::fs::read(path)?;
+        let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice())?;
         Ok((metadata, wheel_metadata))
     }
 

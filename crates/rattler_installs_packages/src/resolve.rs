@@ -10,7 +10,7 @@
 use crate::sdist::SDist;
 use crate::tags::WheelTags;
 use crate::wheel::Wheel;
-use crate::wheel_builder::{self, WheelBuilder};
+use crate::wheel_builder::WheelBuilder;
 use crate::{
     Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName,
     Requirement, Version,
@@ -560,7 +560,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
 }
 
 /// Represents a single locked down distribution (python package) after calling [`resolve`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PinnedPackage<'db> {
     /// The name of the package
     pub name: NormalizedPackageName,

@@ -44,6 +44,7 @@ pub enum VEnvError {
 }
 
 /// Represents a virtual environment in which wheels can be installed
+#[derive(Debug)]
 pub struct VEnv {
     /// Location of the virtual environment
     location: PathBuf,
