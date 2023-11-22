@@ -10,18 +10,24 @@ import json
 # Begin janky attempt to workaround
 #   https://github.com/pypa/setuptools/issues/3786
 ################################################################
-import sysconfig
-import distutils.sysconfig
+
+try:
+    import sysconfig
+    import distutils.sysconfig
 
 
-def get_python_inc(plat_specific=0, prefix=None):
-    if plat_specific:
-        return sysconfig.get_path("platinclude")
-    else:
-        return sysconfig.get_path("include")
+    def get_python_inc(plat_specific=0, prefix=None):
+        if plat_specific:
+            return sysconfig.get_path("platinclude")
+        else:
+            return sysconfig.get_path("include")
 
 
-distutils.sysconfig.get_python_inc = get_python_inc
+    distutils.sysconfig.get_python_inc = get_python_inc
+except ImportError:
+    # we ignore missing distutils (was removed in Python 3.12)
+    pass
+
 ################################################################
 # End janky workaround
 ################################################################
