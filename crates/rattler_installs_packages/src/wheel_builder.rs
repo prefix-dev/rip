@@ -1,6 +1,4 @@
 //! Turn an sdist into a wheel by creating a virtualenv and building the sdist in it
-#![allow(missing_docs)]
-
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -13,11 +11,13 @@ use std::{
 use pep508_rs::{MarkerEnvironment, Requirement};
 
 #[derive(Debug)]
+/// A fake tempdir for debugging (doesn't delete stuff after it's done)
 struct FakeTempDir {
     path: PathBuf,
 }
 
 impl FakeTempDir {
+    /// Create a new fake tempdir
     pub fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         Self {
@@ -25,6 +25,7 @@ impl FakeTempDir {
         }
     }
 
+    /// Get the path of the tempdir
     pub fn path(&self) -> &PathBuf {
         &self.path
     }
@@ -63,13 +64,20 @@ pub struct WheelBuilder<'db, 'i> {
     /// The package database to use
     package_db: &'db PackageDb,
 
+    /// The env markers to use when resolving
     env_markers: &'i MarkerEnvironment,
 
+    /// The configured wheel tags to use when resolving
     wheel_tags: Option<&'i WheelTags>,
 
+    /// The resolve options. Note that we change the sdist resolution to normal if it's set to
+    /// only sdists, because otherwise we run into a chicken & egg problem where a sdist is required
+    /// to build a sdist. E.g. `hatchling` requires `hatchling` as build system.
     resolve_options: ResolveOptions,
 }
 
+/// An error that can occur while building a wheel
+#[allow(missing_docs)]
 #[derive(thiserror::Error, Debug)]
 pub enum WheelBuildError {
     #[error("Could not build wheel: {0}")]
@@ -98,6 +106,8 @@ pub enum WheelBuildError {
 }
 
 impl<'db, 'i> WheelBuilder<'db, 'i> {
+    /// Create a new wheel builder
+    #[must_use]
     pub fn new(
         package_db: &'db PackageDb,
         env_markers: &'i MarkerEnvironment,
@@ -126,7 +136,9 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         }
     }
 
-    pub async fn get_venv(&self, sdist: &SDist) -> Result<Rc<CacheValue>, WheelBuildError> {
+    /// Get a prepared virtualenv for building a wheel (or extracting metadata) from an `[SDist]`
+    /// This function also caches the virtualenvs, so that they can be reused later.
+    async fn get_venv(&self, sdist: &SDist) -> Result<Rc<CacheValue>, WheelBuildError> {
         if let Some(venv) = self.venv_cache.borrow().get(sdist.name()) {
             return Ok(venv.clone());
         }
@@ -135,7 +147,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         tracing::info!("Creating virtual env for: {:?}", sdist.name());
 
         // let folder = tempfile::tempdir().unwrap();
-        let folder = FakeTempDir::new();
+        let folder = FakeTempDir::new(); // TODO use proper tempdir here
         let venv = VEnv::create(&folder.path().join("venv"), PythonLocation::System).unwrap();
 
         let build_system =
@@ -309,6 +321,8 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             .output()
     }
 
+    /// Get the metadata for a given sdist by using the build_backend in a virtual env
+    /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
     pub async fn get_metadata(
         &self,
         sdist: &SDist,
@@ -334,6 +348,8 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         Ok((metadata, wheel_metadata))
     }
 
+    /// Build a wheel from an sdist by using the build_backend in a virtual env.
+    /// This function uses the `build_wheel` entry point of the build backend.
     pub async fn build_wheel(&self, sdist: &SDist) -> Result<PathBuf, WheelBuildError> {
         let cache = self.get_venv(sdist).await?;
 
