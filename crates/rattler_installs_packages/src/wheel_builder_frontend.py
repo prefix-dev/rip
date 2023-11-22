@@ -25,7 +25,7 @@ distutils.sysconfig.get_python_inc = get_python_inc
 # End janky workaround
 ################################################################
 
-def get_backend_from_entrypoint(entrypoint: str) -> ModuleType:
+def get_backend_from_entry_point(entrypoint: str) -> ModuleType:
     # https://packaging.python.org/en/latest/specifications/entry-points/
     modname, qualname_separator, qualname = entrypoint.partition(":")
     backend = import_module(modname)
@@ -36,17 +36,6 @@ def get_backend_from_entrypoint(entrypoint: str) -> ModuleType:
                 raise AttributeError(f"Attribute '{attr}' not found in '{modname}'")
 
     return backend
-
-def get_backend_paths(backend_paths: [str]):
-    result = []
-    cwd = Path.cwd().absolute()
-    for path in backend_paths:
-        resolved = Path(path).resolve()
-        if not resolved.is_relative_to(cwd):
-            print(f"Invalid pyproject.toml build-system.backend-path {resolved}")
-            exit(1)
-        result.append(str(resolved))
-    return result
 
 def get_requires_for_build_wheel(backend: ModuleType) -> [str]:
     """
@@ -87,16 +76,14 @@ def build_wheel(backend: ModuleType, work_dir: Path):
     (work_dir / "build_wheel.out").write_text(wheel_basename, "utf-8")
 
 if __name__ == "__main__":
-    work_dir, goal = sys.argv[1:]
-    backend = get_backend_from_entrypoint(sys.argv[3])
-    build_system = loads((work_dir / "build-system.json").read_text("utf-8"))
-    sys.path[:0] = get_backend_paths(build_system["backend_path"])
+    work_dir, entry_point, goal = sys.argv[1:]
+    backend = get_backend_from_entry_point(entry_point)
 
     if goal == "GetRequiresForBuildWheel":
         requires = get_requires_for_build_wheel(backend)
     if goal == "WheelMetadata":
         prepare_metadata_for_build_wheel()
-    elif goal == "BuildWheel":
+    elif goal == "Wheel":
         build_wheel()
 
     exit(0)

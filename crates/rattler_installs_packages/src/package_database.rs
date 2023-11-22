@@ -222,10 +222,10 @@ impl PackageDb {
     // TODO: As mentioned in the other todo below,
     //       extract the builder into a separate struct
     //       and pass that here
-    async fn get_metadata_sdists<'a, I: Borrow<ArtifactInfo>>(
+    async fn get_metadata_sdists<'a, 'i, I: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [I],
-        wheel_builder: &WheelBuilder<'a>,
+        wheel_builder: &WheelBuilder<'a, 'i>,
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         let sdists = artifacts
             .iter()
@@ -236,7 +236,7 @@ impl PackageDb {
             let artifact = self
                 .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
                 .await?;
-            let metadata = wheel_builder.get_metadata(&artifact);
+            let metadata = wheel_builder.get_metadata(&artifact).await;
             match metadata {
                 Ok((blob, metadata)) => {
                     self.put_metadata_in_cache(artifact_info, &blob)?;
@@ -257,10 +257,10 @@ impl PackageDb {
 
     /// Returns the metadata from a set of artifacts. This function assumes that metadata is
     /// consistent for all artifacts of a single version.
-    pub async fn get_metadata<'a, I: Borrow<ArtifactInfo>>(
+    pub async fn get_metadata<'a, 'i, I: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [I],
-        wheel_builder: &WheelBuilder<'a>,
+        wheel_builder: Option<&WheelBuilder<'a, 'i>>,
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         // Check if we already have information about any of the artifacts cached.
         // Return if we do
@@ -292,9 +292,11 @@ impl PackageDb {
 
         // No wheels found with metadata, try to get metadata from sdists
         // by building them or using the appropriate hooks
-        let result = self.get_metadata_sdists(artifacts, wheel_builder).await?;
-        if result.is_some() {
-            return Ok(result);
+        if let Some(wheel_builder) = wheel_builder {
+            let result = self.get_metadata_sdists(artifacts, wheel_builder).await?;
+            if result.is_some() {
+                return Ok(result);
+            }
         }
 
         // Ok literally nothing seems to work, so we'll just return None

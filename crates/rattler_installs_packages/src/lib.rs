@@ -52,6 +52,6 @@ pub use package_name::{NormalizedPackageName, PackageName, ParsePackageNameError
 pub use pep440_rs::{Version, VersionSpecifier, VersionSpecifiers};
 pub use pep508_rs::{MarkerEnvironment, Requirement};
 pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, ProjectInfo, Yanked};
+pub use utils::normalize_index_url;
 pub use wheel::{InstallPaths, UnpackWheelOptions, Wheel};
 pub use wheel_builder::{WheelBuildError, WheelBuilder};
-pub use utils::normalize_index_url;

@@ -259,10 +259,10 @@ impl SDist {
     //     Ok(wheel_file)
     // }
 
-    fn extract_to(&self, work_dir: &Path) -> miette::Result<()> {
+    /// Extract the contents of the sdist archive to the given directory
+    pub fn extract_to(&self, work_dir: &Path) -> miette::Result<()> {
         let mut lock = self.file.lock();
         let mut archive = generic_archive_reader(&mut lock, self.name.format)?;
-        // reset archive
         archive.unpack(work_dir).into_diagnostic()?;
         Ok(())
     }
