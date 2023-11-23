@@ -1,10 +1,10 @@
 //! Turn an sdist into a wheel by creating a virtualenv and building the sdist in it
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::{
-    cell::RefCell,
     collections::{HashMap, HashSet},
     path::PathBuf,
     process::{Command, Output},
-    rc::Rc,
     str::FromStr,
 };
 
@@ -52,7 +52,7 @@ pub struct CacheValue {
     venv: VEnv,
 }
 
-type BuildCache = RefCell<HashMap<SDistName, Rc<CacheValue>>>;
+type BuildCache = Mutex<HashMap<SDistName, Arc<CacheValue>>>;
 
 // include static build_frontend.py string
 const BUILD_FRONTEND_PY: &str = include_str!("./wheel_builder_frontend.py");
@@ -128,7 +128,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         };
 
         Self {
-            venv_cache: RefCell::new(HashMap::new()),
+            venv_cache: Mutex::new(HashMap::new()),
             package_db,
             env_markers,
             wheel_tags,
@@ -138,8 +138,8 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
     /// Get a prepared virtualenv for building a wheel (or extracting metadata) from an `[SDist]`
     /// This function also caches the virtualenvs, so that they can be reused later.
-    async fn get_venv(&self, sdist: &SDist) -> Result<Rc<CacheValue>, WheelBuildError> {
-        if let Some(venv) = self.venv_cache.borrow().get(sdist.name()) {
+    async fn get_venv(&self, sdist: &SDist) -> Result<Arc<CacheValue>, WheelBuildError> {
+        if let Some(venv) = self.venv_cache.lock().get(sdist.name()) {
             return Ok(venv.clone());
         }
 
@@ -299,12 +299,12 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         }
 
         self.venv_cache
-            .borrow_mut()
-            .insert(sdist.name().clone(), Rc::new(cache_value));
+            .lock()
+            .insert(sdist.name().clone(), Arc::new(cache_value));
 
         return self
             .venv_cache
-            .borrow()
+            .lock()
             .get(sdist.name())
             .cloned()
             .ok_or_else(|| WheelBuildError::Error("Could not get venv from cache".to_string()));
