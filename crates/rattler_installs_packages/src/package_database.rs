@@ -6,7 +6,7 @@ use crate::{
     html::{self, parse_project_info_html},
     http::{CacheMode, Http, HttpRequestError},
     project_info::{ArtifactInfo, ProjectInfo},
-    FileStore, NormalizedPackageName, Version, Wheel, WheelName,
+    FileStore, NormalizedPackageName, Version, Wheel, WheelFilename,
 };
 use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
 use elsa::sync::FrozenMap;
@@ -263,7 +263,7 @@ impl PackageDb {
         tracing::info!(url=%artifact_info.url, "lazy reading artifact");
 
         // Check if the artifact is the same type as the info.
-        let name = WheelName::try_as(&artifact_info.filename)
+        let name = WheelFilename::try_as(&artifact_info.filename)
             .expect("the specified artifact does not refer to type requested to read");
 
         if let Ok(mut reader) = AsyncHttpRangeReader::new(
@@ -295,7 +295,7 @@ impl PackageDb {
         artifact_info: &'a ArtifactInfo,
     ) -> miette::Result<(&'a ArtifactInfo, WheelCoreMetadata)> {
         // Check if the artifact is the same type as the info.
-        WheelName::try_as(&artifact_info.filename)
+        WheelFilename::try_as(&artifact_info.filename)
             .expect("the specified artifact does not refer to type requested to read");
 
         // Turn into PEP658 compliant URL

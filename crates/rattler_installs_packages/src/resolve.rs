@@ -15,8 +15,6 @@ use crate::{
     Requirement, Version,
 };
 use elsa::FrozenMap;
-use futures::future::ready;
-use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use pep440_rs::{Operator, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, VersionOrUrl};
@@ -464,19 +462,12 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             return dependencies;
         }
 
-        let Some((_, metadata)) =
-            task::block_in_place(|| {
-                // First try getting wheels
-                Handle::current()
-                    .block_on(self.package_db.get_metadata(artifacts).and_then(
-                        |result| match result {
-                            None => self.package_db.get_metadata(artifacts).left_future(),
-                            result => ready(Ok(result)).right_future(),
-                        },
-                    ))
-                    .unwrap()
-            })
-        else {
+        let Some((_, metadata)) = task::block_in_place(|| {
+            // First try getting wheels
+            Handle::current()
+                .block_on(self.package_db.get_metadata(artifacts))
+                .unwrap()
+        }) else {
             panic!(
                 "could not find metadata for any sdist or wheel for {} {}. The following artifacts are available:\n{}",
                 package_name, package_version, artifacts.iter().format_with("\n", |a, f| f(&format_args!("- {}", a.filename)))
