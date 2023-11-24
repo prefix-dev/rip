@@ -10,6 +10,7 @@
 use crate::sdist::SDist;
 use crate::tags::WheelTags;
 use crate::wheel::Wheel;
+use crate::wheel_builder::WheelBuilder;
 use crate::{
     Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName,
     Requirement, Version,
@@ -125,6 +126,7 @@ impl Display for PypiPackageName {
 struct PypiDependencyProvider<'db, 'i> {
     pool: Pool<PypiVersionSet, PypiPackageName>,
     package_db: &'db PackageDb,
+    wheel_builder: WheelBuilder<'db, 'i>,
     markers: &'i MarkerEnvironment,
     compatible_tags: Option<&'i WheelTags>,
 
@@ -147,9 +149,12 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         options: &'i ResolveOptions,
     ) -> miette::Result<Self> {
+        let wheel_builder = WheelBuilder::new(package_db, markers, compatible_tags, options);
+
         Ok(Self {
             pool: Pool::new(),
             package_db,
+            wheel_builder,
             markers,
             compatible_tags,
             cached_artifacts: Default::default(),
@@ -465,7 +470,10 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         let Some((_, metadata)) = task::block_in_place(|| {
             // First try getting wheels
             Handle::current()
-                .block_on(self.package_db.get_metadata(artifacts))
+                .block_on(
+                    self.package_db
+                        .get_metadata(artifacts, Some(&self.wheel_builder)),
+                )
                 .unwrap()
         }) else {
             panic!(
@@ -543,7 +551,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
 }
 
 /// Represents a single locked down distribution (python package) after calling [`resolve`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PinnedPackage<'db> {
     /// The name of the package
     pub name: NormalizedPackageName,

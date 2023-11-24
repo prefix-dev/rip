@@ -44,6 +44,7 @@ pub enum VEnvError {
 }
 
 /// Represents a virtual environment in which wheels can be installed
+#[derive(Debug)]
 pub struct VEnv {
     /// Location of the virtual environment
     location: PathBuf,
@@ -69,9 +70,9 @@ impl VEnv {
     }
 
     /// Execute python script in venv
-    pub fn execute_script(&self, source: &Path) -> std::io::Result<Output> {
+    pub fn execute_script(&self, script: &Path) -> std::io::Result<Output> {
         let mut cmd = Command::new(self.python_executable());
-        cmd.arg(source);
+        cmd.arg(script);
         cmd.output()
     }
 

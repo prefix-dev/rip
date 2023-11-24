@@ -1,5 +1,6 @@
 use crate::core_metadata::WheelCoreMetadata;
 use crate::sdist::SDist;
+use crate::wheel_builder::WheelBuilder;
 use crate::{
     artifact::Artifact,
     artifact_name::InnerAsArtifactName,
@@ -15,7 +16,7 @@ use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
-use std::{borrow::Borrow, fmt::Display, io::Read, path::PathBuf};
+use std::{fmt::Display, io::Read, path::Path};
 use url::Url;
 
 /// Cache of the available packages, artifacts and their metadata.
@@ -34,7 +35,7 @@ pub struct PackageDb {
 
 impl PackageDb {
     /// Constructs a new [`PackageDb`] that reads information from the specified URLs.
-    pub fn new(client: Client, index_urls: &[Url], cache_dir: PathBuf) -> std::io::Result<Self> {
+    pub fn new(client: Client, index_urls: &[Url], cache_dir: &Path) -> std::io::Result<Self> {
         Ok(Self {
             http: Http::new(
                 client,
@@ -113,11 +114,11 @@ impl PackageDb {
     /// Check if we already have one of the artifacts cached. Only do this if we have more than
     /// one artifact because otherwise, we'll do a request anyway if we dont have the file
     /// cached.
-    async fn metadata_for_cached_artifacts<'a, I: Borrow<ArtifactInfo>>(
+    async fn metadata_for_cached_artifacts<'a>(
         &self,
-        artifacts: &'a [I],
+        artifacts: &[&'a ArtifactInfo],
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
-        for artifact_info in artifacts.iter().map(|b| b.borrow()) {
+        for artifact_info in artifacts.iter() {
             if artifact_info.is::<Wheel>() {
                 let result = self
                     .get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::OnlyIfCached)
@@ -172,13 +173,13 @@ impl PackageDb {
         Ok(None)
     }
 
-    async fn get_metadata_wheels<'a, I: Borrow<ArtifactInfo>>(
+    async fn get_metadata_wheels<'a>(
         &self,
-        artifacts: &'a [I],
+        artifacts: &[&'a ArtifactInfo],
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         let wheels = artifacts
             .iter()
-            .map(|artifact_info| artifact_info.borrow())
+            .copied()
             .filter(|artifact_info| artifact_info.is::<Wheel>());
 
         // Get the information from the first artifact. We assume the metadata is consistent across
@@ -218,15 +219,52 @@ impl PackageDb {
         Ok(None)
     }
 
+    // TODO: As mentioned in the other todo below,
+    //       extract the builder into a separate struct
+    //       and pass that here
+    async fn get_metadata_sdists<'a, 'i>(
+        &self,
+        artifacts: &[&'a ArtifactInfo],
+        wheel_builder: &WheelBuilder<'a, 'i>,
+    ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
+        let sdists = artifacts
+            .iter()
+            .copied()
+            .filter(|artifact_info| artifact_info.is::<SDist>());
+
+        for artifact_info in sdists {
+            let artifact = self
+                .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
+                .await?;
+            let metadata = wheel_builder.get_sdist_metadata(&artifact).await;
+            match metadata {
+                Ok((blob, metadata)) => {
+                    self.put_metadata_in_cache(artifact_info, &blob)?;
+                    return Ok(Some((artifact_info, metadata)));
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Error reading metadata from artifact '{}' skipping ({})",
+                        artifact_info.filename,
+                        err
+                    );
+                    continue;
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Returns the metadata from a set of artifacts. This function assumes that metadata is
     /// consistent for all artifacts of a single version.
-    pub async fn get_metadata<'a, I: Borrow<ArtifactInfo>>(
+    pub async fn get_metadata<'a, 'i>(
         &self,
-        artifacts: &'a [I],
+        artifacts: &[&'a ArtifactInfo],
+        wheel_builder: Option<&WheelBuilder<'a, 'i>>,
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         // Check if we already have information about any of the artifacts cached.
         // Return if we do
-        for artifact_info in artifacts.iter().map(|b| b.borrow()) {
+        for artifact_info in artifacts.iter().copied() {
             if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info) {
                 return Ok(Some((
                     artifact_info,
@@ -252,7 +290,16 @@ impl PackageDb {
             return Ok(result);
         }
 
-        // TODO: at this point try to read the metadata from the sdist by building it
+        // No wheels found with metadata, try to get metadata from sdists
+        // by building them or using the appropriate hooks
+        if let Some(wheel_builder) = wheel_builder {
+            let result = self.get_metadata_sdists(artifacts, wheel_builder).await?;
+            if result.is_some() {
+                return Ok(result);
+            }
+        }
+
+        // Ok literally nothing seems to work, so we'll just return None
         Ok(None)
     }
 
@@ -347,8 +394,12 @@ impl PackageDb {
         cache_mode: CacheMode,
     ) -> miette::Result<A> {
         // Check if the artifact is the same type as the info.
-        let name = A::Name::try_as(&artifact_info.filename)
-            .expect("the specified artifact does not refer to type requested to read");
+        let name = A::Name::try_as(&artifact_info.filename).unwrap_or_else(|| {
+            panic!(
+                "the specified artifact '{}' does not refer to type requested to read",
+                artifact_info.filename
+            )
+        });
 
         // Get the contents of the artifact
         let artifact_bytes = self
@@ -455,7 +506,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let (_artifact, _metadata) = package_db
-            .get_metadata(&artifact_info)
+            .get_metadata(&artifact_info, None)
             .await
             .unwrap()
             .unwrap();

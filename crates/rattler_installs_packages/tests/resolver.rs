@@ -53,7 +53,7 @@ fn package_database() -> &'static PackageDb {
         PackageDb::new(
             Default::default(),
             &["https://pypi.org/simple/".parse().unwrap()],
-            Path::new(env!("CARGO_TARGET_TMPDIR")).join("pypi-cache"),
+            &Path::new(env!("CARGO_TARGET_TMPDIR")).join("pypi-cache"),
         )
         .unwrap()
     })
