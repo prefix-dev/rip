@@ -236,7 +236,7 @@ impl PackageDb {
             let artifact = self
                 .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
                 .await?;
-            let metadata = wheel_builder.get_metadata(&artifact).await;
+            let metadata = wheel_builder.get_sdist_metadata(&artifact).await;
             match metadata {
                 Ok((blob, metadata)) => {
                     self.put_metadata_in_cache(artifact_info, &blob)?;
@@ -244,7 +244,7 @@ impl PackageDb {
                 }
                 Err(err) => {
                     tracing::warn!(
-                        "Error reading metadata from artifact '{}' skipping ({:?})",
+                        "Error reading metadata from artifact '{}' skipping ({})",
                         artifact_info.filename,
                         err
                     );
@@ -394,8 +394,12 @@ impl PackageDb {
         cache_mode: CacheMode,
     ) -> miette::Result<A> {
         // Check if the artifact is the same type as the info.
-        let name = A::Name::try_as(&artifact_info.filename)
-            .expect("the specified artifact does not refer to type requested to read");
+        let name = A::Name::try_as(&artifact_info.filename).unwrap_or_else(|| {
+            panic!(
+                "the specified artifact '{}' does not refer to type requested to read",
+                artifact_info.filename
+            )
+        });
 
         // Get the contents of the artifact
         let artifact_bytes = self

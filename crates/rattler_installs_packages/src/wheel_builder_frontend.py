@@ -46,7 +46,7 @@ def get_backend_from_entry_point(entrypoint: str) -> ModuleType:
 
 def get_requires_for_build_wheel(backend: ModuleType, work_dir: Path) -> [str]:
     """
-    Return an list of requirements. This is only necessary if we do not
+    Returs a list of requirements. This is only necessary if we do not
     have a pyproject.toml file.
     """
     f = getattr(backend, "get_requires_for_build_wheel")
@@ -58,6 +58,7 @@ def get_requires_for_build_wheel(backend: ModuleType, work_dir: Path) -> [str]:
     j = json.dumps(result)
     out_json_file = work_dir / "extra_requirements.json"
     out_json_file.write_text(j)
+    print(j)
 
 def metadata_dir(work_dir: Path):
     return work_dir / "metadata"

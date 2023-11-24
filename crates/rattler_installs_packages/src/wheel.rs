@@ -532,6 +532,7 @@ impl UnpackError {
 #[derive(Default)]
 pub struct UnpackWheelOptions {
     /// When specified an INSTALLER file is written to the dist-info folder of the package.
+    /// INSTALLER files are used to track the installer of a package. See [PEP 376](https://peps.python.org/pep-0376/) for more information.
     pub installer: Option<String>,
 }
 

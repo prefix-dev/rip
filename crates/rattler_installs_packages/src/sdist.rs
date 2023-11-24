@@ -250,7 +250,7 @@ mod tests {
         let resolve_options = ResolveOptions::default();
         let wheel_builder = WheelBuilder::new(&package_db.0, &env_markers, None, &resolve_options);
 
-        let result = wheel_builder.get_metadata(&sdist).await.unwrap();
+        let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
 
         assert_debug_snapshot!(result.1);
     }
