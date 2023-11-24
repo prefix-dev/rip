@@ -129,14 +129,16 @@ fn analyze_distribution(
     let tags = if wheel_path.is_file() {
         let mut parsed = RFC822ish::from_str(&std::fs::read_to_string(&wheel_path)?)
             .map_err(move |e| FindDistributionError::FailedToParseWheel(wheel_path, e))?;
+
         Some(
             parsed
                 .take_all("Tag")
                 .into_iter()
                 .map(|tag| {
-                    WheelTag::from_str(&tag)
+                    WheelTag::from_compound_string(&tag)
                         .map_err(|_| FindDistributionError::FailedToParseWheelTag(tag))
                 })
+                .flatten_ok()
                 .collect::<Result<IndexSet<_>, _>>()?,
         )
     } else {

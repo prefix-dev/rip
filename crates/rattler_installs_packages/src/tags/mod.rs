@@ -23,6 +23,44 @@ pub struct WheelTag {
     pub platform: String,
 }
 
+impl WheelTag {
+    /// Parses a compound string into a `WheelTag`. A compound string is a string that contains
+    /// multiple tags in a single string.
+    ///
+    /// ```rust
+    /// # use rattler_installs_packages::tags::WheelTag;
+    /// let tags = WheelTag::from_compound_string(
+    ///     "cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64").unwrap();
+    ///
+    /// assert_eq!(tags.len(), 2);
+    /// assert_eq!(tags[0].interpreter, "cp310");
+    /// assert_eq!(tags[0].abi, "cp310");
+    /// assert_eq!(tags[0].platform, "manylinux_2_17_x86_64");
+    /// assert_eq!(tags[1].interpreter, "cp310");
+    /// assert_eq!(tags[1].abi, "cp310");
+    /// assert_eq!(tags[1].platform, "manylinux2014_x86_64");
+    ///
+    /// ```
+    pub fn from_compound_string(s: &str) -> Result<Vec<Self>, String> {
+        let Some((interpreter, abi, platform)) =
+            s.split('-').map(ToOwned::to_owned).collect_tuple()
+        else {
+            return Err(String::from("not enough '-' separators"));
+        };
+
+        Ok(interpreter
+            .split('.')
+            .cartesian_product(abi.split('.'))
+            .cartesian_product(platform.split('.'))
+            .map(|((interpreter, abi), platform)| Self {
+                interpreter: interpreter.to_string(),
+                abi: abi.to_string(),
+                platform: platform.to_string(),
+            })
+            .collect())
+    }
+}
+
 impl FromStr for WheelTag {
     type Err = String;
 
