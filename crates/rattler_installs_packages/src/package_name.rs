@@ -2,6 +2,7 @@ use miette::Diagnostic;
 use regex::Regex;
 use serde::{Serialize, Serializer};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -142,6 +143,12 @@ impl FromStr for NormalizedPackageName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(PackageName::from_str(s)?.into())
+    }
+}
+
+impl Borrow<str> for NormalizedPackageName {
+    fn borrow(&self) -> &str {
+        self.0.as_ref()
     }
 }
 
