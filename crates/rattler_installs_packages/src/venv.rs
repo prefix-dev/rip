@@ -7,7 +7,7 @@ use crate::system_python::{
     system_python_executable, FindPythonError, ParsePythonInterpreterVersionError,
     PythonInterpreterVersion,
 };
-use crate::wheel::UnpackError;
+use crate::wheel::{UnpackError, UnpackedWheel};
 use crate::{InstallPaths, UnpackWheelOptions, Wheel};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -64,7 +64,7 @@ impl VEnv {
         &self,
         wheel: &Wheel,
         options: &UnpackWheelOptions,
-    ) -> Result<(), UnpackError> {
+    ) -> Result<UnpackedWheel, UnpackError> {
         wheel.unpack(&self.location, &self.install_paths, options)
     }
 
