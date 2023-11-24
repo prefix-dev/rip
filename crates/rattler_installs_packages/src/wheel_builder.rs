@@ -183,7 +183,7 @@ impl<'db> BuildEnvironment<'db> {
             wheel_tags,
             HashMap::default(),
             HashMap::default(),
-            &resolve_options,
+            resolve_options,
         )
         .await
         .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(build_requirements.to_vec()))?;
@@ -350,21 +350,21 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         );
 
         let build_environment = BuildEnvironment::setup(
-            &sdist,
+            sdist,
             self.package_db,
-            &self.env_markers,
+            self.env_markers,
             self.wheel_tags,
             &self.resolve_options,
         )
         .await?;
 
-        build_environment.install_build_files(&sdist)?;
+        build_environment.install_build_files(sdist)?;
 
         // Install extra requirements if any
         build_environment
             .install_extra_requirements(
                 self.package_db,
-                &self.env_markers,
+                self.env_markers,
                 self.wheel_tags,
                 &self.resolve_options,
             )

@@ -16,7 +16,7 @@ use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
-use std::{borrow::Borrow, fmt::Display, io::Read, path::Path};
+use std::{fmt::Display, io::Read, path::Path};
 use url::Url;
 
 /// Cache of the available packages, artifacts and their metadata.
@@ -114,11 +114,11 @@ impl PackageDb {
     /// Check if we already have one of the artifacts cached. Only do this if we have more than
     /// one artifact because otherwise, we'll do a request anyway if we dont have the file
     /// cached.
-    async fn metadata_for_cached_artifacts<'a, I: Borrow<ArtifactInfo>>(
+    async fn metadata_for_cached_artifacts<'a>(
         &self,
-        artifacts: &'a [I],
+        artifacts: &[&'a ArtifactInfo],
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
-        for artifact_info in artifacts.iter().map(|b| b.borrow()) {
+        for artifact_info in artifacts.iter() {
             if artifact_info.is::<Wheel>() {
                 let result = self
                     .get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::OnlyIfCached)
@@ -173,13 +173,13 @@ impl PackageDb {
         Ok(None)
     }
 
-    async fn get_metadata_wheels<'a, I: Borrow<ArtifactInfo>>(
+    async fn get_metadata_wheels<'a>(
         &self,
-        artifacts: &'a [I],
+        artifacts: &[&'a ArtifactInfo],
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         let wheels = artifacts
             .iter()
-            .map(|artifact_info| artifact_info.borrow())
+            .copied()
             .filter(|artifact_info| artifact_info.is::<Wheel>());
 
         // Get the information from the first artifact. We assume the metadata is consistent across
@@ -222,14 +222,14 @@ impl PackageDb {
     // TODO: As mentioned in the other todo below,
     //       extract the builder into a separate struct
     //       and pass that here
-    async fn get_metadata_sdists<'a, 'i, I: Borrow<ArtifactInfo>>(
+    async fn get_metadata_sdists<'a, 'i>(
         &self,
-        artifacts: &'a [I],
+        artifacts: &[&'a ArtifactInfo],
         wheel_builder: &WheelBuilder<'a, 'i>,
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         let sdists = artifacts
             .iter()
-            .map(|artifact_info| artifact_info.borrow())
+            .copied()
             .filter(|artifact_info| artifact_info.is::<SDist>());
 
         for artifact_info in sdists {
@@ -257,14 +257,14 @@ impl PackageDb {
 
     /// Returns the metadata from a set of artifacts. This function assumes that metadata is
     /// consistent for all artifacts of a single version.
-    pub async fn get_metadata<'a, 'i, I: Borrow<ArtifactInfo>>(
+    pub async fn get_metadata<'a, 'i>(
         &self,
-        artifacts: &'a [I],
+        artifacts: &[&'a ArtifactInfo],
         wheel_builder: Option<&WheelBuilder<'a, 'i>>,
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
         // Check if we already have information about any of the artifacts cached.
         // Return if we do
-        for artifact_info in artifacts.iter().map(|b| b.borrow()) {
+        for artifact_info in artifacts.iter().copied() {
             if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info) {
                 return Ok(Some((
                     artifact_info,
