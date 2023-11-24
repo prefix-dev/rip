@@ -42,8 +42,8 @@ pub use package_database::PackageDb;
 
 pub use artifact::Artifact;
 pub use artifact_name::{
-    ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFormat, SDistName,
-    WheelName,
+    ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFilename,
+    SDistFormat, WheelFilename,
 };
 pub use distribution_finder::{find_distributions_in_venv, Distribution, FindDistributionError};
 pub use env_markers::Pep508EnvMakers;

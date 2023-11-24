@@ -137,7 +137,9 @@ impl VEnv {
 mod tests {
     use super::VEnv;
     use crate::venv::PythonLocation;
+    use crate::NormalizedPackageName;
     use std::path::Path;
+    use std::str::FromStr;
 
     #[test]
     pub fn venv_creation() {
@@ -150,6 +152,7 @@ mod tests {
         let wheel = crate::wheel::Wheel::from_path(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../test-data/wheels/wordle_python-2.3.32-py3-none-any.whl"),
+            &NormalizedPackageName::from_str("wordle_python").unwrap(),
         )
         .unwrap();
         venv.install_wheel(&wheel, &Default::default()).unwrap();

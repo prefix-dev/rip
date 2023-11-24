@@ -2,8 +2,8 @@
 use std::str::FromStr;
 use std::{borrow::Borrow, default::Default};
 
-use crate::{ArtifactHashes, ArtifactName};
-use miette::IntoDiagnostic;
+use crate::{ArtifactHashes, ArtifactName, NormalizedPackageName};
+use miette::{miette, IntoDiagnostic};
 use pep440_rs::VersionSpecifiers;
 
 use rattler_digest::{parse_digest_from_hex, Sha256};
@@ -23,7 +23,11 @@ fn parse_hash(s: &str) -> Option<ArtifactHashes> {
     }
 }
 
-fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
+fn into_artifact_info(
+    base: &Url,
+    normalized_package_name: &NormalizedPackageName,
+    tag: &HTMLTag,
+) -> Option<ArtifactInfo> {
     let attributes = tag.attributes();
     // Get first href attribute to use as filename
     let href = attributes.get("href").flatten()?.as_utf8_str();
@@ -31,7 +35,9 @@ fn into_artifact_info(base: &Url, tag: &HTMLTag) -> Option<ArtifactInfo> {
     // Join with base
     let url = base.join(href.as_ref()).ok()?;
     let filename = url.path_segments().and_then(|mut s| s.next_back());
-    let filename: ArtifactName = filename.map(|s| s.parse())?.ok()?;
+    let filename = filename
+        .map(|s| ArtifactName::from_filename(s, normalized_package_name))?
+        .ok()?;
 
     // We found a valid link
     let hash = url.fragment().and_then(parse_hash);
@@ -97,6 +103,28 @@ pub fn parse_project_info_html(base: &Url, body: &str) -> miette::Result<Project
     let variants = dom.query_selector("a");
     let mut project_info = ProjectInfo::default();
 
+    // Find the package name from the URL
+    let last_non_empty_segment = base.path_segments().and_then(|segments| {
+        segments
+            .rev()
+            .find(|segment| !segment.is_empty())
+            .map(|s| s.to_string())
+    });
+
+    // Turn into a normalized package name
+    let normalized_package_name = if let Some(last_segment) = last_non_empty_segment {
+        last_segment
+            .parse::<NormalizedPackageName>()
+            .into_diagnostic()
+            .map_err(|e| {
+                miette!(
+                    "error parsing segment '{last_segment}' from url '{base}' into a normalized package name, error: {e}"
+                )
+            })?
+    } else {
+        return Err(miette!("no package segments found in url: '{base}'"));
+    };
+
     // Select repository version
     project_info.meta.version = dom
         .query_selector("meta[name=\"pypi:repository-version\"]")
@@ -138,7 +166,7 @@ pub fn parse_project_info_html(base: &Url, body: &str) -> miette::Result<Project
 
         // Parse and add <a></a> tags
         for a in a_tags {
-            let artifact_info = into_artifact_info(&base, a);
+            let artifact_info = into_artifact_info(&base, &normalized_package_name, a);
             if let Some(artifact_info) = artifact_info {
                 project_info.files.push(artifact_info);
             }
@@ -172,16 +200,16 @@ mod test {
     #[test]
     fn test_sink_simple() {
         let parsed = parse_project_info_html(
-            &Url::parse("https://example.com/old-base/").unwrap(),
+            &Url::parse("https://example.com/old-base/link").unwrap(),
             r#"<html>
                 <head>
                   <meta name="pypi:repository-version" content="1.0">
                   <base href="https://example.com/new-base/">
                 </head>
                 <body>
-                  <a href="link1-1.0.tar.gz#sha256=0000000000000000000000000000000000000000000000000000000000000000">link1</a>
-                  <a href="/elsewhere/link2-2.0.zip" data-yanked="some reason">link2</a>
-                  <a href="link3-3.0.tar.gz" data-requires-python=">= 3.17">link3</a>
+                  <a href="link-1.0.tar.gz#sha256=0000000000000000000000000000000000000000000000000000000000000000">link1</a>
+                  <a href="/elsewhere/link-2.0.zip" data-yanked="some reason">link2</a>
+                  <a href="link-3.0.tar.gz" data-requires-python=">= 3.17">link3</a>
                 </body>
               </html>
             "#,
@@ -194,8 +222,12 @@ mod test {
           ),
           files: [
             ArtifactInfo(
-              filename: "link1-1.0.tar.gz",
-              url: "https://example.com/new-base/link1-1.0.tar.gz#sha256=0000000000000000000000000000000000000000000000000000000000000000",
+              filename: SDist(SDistFilename(
+                distribution: "link",
+                version: "1.0",
+                format: TarGz,
+              )),
+              url: "https://example.com/new-base/link-1.0.tar.gz#sha256=0000000000000000000000000000000000000000000000000000000000000000",
               hashes: Some(ArtifactHashes(
                 sha256: Some("0000000000000000000000000000000000000000000000000000000000000000"),
               )),
@@ -210,8 +242,12 @@ mod test {
               ),
             ),
             ArtifactInfo(
-              filename: "link2-2.0.zip",
-              url: "https://example.com/elsewhere/link2-2.0.zip",
+              filename: SDist(SDistFilename(
+                distribution: "link",
+                version: "2.0",
+                format: Zip,
+              )),
+              url: "https://example.com/elsewhere/link-2.0.zip",
               hashes: None,
               r#requires-python: None,
               r#dist-info-metadata: DistInfoMetadata(
@@ -224,8 +260,12 @@ mod test {
               ),
             ),
             ArtifactInfo(
-              filename: "link3-3.0.tar.gz",
-              url: "https://example.com/new-base/link3-3.0.tar.gz",
+              filename: SDist(SDistFilename(
+                distribution: "link",
+                version: "3.0",
+                format: TarGz,
+              )),
+              url: "https://example.com/new-base/link-3.0.tar.gz",
               hashes: None,
               r#requires-python: Some(">=3.17"),
               r#dist-info-metadata: DistInfoMetadata(

@@ -3,7 +3,7 @@ use crate::{
     record::{Record, RecordEntry},
     rfc822ish::RFC822ish,
     utils::ReadAndSeek,
-    Artifact, PackageName, WheelName,
+    Artifact, NormalizedPackageName, PackageName, WheelFilename,
 };
 use async_http_range_reader::AsyncHttpRangeReader;
 use async_zip::base::read::seek::ZipFileReader;
@@ -35,25 +35,29 @@ use std::os::unix::fs::OpenOptionsExt;
 /// See the [Reference Page](https://packaging.python.org/en/latest/specifications/binary-distribution-format/#binary-distribution-format)
 /// for more information.
 pub struct Wheel {
-    name: WheelName,
+    name: WheelFilename,
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
 }
 
 impl Wheel {
     /// Open a wheel by reading a file on disk.
-    pub fn from_path(path: &Path) -> miette::Result<Self> {
+    pub fn from_path(
+        path: &Path,
+        normalized_package_name: &NormalizedPackageName,
+    ) -> miette::Result<Self> {
         let file_name = path
             .file_name()
             .and_then(OsStr::to_str)
             .ok_or_else(|| miette::miette!("path does not contain a filename"))?;
-        let wheel_name = WheelName::from_str(file_name).into_diagnostic()?;
+        let wheel_name =
+            WheelFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
         let file = File::open(path).into_diagnostic()?;
         Self::new(wheel_name, Box::new(file))
     }
 }
 
 impl Artifact for Wheel {
-    type Name = WheelName;
+    type Name = WheelFilename;
 
     fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
@@ -110,7 +114,7 @@ impl Wheel {
     }
 
     async fn get_lazy_vitals(
-        name: &WheelName,
+        name: &WheelFilename,
         stream: &mut AsyncHttpRangeReader,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelVitalsError> {
         // Make sure we have the back part of the stream.
@@ -300,7 +304,7 @@ impl Wheel {
 
     /// Read metadata from bytes-stream
     pub async fn read_metadata_bytes(
-        name: &WheelName,
+        name: &WheelFilename,
         stream: &mut AsyncHttpRangeReader,
     ) -> miette::Result<(Vec<u8>, WheelCoreMetadata)> {
         Self::get_lazy_vitals(name, stream).await.into_diagnostic()
@@ -811,7 +815,10 @@ mod test {
     #[case("https://files.pythonhosted.org/packages/58/76/705b5c776f783d1ba7c630347463d4ae323282bbd859a8e9420c7ff79581/selenium-4.1.0-py3-none-any.whl", "27e7b64df961d609f3d57237caa0df123abbbe22d038f2ec9e332fb90ec1a939")]
     #[case("https://files.pythonhosted.org/packages/1e/27/47f73510c6b80d1ff0829474947537ae9ab8d516cc48c6320b7f3677fa54/selenium-2.53.2-py2.py3-none-any.whl", "fa8333cf3013497e60d87ba68cae65ead8e7fa208be88ab9c561556103f540ef")]
     fn test_wheels(#[case] url: Url, #[case] sha256: &str) {
-        test_wheel_unpack(test_utils::download_and_cache_file(url, sha256).unwrap());
+        test_wheel_unpack(
+            test_utils::download_and_cache_file(url, sha256).unwrap(),
+            &"selenium".parse().unwrap(),
+        );
     }
 
     #[test]
@@ -820,6 +827,7 @@ mod test {
             Path::new(env!("CARGO_MANIFEST_DIR")).join(
                 "../../test-data/wheels/purelib_and_platlib-1.0.0-cp38-cp38-linux_x86_64.whl",
             ),
+            &"purelib_and_platlib".parse().unwrap(),
         );
     }
 
@@ -828,6 +836,7 @@ mod test {
         test_wheel_unpack(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../test-data/wheels/miniblack-23.1.0-py3-none-any.whl"),
+            &"miniblack".parse().unwrap(),
         );
     }
 
@@ -837,8 +846,8 @@ mod test {
         install_paths: InstallPaths,
     }
 
-    fn unpack_wheel(path: &Path) -> UnpackedWheel {
-        let wheel = Wheel::from_path(path).unwrap();
+    fn unpack_wheel(path: &Path, normalized_package_name: &NormalizedPackageName) -> UnpackedWheel {
+        let wheel = Wheel::from_path(path, normalized_package_name).unwrap();
         let tmpdir = tempdir().unwrap();
 
         // Get the wheel vitals
@@ -865,12 +874,12 @@ mod test {
         }
     }
 
-    fn test_wheel_unpack(path: PathBuf) {
+    fn test_wheel_unpack(path: PathBuf, normalized_package_name: &NormalizedPackageName) {
         let filename = path
             .file_name()
             .and_then(OsStr::to_str)
             .expect("could not determine filename");
-        let unpacked = unpack_wheel(&path);
+        let unpacked = unpack_wheel(&path, &normalized_package_name);
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = unpacked
@@ -885,10 +894,12 @@ mod test {
 
     #[test]
     fn test_installer() {
-        let unpacked =
-            unpack_wheel(&Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        let unpacked = unpack_wheel(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join(
                 "../../test-data/wheels/purelib_and_platlib-1.0.0-cp38-cp38-linux_x86_64.whl",
-            ));
+            ),
+            &"purelib-and-platlib".parse().unwrap(),
+        );
 
         let relative_path = unpacked
             .install_paths

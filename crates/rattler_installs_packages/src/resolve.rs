@@ -16,8 +16,6 @@ use crate::{
     Requirement, Version,
 };
 use elsa::FrozenMap;
-use futures::future::ready;
-use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use pep440_rs::{Operator, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, VersionOrUrl};
@@ -474,14 +472,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             Handle::current()
                 .block_on(
                     self.package_db
-                        .get_metadata(artifacts, Some(&self.wheel_builder))
-                        .and_then(|result| match result {
-                            None => self
-                                .package_db
-                                .get_metadata(artifacts, Some(&self.wheel_builder))
-                                .left_future(),
-                            result => ready(Ok(result)).right_future(),
-                        }),
+                        .get_metadata(artifacts, Some(&self.wheel_builder)),
                 )
                 .unwrap()
         }) else {

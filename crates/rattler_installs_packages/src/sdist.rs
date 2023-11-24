@@ -1,6 +1,6 @@
 use crate::core_metadata::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
-use crate::{Artifact, SDistFormat, SDistName};
+use crate::{Artifact, NormalizedPackageName, SDistFilename, SDistFormat};
 use flate2::read::GzDecoder;
 use miette::IntoDiagnostic;
 use parking_lot::Mutex;
@@ -8,13 +8,12 @@ use serde::Serialize;
 use std::ffi::OsStr;
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use tar::Archive;
 
 /// Represents a source distribution artifact.
 pub struct SDist {
     /// Name of the source distribution
-    name: SDistName,
+    name: SDistFilename,
 
     /// Source dist archive
     file: Mutex<Box<dyn ReadAndSeek + Send>>,
@@ -47,12 +46,16 @@ pub enum SDistError {
 impl SDist {
     /// Create this struct from a path
     #[allow(dead_code)]
-    pub fn from_path(path: &Path) -> miette::Result<Self> {
+    pub fn from_path(
+        path: &Path,
+        normalized_package_name: &NormalizedPackageName,
+    ) -> miette::Result<Self> {
         let file_name = path
             .file_name()
             .and_then(OsStr::to_str)
             .ok_or_else(|| miette::miette!("path does not contain a filename"))?;
-        let name = SDistName::from_str(file_name).into_diagnostic()?;
+        let name =
+            SDistFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
         let bytes = std::fs::File::open(path).into_diagnostic()?;
         Self::new(name, Box::new(bytes))
     }
@@ -133,7 +136,7 @@ impl SDist {
 }
 
 impl Artifact for SDist {
-    type Name = SDistName;
+    type Name = SDistFilename;
 
     fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
@@ -206,7 +209,7 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../test-data/sdists/fake-flask-3.0.0.tar.gz");
 
-        let sdist = SDist::from_path(&path).unwrap();
+        let sdist = SDist::from_path(&path, &"fake-flask".parse().unwrap()).unwrap();
         // Should not fail as it is a valid PKG-INFO
         // and considered reliable
         let _package_db = get_package_db();
@@ -220,7 +223,7 @@ mod tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
         // Load sdist
-        let sdist = super::SDist::from_path(&path).unwrap();
+        let sdist = super::SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
         let build_system = sdist.read_build_info().unwrap();
 
@@ -240,7 +243,7 @@ mod tests {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
-        let sdist = super::SDist::from_path(&path).unwrap();
+        let sdist = super::SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();

@@ -38,7 +38,7 @@ use crate::{
     tags::WheelTags,
     venv::{PythonLocation, VEnv},
     wheel::UnpackError,
-    Artifact, PackageDb, ResolveOptions, SDistName, SDistResolution, UnpackWheelOptions, Wheel,
+    Artifact, PackageDb, ResolveOptions, SDistFilename, SDistResolution, UnpackWheelOptions, Wheel,
 };
 
 #[derive(Debug)]
@@ -52,7 +52,7 @@ pub struct CacheValue {
     venv: VEnv,
 }
 
-type BuildCache = Mutex<HashMap<SDistName, Arc<CacheValue>>>;
+type BuildCache = Mutex<HashMap<SDistFilename, Arc<CacheValue>>>;
 
 // include static build_frontend.py string
 const BUILD_FRONTEND_PY: &str = include_str!("./wheel_builder_frontend.py");
