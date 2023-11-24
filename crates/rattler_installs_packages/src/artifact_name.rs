@@ -1,9 +1,10 @@
 use crate::{
     package_name::{PackageName, ParsePackageNameError},
     tags::WheelTag,
-    Version,
+    NormalizedPackageName, Version,
 };
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
@@ -28,12 +29,12 @@ use thiserror::Error;
 ///
 /// The `ArtifactName` enum allows distinguishing between these two types of artifacts,
 /// providing flexibility and clarity when working with Python package distributions.
-#[derive(Debug, Clone, PartialOrd, Ord, Eq, PartialEq, DeserializeFromStr, SerializeDisplay)]
+#[derive(Debug, Clone, PartialOrd, Ord, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ArtifactName {
     /// Wheel artifact
-    Wheel(WheelName),
+    Wheel(WheelFilename),
     /// Sdist artifact
-    SDist(SDistName),
+    SDist(SDistFilename),
 }
 
 impl ArtifactName {
@@ -46,7 +47,7 @@ impl ArtifactName {
     }
 
     /// Returns this name as a wheel name
-    pub fn as_wheel(&self) -> Option<&WheelName> {
+    pub fn as_wheel(&self) -> Option<&WheelFilename> {
         match self {
             ArtifactName::Wheel(wheel) => Some(wheel),
             ArtifactName::SDist(_) => None,
@@ -54,7 +55,7 @@ impl ArtifactName {
     }
 
     /// Returns this name as a wheel name
-    pub fn as_sdist(&self) -> Option<&SDistName> {
+    pub fn as_sdist(&self) -> Option<&SDistFilename> {
         match self {
             ArtifactName::Wheel(_) => None,
             ArtifactName::SDist(sdist) => Some(sdist),
@@ -80,8 +81,8 @@ impl Display for ArtifactName {
 /// See: [File Name Convention](https://www.python.org/dev/peps/pep-0427/#file-name-convention),
 /// and: [PyPA Conventions](https://packaging.python.org/en/latest/specifications/),
 /// for more details regarding the structure of a wheel name.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct WheelName {
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+pub struct WheelFilename {
     /// Distribution name, e.g. ‘django’, ‘pyramid’.
     pub distribution: PackageName,
 
@@ -104,7 +105,7 @@ pub struct WheelName {
     pub arch_tags: Vec<String>,
 }
 
-impl WheelName {
+impl WheelFilename {
     /// Creates a set of all tags that are contained in this wheel name.
     pub fn all_tags(&self) -> HashSet<WheelTag> {
         HashSet::from_iter(self.all_tags_iter())
@@ -126,7 +127,7 @@ impl WheelName {
     }
 }
 
-impl Display for WheelName {
+impl Display for WheelFilename {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -149,7 +150,7 @@ impl Display for WheelName {
 ///
 /// Sort as an empty tuple if unspecified, else sort as a two-item tuple with the first item being
 /// the initial digits as an int, and the second item being the remainder of the tag as a str.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, SerializeDisplay, DeserializeFromStr)]
 pub struct BuildTag {
     number: u32,
     name: String,
@@ -162,8 +163,8 @@ impl Display for BuildTag {
 }
 
 /// Structure that contains the information that is contained in a source distribution name
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct SDistName {
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
+pub struct SDistFilename {
     /// Distribution name, e.g. ‘django’, ‘pyramid’.
     pub distribution: PackageName,
 
@@ -174,7 +175,7 @@ pub struct SDistName {
     pub format: SDistFormat,
 }
 
-impl Display for SDistName {
+impl Display for SDistFilename {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -194,7 +195,7 @@ impl Display for SDistName {
 }
 
 /// Describes the format in which the source distribution is shipped.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[allow(missing_docs)]
 pub enum SDistFormat {
     Zip,
@@ -218,6 +219,9 @@ impl SDistFormat {
 pub enum ParseArtifactNameError {
     #[error("invalid artifact name")]
     InvalidName,
+
+    #[error("package name '{0}' not found in filename: '{1}'")]
+    PackageNameNotFound(NormalizedPackageName, String),
 
     #[error("invalid artifact extension. Must be either .whl, .tar.gz, or .zip (filename='{0}')")]
     InvalidExtension(String),
@@ -247,13 +251,19 @@ impl FromStr for BuildTag {
     }
 }
 
-impl FromStr for SDistName {
-    type Err = ParseArtifactNameError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (package_name, rest) = s
-            .rsplit_once('-')
-            .ok_or(ParseArtifactNameError::InvalidName)?;
+impl SDistFilename {
+    /// Parse the sdist name from a filename string
+    /// e.g "trio-0.18.0.tar.gz"
+    pub fn from_filename(
+        s: &str,
+        normalized_package_name: &NormalizedPackageName,
+    ) -> Result<Self, ParseArtifactNameError> {
+        let (package_name, rest) = split_into_filename_rest(s, normalized_package_name).ok_or(
+            ParseArtifactNameError::PackageNameNotFound(
+                normalized_package_name.clone(),
+                s.to_string(),
+            ),
+        )?;
 
         // Determine the package format
         let (version, format) = if let Some(rest) = rest.strip_suffix(".zip") {
@@ -280,7 +290,7 @@ impl FromStr for SDistName {
         let version = Version::from_str(version)
             .map_err(|e| ParseArtifactNameError::InvalidVersion(e.to_string()))?;
 
-        Ok(SDistName {
+        Ok(SDistFilename {
             distribution,
             version,
             format,
@@ -288,17 +298,50 @@ impl FromStr for SDistName {
     }
 }
 
-impl FromStr for WheelName {
-    type Err = ParseArtifactNameError;
+/// Split the filename into a filename and the rest of the path
+/// by matching it with the normalized package name.
+/// Split on the `-` and check if the first part is the normalized package name.
+/// Otherwise continue splitting on the `-` until we find the normalized package name.
+///
+/// E.g `trio-0.18.0-py3-none-any.whl` with normalized package name `trio`
+/// should split into (`trio`, `0.18.0-py3-none-any.whl`)
+fn split_into_filename_rest<'a>(
+    s: &'a str,
+    normalized_package_name: &NormalizedPackageName,
+) -> Option<(&'a str, &'a str)> {
+    for (idx, char) in s.char_indices() {
+        if char == '-' {
+            let (name, rest) = (&s[..idx], &s[idx + 1..]);
+            let parsed = name.parse::<NormalizedPackageName>();
+            if let Ok(parsed) = parsed {
+                if parsed == *normalized_package_name {
+                    return Some((name, rest));
+                }
+            }
+        }
+    }
+    None
+}
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl WheelFilename {
+    /// Parse the wheel name from a filename string
+    /// e.g "trio-0.18.0-py3-none-any.whl"
+    pub fn from_filename(
+        s: &str,
+        normalized_package_name: &NormalizedPackageName,
+    ) -> Result<Self, ParseArtifactNameError> {
         let Some(file_stem) = s.strip_suffix(".whl") else {
             return Err(ParseArtifactNameError::InvalidExtension(s.to_string()));
         };
 
         // Parse the distribution
-        let Some((distribution, rest)) = file_stem.split_once('-') else {
-            return Err(ParseArtifactNameError::InvalidName);
+        let Some((distribution, rest)) =
+            split_into_filename_rest(file_stem, normalized_package_name)
+        else {
+            return Err(ParseArtifactNameError::PackageNameNotFound(
+                normalized_package_name.clone(),
+                s.to_string(),
+            ));
         };
         let distribution = PackageName::from_str(distribution)
             .map_err(ParseArtifactNameError::InvalidPackageName)?;
@@ -343,22 +386,32 @@ impl FromStr for WheelName {
     }
 }
 
-impl FromStr for ArtifactName {
-    type Err = ParseArtifactNameError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.ends_with(".whl") {
-            Ok(ArtifactName::Wheel(WheelName::from_str(s)?))
-        } else if s.ends_with(".zip")
-            || s.ends_with(".tar.gz")
-            || s.ends_with(".tar.bz2")
-            || s.ends_with(".tar.xz")
-            || s.ends_with(".tar.Z")
-            || s.ends_with(".tar")
+impl ArtifactName {
+    /// Parse the artifact name for a filename string
+    /// e.g "trio-0.18.0-py3-none-any.whl"
+    /// it uses the normalized package name to check where to split the string
+    pub fn from_filename(
+        input: &str,
+        normalized_package_name: &NormalizedPackageName,
+    ) -> Result<Self, ParseArtifactNameError> {
+        if input.ends_with(".whl") {
+            Ok(ArtifactName::Wheel(WheelFilename::from_filename(
+                input,
+                normalized_package_name,
+            )?))
+        } else if input.ends_with(".zip")
+            || input.ends_with(".tar.gz")
+            || input.ends_with(".tar.bz2")
+            || input.ends_with(".tar.xz")
+            || input.ends_with(".tar.Z")
+            || input.ends_with(".tar")
         {
-            Ok(ArtifactName::SDist(SDistName::from_str(s)?))
+            Ok(ArtifactName::SDist(SDistFilename::from_filename(
+                input,
+                normalized_package_name,
+            )?))
         } else {
-            Err(ParseArtifactNameError::InvalidExtension(s.to_string()))
+            Err(ParseArtifactNameError::InvalidExtension(input.to_string()))
         }
     }
 }
@@ -372,13 +425,13 @@ pub trait InnerAsArtifactName {
     fn try_as(name: &ArtifactName) -> Option<&Self>;
 }
 
-impl InnerAsArtifactName for WheelName {
+impl InnerAsArtifactName for WheelFilename {
     fn try_as(name: &ArtifactName) -> Option<&Self> {
         name.as_wheel()
     }
 }
 
-impl InnerAsArtifactName for SDistName {
+impl InnerAsArtifactName for SDistFilename {
     fn try_as(name: &ArtifactName) -> Option<&Self> {
         name.as_sdist()
     }
@@ -389,17 +442,46 @@ mod test {
     use super::*;
 
     #[test]
+    fn test_filename_splitting() {
+        let normalized_package_name = NormalizedPackageName::from_str("trio").unwrap();
+        let filename = "trio-0.18.0-py3-none-any.whl";
+        let (name, rest) = split_into_filename_rest(filename, &normalized_package_name).unwrap();
+        assert_eq!(name, "trio");
+        assert_eq!(rest, "0.18.0-py3-none-any.whl");
+
+        let normalized_package_name = NormalizedPackageName::from_str("trio-three").unwrap();
+        let filename = "trio-three-0.18.0-py3-none-any.whl";
+        let (name, rest) = split_into_filename_rest(filename, &normalized_package_name).unwrap();
+        assert_eq!(name, "trio-three");
+        assert_eq!(rest, "0.18.0-py3-none-any.whl");
+    }
+
+    #[test]
     fn test_sdist_name_from_str() {
-        let sn: SDistName = "trio-0.19a0.tar.gz".parse().unwrap();
+        let sn =
+            SDistFilename::from_filename("trio-0.19a0.tar.gz", &"trio".parse().unwrap()).unwrap();
         assert_eq!(sn.distribution, "trio".parse().unwrap());
         assert_eq!(sn.version, "0.19a0".parse().unwrap());
 
         assert_eq!(sn.to_string(), "trio-0.19a0.tar.gz");
+
+        let sn = SDistFilename::from_filename(
+            "create_ap-gui-1.3.1.tar.gz",
+            &"create_ap-gui".parse().unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(sn.distribution, "create_ap-gui".parse().unwrap());
+        assert_eq!(sn.version, "1.3.1".parse().unwrap());
     }
 
     #[test]
     fn test_name_double_dash_from_str() {
-        let sn: SDistName = "trio-three-0.19a0.tar.gz".parse().unwrap();
+        let sn = SDistFilename::from_filename(
+            "trio-three-0.19a0.tar.gz",
+            &"trio-three".parse().unwrap(),
+        )
+        .unwrap();
         assert_eq!(sn.distribution, "trio-three".parse().unwrap());
         assert_eq!(sn.version, "0.19a0".parse().unwrap());
 
@@ -408,10 +490,11 @@ mod test {
 
     #[test]
     fn test_many_linux() {
-        let n: WheelName =
-            "numpy-1.26.0-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-                .parse()
-                .unwrap();
+        let n = WheelFilename::from_filename(
+            "numpy-1.26.0-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+            &"numpy".parse().unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(
             n.arch_tags,
@@ -421,7 +504,9 @@ mod test {
 
     #[test]
     fn test_wheel_name_from_str() {
-        let n: WheelName = "trio-0.18.0-py3-none-any.whl".parse().unwrap();
+        let n =
+            WheelFilename::from_filename("trio-0.18.0-py3-none-any.whl", &"trio".parse().unwrap())
+                .unwrap();
         assert_eq!(n.distribution, "trio".parse().unwrap());
         assert_eq!(n.version, "0.18.0".parse().unwrap());
         assert_eq!(n.build_tag, None);
@@ -434,14 +519,18 @@ mod test {
 
     #[test]
     fn test_wheel_name_from_str_harder() {
-        let n: WheelName = "foo.bar-0.1b3-1local-py2.py3-none-any.whl".parse().unwrap();
+        let n = WheelFilename::from_filename(
+            "foo.bar-0.1b3-1local-py2.py3-none-any.whl",
+            &"foo.bar".parse().unwrap(),
+        )
+        .unwrap();
         assert_eq!(n.distribution, "foo.bar".parse().unwrap());
         assert_eq!(n.version, "0.1b3".parse().unwrap());
         assert_eq!(
             n.build_tag,
             Some(BuildTag {
                 number: 1,
-                name: String::from("local")
+                name: String::from("local"),
             })
         );
         assert_eq!(n.py_tags, vec!["py2", "py3"],);

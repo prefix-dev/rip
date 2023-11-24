@@ -10,13 +10,13 @@ fn parse_project_info(c: &mut Criterion) {
                   <base href="https://example.com/new-base/">
                 </head>
                 <body>
-                  <a href="link1-1.0.tar.gz#sha256=0000000000000000000000000000000000000000000000000000000000000000">link1</a>
-                  <a href="/elsewhere/link2-2.0.zip" data-yanked="some reason">link2</a>
-                  <a href="link3-3.0.tar.gz" data-requires-python=">= 3.17">link3</a>
+                  <a href="link-1.0.tar.gz#sha256=0000000000000000000000000000000000000000000000000000000000000000">link1</a>
+                  <a href="/elsewhere/link-2.0.zip" data-yanked="some reason">link2</a>
+                  <a href="link-3.0.tar.gz" data-requires-python=">= 3.17">link3</a>
                 </body>
               </html>
             "#;
-    let url = Url::from_str("https://example.com/simple/").unwrap();
+    let url = Url::from_str("https://example.com/simple/link").unwrap();
     c.bench_with_input(
         BenchmarkId::new("parse_project_info", "html"),
         &(html, url),
