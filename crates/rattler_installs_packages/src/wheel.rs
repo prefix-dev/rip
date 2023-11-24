@@ -311,7 +311,7 @@ impl Wheel {
     }
 }
 
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct WheelVitals {
     dist_info: String,
     data: String,
@@ -535,6 +535,15 @@ pub struct UnpackWheelOptions {
     pub installer: Option<String>,
 }
 
+#[derive(Debug)]
+pub struct UnpackedWheel {
+    /// The path to the *.dist-info directory of the unpacked wheel.
+    pub dist_info: PathBuf,
+
+    /// The metadata of the wheel
+    pub metadata: WheelCoreMetadata,
+}
+
 impl Wheel {
     /// Unpacks a wheel to the given filesystem.
     /// TODO: Write better docs.
@@ -551,7 +560,7 @@ impl Wheel {
         dest: &Path,
         paths: &InstallPaths,
         options: &UnpackWheelOptions,
-    ) -> Result<(), UnpackError> {
+    ) -> Result<UnpackedWheel, UnpackError> {
         let vitals = self
             .get_vitals()
             .map_err(UnpackError::FailedToParseWheelVitals)?;
@@ -696,7 +705,10 @@ impl Wheel {
         Record::from_iter(resulting_records)
             .write_to_path(&site_packages.join(record_relative_path))?;
 
-        Ok(())
+        Ok(UnpackedWheel {
+            dist_info: site_packages.join(&vitals.dist_info),
+            metadata: vitals.metadata,
+        })
     }
 }
 
@@ -842,22 +854,20 @@ mod test {
 
     struct UnpackedWheel {
         tmpdir: TempDir,
-        vitals: WheelVitals,
-        install_paths: InstallPaths,
+        _metadata: WheelCoreMetadata,
+        dist_info: PathBuf,
+        _install_paths: InstallPaths,
     }
 
     fn unpack_wheel(path: &Path, normalized_package_name: &NormalizedPackageName) -> UnpackedWheel {
         let wheel = Wheel::from_path(path, normalized_package_name).unwrap();
         let tmpdir = tempdir().unwrap();
 
-        // Get the wheel vitals
-        let vitals = wheel.get_vitals().unwrap();
-
         // Construct the path lookup to install packages to
         let install_paths = InstallPaths::for_venv((3, 8, 5), false);
 
         // Unpack the wheel
-        wheel
+        let unpacked = wheel
             .unpack(
                 tmpdir.path(),
                 &install_paths,
@@ -869,8 +879,9 @@ mod test {
 
         UnpackedWheel {
             tmpdir,
-            vitals,
-            install_paths,
+            _metadata: unpacked.metadata,
+            dist_info: unpacked.dist_info,
+            _install_paths: install_paths,
         }
     }
 
@@ -882,10 +893,7 @@ mod test {
         let unpacked = unpack_wheel(&path, &normalized_package_name);
 
         // Determine the location where we would expect the RECORD file to exist
-        let record_path = unpacked
-            .install_paths
-            .site_packages()
-            .join(format!("{}/RECORD", unpacked.vitals.dist_info,));
+        let record_path = unpacked.dist_info.join("RECORD");
         let record_content = std::fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
             .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
 
@@ -901,10 +909,7 @@ mod test {
             &"purelib-and-platlib".parse().unwrap(),
         );
 
-        let relative_path = unpacked
-            .install_paths
-            .site_packages()
-            .join(format!("{}/INSTALLER", unpacked.vitals.dist_info));
+        let relative_path = unpacked.dist_info.join("INSTALLER");
         let installer_content =
             std::fs::read_to_string(unpacked.tmpdir.path().join(relative_path)).unwrap();
         assert_eq!(installer_content, format!("{INSTALLER}\n"));
