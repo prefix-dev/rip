@@ -31,6 +31,7 @@
 use miette::Diagnostic;
 use serde::{Serialize, Serializer};
 use serde_with::DeserializeFromStr;
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
@@ -108,5 +109,11 @@ impl Serialize for Extra {
         S: Serializer,
     {
         self.source.as_ref().serialize(serializer)
+    }
+}
+
+impl Borrow<str> for Extra {
+    fn borrow(&self) -> &str {
+        self.normalized.as_ref()
     }
 }
