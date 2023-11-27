@@ -295,8 +295,6 @@ mod tests {
         // Try to re-open the wheel
         let wheel = crate::wheel::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
 
-        std::fs::copy(&result, "/tmp/rich-13.6.0-py3-none-any.whl").unwrap();
-
         let (_, metadata) = wheel.metadata().unwrap();
         assert_debug_snapshot!(metadata);
     }
