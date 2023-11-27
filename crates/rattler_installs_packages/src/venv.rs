@@ -14,8 +14,10 @@ use std::process::{Command, Output};
 use thiserror::Error;
 
 /// Specifies where to find the python executable
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum PythonLocation {
     /// Use system interpreter
+    #[default]
     System,
     // Use custom interpreter
     Custom(PathBuf),
@@ -66,7 +68,12 @@ impl VEnv {
         wheel: &Wheel,
         options: &UnpackWheelOptions,
     ) -> Result<UnpackedWheel, UnpackError> {
-        wheel.unpack(&self.location, &self.install_paths, options)
+        wheel.unpack(
+            &self.location,
+            &self.install_paths,
+            &self.python_executable(),
+            options,
+        )
     }
 
     /// Execute python script in venv
@@ -82,6 +89,16 @@ impl VEnv {
         cmd.arg("-c");
         cmd.arg(command.as_ref());
         cmd.output()
+    }
+
+    /// Returns the [`InstallPaths`] that defines some of the common paths in the virtual env.
+    pub fn install_paths(&self) -> &InstallPaths {
+        &self.install_paths
+    }
+
+    /// Returns the root directory of the virtual env.
+    pub fn root(&self) -> &Path {
+        &self.location
     }
 
     /// Path to python executable in venv

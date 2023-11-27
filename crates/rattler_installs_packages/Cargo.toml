@@ -65,6 +65,7 @@ tar = "0.4.40"
 flate2 = "1.0.28"
 pyproject-toml = "0.8.0"
 async-once-cell = "0.5.3"
+configparser = "3.0.3"
 
 [dev-dependencies]
 criterion = "0.5"

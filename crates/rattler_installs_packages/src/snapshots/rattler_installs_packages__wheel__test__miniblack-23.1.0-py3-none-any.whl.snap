@@ -1,8 +1,10 @@
 ---
 source: crates/rattler_installs_packages/src/wheel.rs
-assertion_line: 858
+assertion_line: 1172
 expression: record_content
 ---
+../../../bin/black,sha256=G2L8O1CciVzKcy6rDIj66_vauFAGNMXYpKPgqaow3XE,212
+../../../bin/blackd,sha256=7FFQGF_2mwatv_1_GpVmEh9QJhn0IIi9PtJUHvnRySs,213
 black/__init__.py,sha256=VWazgq80l38r1Cn5Ea7fH5bMuDdFuQJtYgBKGWJganI,46682
 blackd/__init__.py,sha256=cTJotjnER9YB0rDWo3hOWSg4v0mNAx5DFmCJdyB1s5k,8068
 miniblack-23.1.0.dist-info/INSTALLER,sha256=FpzDrzfcP6oI1mbsvYAjw7hT2I4P4wr99k5NKqmKJt0,10

@@ -196,7 +196,13 @@ impl<'db> BuildEnvironment<'db> {
                 .await
                 .map_err(|_| WheelBuildError::CouldNotGetArtifact)?;
 
-            venv.install_wheel(&artifact, &UnpackWheelOptions { installer: None })?;
+            venv.install_wheel(
+                &artifact,
+                &UnpackWheelOptions {
+                    installer: None,
+                    ..Default::default()
+                },
+            )?;
         }
 
         const DEFAULT_BUILD_BACKEND: &str = "setuptools.build_meta:__legacy__";
