@@ -32,6 +32,8 @@ mod sdist;
 mod system_python;
 mod wheel_builder;
 
+pub mod entry_points;
+mod launcher;
 mod venv;
 
 #[cfg(feature = "resolvo")]

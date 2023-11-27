@@ -1,12 +1,15 @@
 use crate::{
     core_metadata::{WheelCoreMetaDataError, WheelCoreMetadata},
+    entry_points::EntryPoint,
     record::{Record, RecordEntry},
     rfc822ish::RFC822ish,
+    system_python::PythonInterpreterVersion,
     utils::ReadAndSeek,
-    Artifact, NormalizedPackageName, PackageName, WheelFilename,
+    Artifact, Extra, NormalizedPackageName, PackageName, WheelFilename,
 };
 use async_http_range_reader::AsyncHttpRangeReader;
 use async_zip::base::read::seek::ZipFileReader;
+use configparser::ini::Ini;
 use data_encoding::BASE64URL_NOPAD;
 use miette::IntoDiagnostic;
 use parking_lot::Mutex;
@@ -14,6 +17,7 @@ use pep440_rs::Version;
 use rattler_digest::Sha256;
 use std::{
     borrow::Cow,
+    collections::HashMap,
     collections::HashSet,
     ffi::OsStr,
     fs,
@@ -27,9 +31,7 @@ use thiserror::Error;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use zip::{read::ZipFile, result::ZipError, ZipArchive};
 
-use crate::system_python::PythonInterpreterVersion;
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
+use crate::launcher::{build_windows_launcher, LauncherType, WindowsLauncherArch};
 
 /// Wheel file in the PyPI ecosystem.
 /// See the [Reference Page](https://packaging.python.org/en/latest/specifications/binary-distribution-format/#binary-distribution-format)
@@ -515,6 +517,12 @@ pub enum UnpackError {
 
     #[error("unrecognized .data directory: {0}")]
     UnsupportedDataDirectory(String),
+
+    #[error("entry_points.txt invalid, {0}")]
+    EntryPointsInvalid(String),
+
+    #[error("could not create entry points because the windows architecture is unsupported")]
+    UnsupportedWindowsArchitecture,
 }
 
 impl UnpackError {
@@ -534,6 +542,17 @@ pub struct UnpackWheelOptions {
     /// When specified an INSTALLER file is written to the dist-info folder of the package.
     /// INSTALLER files are used to track the installer of a package. See [PEP 376](https://peps.python.org/pep-0376/) for more information.
     pub installer: Option<String>,
+
+    /// The extras of the wheel that should be activated. This affects the creation of entry points.
+    /// If `None` is specified, extras are *not* taken into account. This is different from
+    /// specifying an empty set because when specifying `None` no filtering based on extras is
+    /// performed. This is the default.
+    pub extras: Option<HashSet<Extra>>,
+
+    /// The architecture of the launcher executable that is created for every entry point on windows.
+    /// If this field is `None` the architecture will be determined based on the architecture of the
+    /// current process.
+    pub launcher_arch: Option<WindowsLauncherArch>,
 }
 
 #[derive(Debug)]
@@ -560,6 +579,7 @@ impl Wheel {
         &self,
         dest: &Path,
         paths: &InstallPaths,
+        python_executable: &Path,
         options: &UnpackWheelOptions,
     ) -> Result<UnpackedWheel, UnpackError> {
         let vitals = self
@@ -686,6 +706,30 @@ impl Wheel {
             }
         }
 
+        // Read `entry_points.txt` and parse any scripts we need to create.
+        let scripts =
+            Scripts::from_wheel(&mut archive, &vitals.dist_info, options.extras.as_ref())?;
+
+        // Generate the script entrypoints
+        write_script_entrypoint(
+            dest,
+            paths,
+            &scripts.console_scripts,
+            options.launcher_arch,
+            LauncherType::Console,
+            python_executable,
+            &mut resulting_records,
+        )?;
+        write_script_entrypoint(
+            dest,
+            paths,
+            &scripts.gui_scripts,
+            options.launcher_arch,
+            LauncherType::Gui,
+            python_executable,
+            &mut resulting_records,
+        )?;
+
         // Add the RECORD file itself to the records
         resulting_records.push(RecordEntry {
             path: record_relative_path.display().to_string(),
@@ -711,6 +755,217 @@ impl Wheel {
             metadata: vitals.metadata,
         })
     }
+}
+
+fn write_script_entrypoint(
+    dest: &Path,
+    install_paths: &InstallPaths,
+    entry_points: &Vec<EntryPoint>,
+    windows_launcher_arch: Option<WindowsLauncherArch>,
+    launcher_type: LauncherType,
+    python_executable: &Path,
+    records: &mut Vec<RecordEntry>,
+) -> Result<(), UnpackError> {
+    // Make sure the script directory exists
+    let scripts_dir = dest.join(install_paths.scripts());
+    fs::create_dir_all(&scripts_dir)
+        .map_err(|err| UnpackError::IoError(scripts_dir.display().to_string(), err))?;
+
+    // Write all the entry point scripts to the directory
+    if install_paths.is_windows() {
+        write_windows_script_entrypoint(
+            dest,
+            install_paths,
+            entry_points,
+            windows_launcher_arch,
+            launcher_type,
+            python_executable,
+            records,
+        )
+    } else {
+        write_non_windows_script_entrypoint(
+            dest,
+            install_paths,
+            entry_points,
+            python_executable,
+            records,
+        )
+    }
+}
+
+fn write_windows_script_entrypoint(
+    dest: &Path,
+    install_paths: &InstallPaths,
+    entry_points: &[EntryPoint],
+    windows_launcher_arch: Option<WindowsLauncherArch>,
+    launcher_type: LauncherType,
+    python_executable: &Path,
+    records: &mut Vec<RecordEntry>,
+) -> Result<(), UnpackError> {
+    // Determine the launcher architecture to use
+    let arch = match windows_launcher_arch {
+        Some(windows_launcher_arch) => windows_launcher_arch,
+        None => match WindowsLauncherArch::current() {
+            Some(arch) => arch,
+            None => return Err(UnpackError::UnsupportedWindowsArchitecture),
+        },
+    };
+
+    for entry_point in entry_points {
+        // Convert the entry point filename. We strip `.py` from the filename and add `.exe`.
+        let script_name = format!(
+            "{}.exe",
+            entry_point
+                .script_name
+                .strip_suffix(".py")
+                .unwrap_or(&entry_point.script_name)
+        );
+
+        // Construct the launcher script
+        let launch_script = entry_point.launch_script();
+        let launcher = build_windows_launcher(
+            &get_shebang(python_executable),
+            &launch_script,
+            arch,
+            launcher_type,
+        );
+
+        // Write the launcher to the destination
+        let script_path = dest.join(install_paths.scripts()).join(script_name);
+        let site_packages = dest.join(install_paths.site_packages());
+        let relative_path = pathdiff::diff_paths(script_path, &site_packages).expect("should always be able to create relative path from site-packages to the scripts directory");
+        let record = write_generated_file(&relative_path, &site_packages, launcher)?;
+        records.push(record)
+    }
+
+    Ok(())
+}
+
+fn write_non_windows_script_entrypoint(
+    dest: &Path,
+    install_paths: &InstallPaths,
+    entry_points: &Vec<EntryPoint>,
+    python_executable: &Path,
+    records: &mut Vec<RecordEntry>,
+) -> Result<(), UnpackError> {
+    for entry_point in entry_points {
+        // Construct the launcher script
+        let launch_script = format!(
+            "{shebang}\n{launch_script}",
+            launch_script = entry_point.launch_script(),
+            shebang = get_shebang(python_executable)
+        );
+
+        // Write the launcher to the destination
+        let script_path = dest
+            .join(install_paths.scripts())
+            .join(&entry_point.script_name);
+        let site_packages = dest.join(install_paths.site_packages());
+        let relative_path = pathdiff::diff_paths(script_path, &site_packages).expect("should always be able to create relative path from site-packages to the scripts directory");
+        let record = write_generated_file(&relative_path, &site_packages, launch_script)?;
+        records.push(record);
+
+        // Make the launcher executable
+        #[cfg(target_family = "unix")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(script_path, std::fs::Permissions::from_mode(0o755))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Returns the shebang to use when calling a python script.
+/// TODO: In the future we should make this much more configurable. This is much more complex in pip:
+///  <https://github.com/pypa/pip/blob/7f8a6844037fb7255cfd0d34ff8e8cf44f2598d4/src/pip/_vendor/distlib/scripts.py#L158>
+fn get_shebang(python_executable: &Path) -> String {
+    format!(r"#!{}", dunce::simplified(python_executable).display())
+}
+
+/// The scripts that should be installed as part of the wheel installation.
+#[derive(Debug, Default)]
+struct Scripts {
+    console_scripts: Vec<EntryPoint>,
+    gui_scripts: Vec<EntryPoint>,
+}
+
+impl Scripts {
+    /// Read the `entry_points.txt` file from the wheel archive and parse the scripts.
+    pub fn from_wheel(
+        archive: &mut ZipArchive<Box<dyn ReadAndSeek + Send>>,
+        dist_info_prefix: &str,
+        extras: Option<&HashSet<Extra>>,
+    ) -> Result<Self, UnpackError> {
+        // Read the `entry_points.txt` file from the archive
+        let entry_points_path = format!("{dist_info_prefix}/entry_points.txt");
+        let mut entry_points_file = match archive.by_name(&entry_points_path) {
+            Err(ZipError::FileNotFound) => return Ok(Default::default()),
+            Ok(file) => file,
+            Err(err) => return Err(UnpackError::from_zip_error(entry_points_path, err)),
+        };
+
+        // Parse the `entry_points.txt` file as an ini file.
+        let mut entry_points_mapping = {
+            let mut ini_contents = String::new();
+            entry_points_file
+                .read_to_string(&mut ini_contents)
+                .map_err(|err| {
+                    UnpackError::EntryPointsInvalid(format!(
+                        "failed to read entry_points.txt contents: {}",
+                        err
+                    ))
+                })?;
+            Ini::new_cs().read(ini_contents).map_err(|err| {
+                UnpackError::EntryPointsInvalid(format!(
+                    "failed to parse entry_points.txt contents: {}",
+                    err
+                ))
+            })?
+        };
+
+        // Parse the script entry points
+        let console_scripts = entry_points_mapping
+            .remove("console_scripts")
+            .map(|e| parse_entry_points_from_ini_section(e, extras))
+            .transpose()?
+            .unwrap_or_default();
+
+        let gui_scripts = entry_points_mapping
+            .remove("gui_scripts")
+            .map(|e| parse_entry_points_from_ini_section(e, extras))
+            .transpose()?
+            .unwrap_or_default();
+
+        Ok(Scripts {
+            console_scripts,
+            gui_scripts,
+        })
+    }
+}
+
+/// Parse entry points from a section in the `entry_points.txt` file.
+fn parse_entry_points_from_ini_section(
+    entry_points: HashMap<String, Option<String>>,
+    extras: Option<&HashSet<Extra>>,
+) -> Result<Vec<EntryPoint>, UnpackError> {
+    let mut result = Vec::new();
+    for (script_name, entry_point) in entry_points {
+        let entry_point = entry_point.ok_or_else(|| {
+            UnpackError::EntryPointsInvalid(format!("missing entry point for {}", script_name))
+        })?;
+        match EntryPoint::parse(script_name.clone(), &entry_point, extras) {
+            Ok(None) => {}
+            Ok(Some(entry_point)) => result.push(entry_point),
+            Err(err) => {
+                return Err(UnpackError::EntryPointsInvalid(format!(
+                    "failed to parse entry point for {}: {}",
+                    script_name, err
+                )))
+            }
+        }
+    }
+    Ok(result)
 }
 
 fn write_generated_file(
@@ -746,10 +1001,13 @@ fn write_wheel_file(
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true);
     #[cfg(unix)]
-    if _executable {
-        options.mode(0o777);
-    } else {
-        options.mode(0o666);
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        if _executable {
+            options.mode(0o777);
+        } else {
+            options.mode(0o666);
+        }
     }
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)
@@ -818,6 +1076,7 @@ impl<'a> WheelPathTransformer<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::venv::{PythonLocation, VEnv};
     use rstest::rstest;
     use tempfile::{tempdir, TempDir};
     use url::Url;
@@ -872,8 +1131,10 @@ mod test {
             .unpack(
                 tmpdir.path(),
                 &install_paths,
+                Path::new("/invalid"),
                 &UnpackWheelOptions {
                     installer: Some(String::from(INSTALLER)),
+                    ..Default::default()
                 },
             )
             .unwrap();
@@ -914,5 +1175,46 @@ mod test {
         let installer_content =
             std::fs::read_to_string(unpacked.tmpdir.path().join(relative_path)).unwrap();
         assert_eq!(installer_content, format!("{INSTALLER}\n"));
+    }
+
+    #[test]
+    fn test_entry_points() {
+        // Create a virtual environment in a temporary directory
+        let tmpdir = tempdir().unwrap();
+        let venv = VEnv::create(tmpdir.path(), PythonLocation::System).unwrap();
+
+        // Download our wheel file and install it in the virtual environment we just created
+        let package_path = test_utils::download_and_cache_file(
+            "https://files.pythonhosted.org/packages/29/a2/76daec910034d765f1018d22660c0970fb99f77143a42841d067b522903e/cowpy-1.1.5-py3-none-any.whl".parse().unwrap(),
+            "de5ae7646dd30b4936013666c6bd019af9cf411cc3b377c8538cfd8414262921").unwrap();
+        let wheel = Wheel::from_path(&package_path, &"cowpy".parse().unwrap()).unwrap();
+        venv.install_wheel(&wheel, &Default::default()).unwrap();
+
+        // Determine the location of the installed script
+        let script_name = if venv.install_paths().is_windows() {
+            "cowpy.exe"
+        } else {
+            "cowpy"
+        };
+        let script_path = venv
+            .root()
+            .join(venv.install_paths().scripts())
+            .join(script_name);
+
+        // Execute the script
+        let output = std::process::Command::new(script_path)
+            .arg("moo")
+            .output()
+            .unwrap();
+
+        if !output.status.success() {
+            panic!(
+                "failed to execute script: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        insta::assert_snapshot!(stdout);
     }
 }
