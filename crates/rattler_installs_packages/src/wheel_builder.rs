@@ -396,6 +396,25 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let output = build_environment.run_command("WheelMetadata")?;
 
         if !output.status.success() {
+            if output.status.code() == Some(50) {
+                tracing::warn!("SDist build backend does not support metadata generation");
+                // build wheel instead
+                let wheel_file = self.build_wheel(sdist).await?;
+                let wheel = crate::wheel::Wheel::from_path(
+                    &wheel_file,
+                    &sdist.name().distribution.clone().into(),
+                )
+                .map_err(|e| {
+                    WheelBuildError::Error(format!(
+                        "Could not build wheel for metadata extraction: {}",
+                        e
+                    ))
+                })?;
+
+                return wheel.metadata().map_err(|e| {
+                    WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
+                });
+            }
             let stdout = String::from_utf8_lossy(&output.stderr);
             return Err(WheelBuildError::Error(stdout.to_string()));
         }
@@ -423,8 +442,10 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             return Err(WheelBuildError::Error(stdout.to_string()));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let wheel_file = PathBuf::from(stdout.trim());
+        let result =
+            std::fs::read_to_string(build_environment.work_dir.path().join("wheel_result"))?;
+        let wheel_file = PathBuf::from(result.trim());
+
         Ok(wheel_file)
     }
 }
