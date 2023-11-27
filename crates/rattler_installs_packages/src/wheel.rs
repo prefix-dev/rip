@@ -78,7 +78,7 @@ impl Wheel {
     /// A wheel file always contains a special directory that contains the metadata of the package.
     /// This function returns the name of that directory.
     fn find_special_wheel_dir<'a>(
-        top_level_names: impl IntoIterator<Item=&'a str>,
+        top_level_names: impl IntoIterator<Item = &'a str>,
         name: &PackageName,
         version: &Version,
         suffix: &str,
@@ -153,8 +153,8 @@ impl Wheel {
             &name.version,
             ".dist-info",
         )?
-            .ok_or(WheelVitalsError::DistInfoMissing)?
-            .to_owned();
+        .ok_or(WheelVitalsError::DistInfoMissing)?
+        .to_owned();
 
         let metadata_path = format!("{dist_info}/METADATA");
         let (metadata_idx, metadata_entry) = reader
@@ -231,8 +231,8 @@ impl Wheel {
             &self.name.version,
             ".dist-info",
         )?
-            .ok_or(WheelVitalsError::DistInfoMissing)?
-            .to_owned();
+        .ok_or(WheelVitalsError::DistInfoMissing)?
+        .to_owned();
 
         // Determine the name of the data directory
         let data = Wheel::find_special_wheel_dir(
@@ -241,10 +241,10 @@ impl Wheel {
             &self.name.version,
             ".data",
         )?
-            .map_or_else(
-                || format!("{}.data", dist_info.strip_suffix(".dist-info").unwrap()),
-                ToOwned::to_owned,
-            );
+        .map_or_else(
+            || format!("{}.data", dist_info.strip_suffix(".dist-info").unwrap()),
+            ToOwned::to_owned,
+        );
 
         let wheel_path = format!("{dist_info}/WHEEL");
         let wheel_metadata = read_entry_to_end(&mut archive, &wheel_path)?;
@@ -262,7 +262,7 @@ impl Wheel {
                     "Expected 'true' or 'false' for Root-Is-Purelib, not {}",
                     other,
                 ))
-                    .into());
+                .into());
             }
         };
 
@@ -276,14 +276,14 @@ impl Wheel {
                 metadata.name.as_source_str(),
                 self.name.distribution.as_source_str()
             ))
-                .into());
+            .into());
         }
         if metadata.version != self.name.version {
             return Err(WheelCoreMetaDataError::FailedToParse(format!(
                 "version mismatch between {dist_info}/METADATA and filename ({} != {})",
                 metadata.version, self.name.version
             ))
-                .into());
+            .into());
         }
 
         Ok(WheelVitals {
@@ -631,9 +631,9 @@ impl Wheel {
             // Determine the destination path.
             let Some((relative_destination, is_script)) =
                 transformer.analyze_path(&relative_path)?
-                else {
-                    continue;
-                };
+            else {
+                continue;
+            };
             let destination = dest.join(relative_destination);
 
             // If the entry refers to a directory we simply create it.
