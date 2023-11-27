@@ -994,7 +994,7 @@ fn write_generated_file(
         .map_err(|err| UnpackError::IoError(relative_path.display().to_string(), err))?;
 
     Ok(RecordEntry {
-        path: relative_path.display().to_string(),
+        path: relative_path.display().to_string().replace('\\', "/"),
         hash: Some(format!("sha256={}", BASE64URL_NOPAD.encode(&digest))),
         size: Some(size as _),
     })
