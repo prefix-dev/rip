@@ -15,6 +15,7 @@ use miette::IntoDiagnostic;
 use parking_lot::Mutex;
 use pep440_rs::Version;
 use rattler_digest::Sha256;
+use std::fs::OpenOptions;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -743,6 +744,7 @@ impl Wheel {
                 Path::new(&format!("{}/INSTALLER", &vitals.dist_info)),
                 &site_packages,
                 format!("{}\n", installer.trim()),
+                false,
             )?);
         }
 
@@ -834,7 +836,7 @@ fn write_windows_script_entrypoint(
         let script_path = dest.join(install_paths.scripts()).join(script_name);
         let site_packages = dest.join(install_paths.site_packages());
         let relative_path = pathdiff::diff_paths(script_path, &site_packages).expect("should always be able to create relative path from site-packages to the scripts directory");
-        let record = write_generated_file(&relative_path, &site_packages, launcher)?;
+        let record = write_generated_file(&relative_path, &site_packages, launcher, true)?;
         records.push(record)
     }
 
@@ -862,15 +864,8 @@ fn write_non_windows_script_entrypoint(
             .join(&entry_point.script_name);
         let site_packages = dest.join(install_paths.site_packages());
         let relative_path = pathdiff::diff_paths(script_path, &site_packages).expect("should always be able to create relative path from site-packages to the scripts directory");
-        let record = write_generated_file(&relative_path, &site_packages, launch_script)?;
+        let record = write_generated_file(&relative_path, &site_packages, launch_script, true)?;
         records.push(record);
-
-        // Make the launcher executable
-        #[cfg(target_family = "unix")]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(script_path, std::fs::Permissions::from_mode(0o755))?;
-        }
     }
 
     Ok(())
@@ -972,8 +967,23 @@ fn write_generated_file(
     relative_path: &Path,
     site_packages: &Path,
     content: impl AsRef<[u8]>,
+    _executable: bool,
 ) -> Result<RecordEntry, UnpackError> {
-    let (size, digest) = File::create(site_packages.join(relative_path))
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        if _executable {
+            options.mode(0o777);
+        } else {
+            options.mode(0o666);
+        }
+    }
+
+    let (size, digest) = options
+        .open(site_packages.join(relative_path))
         .map(rattler_digest::HashingWriter::<_, Sha256>::new)
         .and_then(|mut file| {
             let content = content.as_ref();
