@@ -360,6 +360,15 @@ impl WheelVitalsError {
     pub fn from_zip(file: String, err: ZipError) -> Self {
         match err {
             ZipError::Io(err) => WheelVitalsError::IoError(err),
+            ZipError::FileNotFound => {
+                if file.ends_with("WHEEL") {
+                    WheelVitalsError::WheelMissing
+                } else if file.ends_with("METADATA") {
+                    WheelVitalsError::MetadataMissing
+                } else {
+                    WheelVitalsError::ZipError(file, err)
+                }
+            }
             _ => WheelVitalsError::ZipError(file, err),
         }
     }

@@ -239,11 +239,11 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    pub async fn build_rich() {
+    pub async fn sdist_metadata() {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
-        let sdist = super::SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+        let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
@@ -253,5 +253,49 @@ mod tests {
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
 
         assert_debug_snapshot!(result.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_with_metadata() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(&package_db.0, &env_markers, None, &resolve_options);
+
+        // Build the wheel
+        wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
+        let result = wheel_builder.build_wheel(&sdist).await.unwrap();
+
+        // Try to re-open the wheel
+        let wheel = crate::wheel::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
+
+        let (_, metadata) = wheel.metadata().unwrap();
+        assert_debug_snapshot!(metadata);
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_no_metadata() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(&package_db.0, &env_markers, None, &resolve_options);
+
+        // Build the wheel
+        let result = wheel_builder.build_wheel(&sdist).await.unwrap();
+
+        // Try to re-open the wheel
+        let wheel = crate::wheel::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
+
+        let (_, metadata) = wheel.metadata().unwrap();
+        assert_debug_snapshot!(metadata);
     }
 }
