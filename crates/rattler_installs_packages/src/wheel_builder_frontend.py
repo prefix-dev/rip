@@ -80,7 +80,7 @@ def prepare_metadata_for_build_wheel(backend: ModuleType, work_dir: Path):
         # Write the path to the dist-info directory to a file
         result_file.write_text(result)
     else:
-        exit(123)
+        exit(50)
 
 def wheel_dirs(work_dir: Path):
     return work_dir / "wheel"
@@ -88,18 +88,22 @@ def wheel_dirs(work_dir: Path):
 def build_wheel(backend: ModuleType, work_dir: Path):
     """Take a folder with an SDist and build a wheel from it."""
     wheel_dir = wheel_dirs(work_dir)
+    result_file = work_dir / "wheel_result"
 
-    # TODO: maybe start reading this from the file again if it fails
-    metadata_dir = metadata_dirs(work_dir) / ".dist-info"
-    # Use the metadata directory if it exists, otherwise set this to None
+    # Use the metadata result if it exists, otherwise set this to None
+    metadata_result = work_dir / "metadata_result"
+    if metadata_result.exists():
+        metadata_dir = metadata_result.read_text().strip()
+    else:
+        metadata_dir = None
 
     wheel_dir.mkdir()
     wheel_basename = backend.build_wheel(
         str(wheel_dir),
-        metadata_directory=metadata_dir if metadata_dir.exists() else None,
+        metadata_directory=metadata_dir,
     )
 
-    print(str(wheel_dir / wheel_basename))
+    result_file.write_text(str(wheel_dir / wheel_basename))
 
 if __name__ == "__main__":
     work_dir, entry_point, goal = sys.argv[1:]
