@@ -91,6 +91,7 @@ impl WheelTags {
 #[cfg(test)]
 mod test {
     use super::*;
+    use itertools::Itertools;
 
     #[tokio::test]
     pub async fn test_from_env() {
@@ -103,7 +104,10 @@ mod test {
             }
             Err(e) => panic!("{e:?}"),
             Ok(tags) => {
-                println!("Found the following platform tags on the current system:\n\n{tags:#?}")
+                println!(
+                    "Found the following platform tags on the current system:\n{}",
+                    tags.tags.iter().format(", ")
+                )
             }
         }
     }

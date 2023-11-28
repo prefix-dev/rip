@@ -1173,7 +1173,7 @@ mod test {
     use crate::python_env::{PythonLocation, VEnv, WheelTags};
     use rstest::rstest;
     use tempfile::{tempdir, TempDir};
-    use test_utils::download_and_cache_file;
+    use test_utils::download_and_cache_file_async;
     use url::Url;
 
     const INSTALLER: &str = "pixi_test";
@@ -1356,7 +1356,7 @@ mod test {
             .max_by_key(|(compatibility, _, _)| *compatibility)
             .unwrap();
 
-        download_and_cache_file(url, sha).unwrap()
+        download_and_cache_file_async(url, sha).await.unwrap()
     }
 
     #[tokio::test]
