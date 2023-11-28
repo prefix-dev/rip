@@ -1174,7 +1174,6 @@ mod test {
     use rstest::rstest;
     use tempfile::{tempdir, TempDir};
     use test_utils::download_and_cache_file;
-    use tokio::runtime::Runtime;
     use url::Url;
 
     const INSTALLER: &str = "pixi_test";
@@ -1314,7 +1313,7 @@ mod test {
         insta::assert_snapshot!(stdout);
     }
 
-    fn download_best_ruff_wheel() -> PathBuf {
+    async fn download_best_ruff_wheel() -> PathBuf {
         download_best_matching_wheel("ruff",
             &[
             ("https://files.pythonhosted.org/packages/00/45/0907965db0e7640d8695a8c22fd8beed865fb21553359fa03d9ca71560e1/ruff-0.1.0-py3-none-macosx_10_7_x86_64.whl", "87114e254dee35e069e1b922d85d4b21a5b61aec759849f393e1dbb308a00439"),
@@ -1332,16 +1331,14 @@ mod test {
             ("https://files.pythonhosted.org/packages/84/45/fd7cad3391108f5e4189af607f20c82eb3be85c7243162252ffb97e1e42c/ruff-0.1.0-py3-none-musllinux_1_2_x86_64.whl", "b77f6cfa72c6eb19b5cac967cc49762ae14d036db033f7d97a72912770fd8e1c"),
             ("https://files.pythonhosted.org/packages/cc/12/7e37f538bf393a8df563d9b149631116a6a3d0ee3495e2ba224838dfbade/ruff-0.1.0-py3-none-win32.whl", "480bd704e8af1afe3fd444cc52e3c900b936e6ca0baf4fb0281124330b6ceba2"),
             ("https://files.pythonhosted.org/packages/be/cd/da574980bf389f632a9da89aaa5baa5199a1b8860a1cf70a5b2e9a14c083/ruff-0.1.0-py3-none-win_amd64.whl", "a76ba81860f7ee1f2d5651983f87beb835def94425022dc5f0803108f1b8bfa2"),
-            ("https://files.pythonhosted.org/packages/88/79/aaf84a13905f98072c06826f85e0dbf9e8d8b7c811722cba1893d98edcfa/ruff-0.1.0-py3-none-win_arm64.whl", "45abdbdab22509a2c6052ecf7050b3f5c7d6b7898dc07e82869401b531d46da4")])
+            ("https://files.pythonhosted.org/packages/88/79/aaf84a13905f98072c06826f85e0dbf9e8d8b7c811722cba1893d98edcfa/ruff-0.1.0-py3-none-win_arm64.whl", "45abdbdab22509a2c6052ecf7050b3f5c7d6b7898dc07e82869401b531d46da4")]).await
     }
 
-    fn download_best_matching_wheel(package_name: &str, candidates: &[(&str, &str)]) -> PathBuf {
-        // HACK: create a runtime to call some async code
-        let rt = Runtime::new().unwrap();
-
-        // Determine the system wheel tags.
-        let tags = rt.block_on(async { WheelTags::from_env().await.unwrap() });
-
+    async fn download_best_matching_wheel(
+        package_name: &str,
+        candidates: &[(&str, &str)],
+    ) -> PathBuf {
+        let tags = WheelTags::from_env().await.unwrap();
         let package_name = NormalizedPackageName::from_str(package_name).unwrap();
 
         let (_, url, sha) = candidates
@@ -1362,14 +1359,14 @@ mod test {
         download_and_cache_file(url, sha).unwrap()
     }
 
-    #[test]
-    fn test_scripts_with_ruff() {
+    #[tokio::test]
+    async fn test_scripts_with_ruff() {
         // Create a virtual environment in a temporary directory
         let tmpdir = tempdir().unwrap();
         let venv = VEnv::create(tmpdir.path(), PythonLocation::System).unwrap();
 
         // Download our wheel file and install it in the virtual environment we just created
-        let package_path = download_best_ruff_wheel();
+        let package_path = download_best_ruff_wheel().await;
         let wheel = Wheel::from_path(&package_path, &"ruff".parse().unwrap()).unwrap();
         venv.install_wheel(&wheel, &Default::default()).unwrap();
 
