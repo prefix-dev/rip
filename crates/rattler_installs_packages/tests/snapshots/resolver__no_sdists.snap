@@ -1,8 +1,0 @@
----
-source: crates/rattler_installs_packages/tests/resolver.rs
-assertion_line: 20
-expression: error
----
-The following packages are incompatible
-|-- sdist * cannot be installed because there are no viable options:
-    |-- sdist 0.0.0 is excluded because there are no wheels available
