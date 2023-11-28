@@ -1,7 +1,9 @@
 //! Functionality to remove python distributions from an environment.
 
 use crate::types::Record;
-use std::path::Path;
+use indexmap::IndexSet;
+use itertools::Itertools;
+use std::{collections::HashSet, path::Path};
 use thiserror::Error;
 
 /// An error that can occur during the uninstallation of a python distribution.
@@ -23,6 +25,10 @@ pub enum UninstallDistributionError {
     /// Failed to delete a file
     #[error("failed to delete {0}")]
     FailedToDeleteFile(String, #[source] std::io::Error),
+
+    /// Failed to delete a directory
+    #[error("failed to delete {0}")]
+    FailedToDeleteDirectory(String, #[source] std::io::Error),
 }
 
 /// Uninstall a python distribution from an environment
@@ -50,18 +56,45 @@ pub fn uninstall_distribution(
     };
 
     // Delete all the files specified in the RECORD file
+    let mut directories = HashSet::new();
     for entry in record.into_iter() {
         let entry_path = site_packages_dir.join(&entry.path);
-        if let Err(e) = std::fs::remove_file(entry_path) {
+        if let Err(e) = std::fs::remove_file(&entry_path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 return Err(UninstallDistributionError::FailedToDeleteFile(
                     entry.path, e,
                 ));
             }
         }
+        if let Some(parent) = entry_path.parent() {
+            directories.insert(parent.to_path_buf());
+        }
     }
 
-    // TODO: Should we also remove empty directories?
+    // Sort the directories by length, so that we delete the deepest directories first.
+    let mut directories: IndexSet<_> = directories.into_iter().sorted().collect();
+    while let Some(directory) = directories.pop() {
+        match directory.read_dir().and_then(|mut r| r.next().transpose()) {
+            Ok(None) => {
+                // The directory is empty, delete it
+                std::fs::remove_dir(&directory).map_err(|e| {
+                    UninstallDistributionError::FailedToDeleteDirectory(
+                        directory.to_string_lossy().to_string(),
+                        e,
+                    )
+                })?;
+            }
+            _ => {
+                // The directory is not empty which means our parent directory is also not empty,
+                // recursively remove the parent directory from the set as well.
+                while let Some(parent) = directory.parent() {
+                    if !directories.shift_remove(parent) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -85,6 +118,7 @@ mod test {
             "test-1.0.0.dist-info/METADATA",
             "test/__init__.py",
             "test/__main__.py",
+            "test/module/__init__.py",
             "test/__pycache__/__main__.cpython-39.pyc",
             "test/__pycache__/__init__.cpython-39.pyc",
         ];
@@ -105,6 +139,9 @@ mod test {
             std::fs::File::create(path).unwrap();
         }
 
+        // Create an extra file that is not in the RECORD file
+        std::fs::File::create(site_packages_dir.join("test/module/extra.py")).unwrap();
+
         // Overwrite the RECORD file
         record
             .write_to_path(&site_packages_dir.join(dist_info_dir).join("RECORD"))
@@ -118,5 +155,15 @@ mod test {
             let path = site_packages_dir.join(&entry.path);
             assert!(!path.exists(), "{} still remains!", entry.path);
         }
+
+        // Make sure there are no empty directories left. Except for the `test` directory which
+        // contains an additional file.
+        assert!(site_packages_dir.is_dir());
+        assert!(!site_packages_dir.join("test/__pycache__").is_dir());
+        assert!(!site_packages_dir.join("test-1.0.0.dist-info").is_dir());
+        assert!(site_packages_dir.join("test").is_dir());
+        assert!(!site_packages_dir.join("test/__init__.py").is_file());
+        assert!(site_packages_dir.join("test/module/extra.py").is_file());
+        assert!(!site_packages_dir.join("test/module/__init__.py").is_file());
     }
 }
