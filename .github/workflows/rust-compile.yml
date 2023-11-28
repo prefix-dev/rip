@@ -24,7 +24,6 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: |
           cargo rustdoc -p rattler_installs_packages --all-features -- -D warnings -W unreachable-pub
-          cargo rustdoc -p index --all-features -- -D warnings -W unreachable-pub
           cargo rustdoc -p rip_bin --bin rip --all-features -- -D warnings -W unreachable-pub
           cargo rustdoc -p rip_bin --lib --all-features -- -D warnings -W unreachable-pub
 
