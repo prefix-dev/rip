@@ -20,6 +20,7 @@ use parking_lot::Mutex;
 use pep440_rs::Version;
 use rattler_digest::Sha256;
 use std::fs::OpenOptions;
+use std::io::{BufRead, BufReader};
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -34,7 +35,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use zip::{read::ZipFile, result::ZipError, ZipArchive};
+use zip::{result::ZipError, ZipArchive};
 
 use crate::win::launcher::{build_windows_launcher, LauncherType, WindowsLauncherArch};
 
@@ -609,8 +610,19 @@ impl Wheel {
             root_is_purelib: vitals.root_is_purelib,
             paths,
         };
-        let site_packages = dest.join(paths.site_packages());
 
+        let trampoline_maker = TrampolineMaker {
+            python_executable: python_executable.to_path_buf(),
+            kind: if paths.is_windows() {
+                TrampolineMakerKind::Windows {
+                    arch: options.launcher_arch,
+                }
+            } else {
+                TrampolineMakerKind::Unix
+            },
+        };
+
+        let site_packages = dest.join(paths.site_packages());
         let mut archive = self.archive.lock();
 
         // Read the RECORD file from the wheel
@@ -621,6 +633,10 @@ impl Wheel {
                 .map_err(|err| WheelVitalsError::from_zip(record_filename.clone(), err))?,
         )?;
         let record_relative_path = Path::new(&record_filename);
+
+        // Read `entry_points.txt` and parse any scripts we need to create.
+        let scripts =
+            Scripts::from_wheel(&mut archive, &vitals.dist_info, options.extras.as_ref())?;
 
         let mut resulting_records = Vec::new();
         for index in 0..archive.len() {
@@ -668,7 +684,50 @@ impl Wheel {
 
             // If the file is a script
             let (size, encoded_hash) = if is_script {
-                todo!("implement scripts");
+                if scripts.is_entrypoint_wrapper(&destination) {
+                    continue;
+                }
+
+                // Use a BufReader to make it easy to peek at the first few bytes without actually
+                // reading the contents of the file.
+                let mut buf_reader = BufReader::new(zip_entry);
+                let script_start = buf_reader
+                    .fill_buf()
+                    .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
+
+                // Check if the script is a python script or a native binary
+                if script_start.starts_with(b"#!python") {
+                    // Determine the type of script
+                    let launcher_type = if script_start.starts_with(b"#!pythonw") {
+                        LauncherType::Gui
+                    } else {
+                        LauncherType::Console
+                    };
+
+                    // Read the shebang line from the script
+                    buf_reader.read_line(&mut String::new()).map_err(|err| {
+                        UnpackError::IoError(destination.display().to_string(), err)
+                    })?;
+
+                    // Read the rest of the script
+                    let mut script = Vec::new();
+                    buf_reader.read_to_end(&mut script).map_err(|err| {
+                        UnpackError::IoError(destination.display().to_string(), err)
+                    })?;
+
+                    // Generate the launcher
+                    let trampoline = trampoline_maker.make_trampoline(launcher_type, &script)?;
+                    let relative_path = pathdiff::diff_paths(&destination, &site_packages).expect("can always create relative path from site-packages to the scripts directory");
+                    let record =
+                        write_generated_file(&relative_path, &site_packages, trampoline, true)?;
+                    resulting_records.push(record);
+
+                    // The hash has most likely changed so we don't check it.
+                    continue;
+                } else {
+                    // Otherwise copy the file verbatim
+                    write_wheel_file(&mut buf_reader, &destination, true)?
+                }
             } else {
                 // Otherwise copy the file to its final destination.
                 write_wheel_file(&mut zip_entry, &destination, executable)?
@@ -724,27 +783,21 @@ impl Wheel {
             }
         }
 
-        // Read `entry_points.txt` and parse any scripts we need to create.
-        let scripts =
-            Scripts::from_wheel(&mut archive, &vitals.dist_info, options.extras.as_ref())?;
-
         // Generate the script entrypoints
         write_script_entrypoint(
             dest,
             paths,
             &scripts.console_scripts,
-            options.launcher_arch,
+            &trampoline_maker,
             LauncherType::Console,
-            python_executable,
             &mut resulting_records,
         )?;
         write_script_entrypoint(
             dest,
             paths,
             &scripts.gui_scripts,
-            options.launcher_arch,
+            &trampoline_maker,
             LauncherType::Gui,
-            python_executable,
             &mut resulting_records,
         )?;
 
@@ -776,13 +829,13 @@ impl Wheel {
     }
 }
 
+/// Construct trampolines for entry-points.
 fn write_script_entrypoint(
     dest: &Path,
     install_paths: &InstallPaths,
     entry_points: &Vec<EntryPoint>,
-    windows_launcher_arch: Option<WindowsLauncherArch>,
+    trampoline_maker: &TrampolineMaker,
     launcher_type: LauncherType,
-    python_executable: &Path,
     records: &mut Vec<RecordEntry>,
 ) -> Result<(), UnpackError> {
     // Make sure the script directory exists
@@ -790,102 +843,91 @@ fn write_script_entrypoint(
     fs::create_dir_all(&scripts_dir)
         .map_err(|err| UnpackError::IoError(scripts_dir.display().to_string(), err))?;
 
-    // Write all the entry point scripts to the directory
-    if install_paths.is_windows() {
-        write_windows_script_entrypoint(
-            dest,
-            install_paths,
-            entry_points,
-            windows_launcher_arch,
-            launcher_type,
-            python_executable,
-            records,
-        )
-    } else {
-        write_non_windows_script_entrypoint(
-            dest,
-            install_paths,
-            entry_points,
-            python_executable,
-            records,
-        )
-    }
-}
-
-fn write_windows_script_entrypoint(
-    dest: &Path,
-    install_paths: &InstallPaths,
-    entry_points: &[EntryPoint],
-    windows_launcher_arch: Option<WindowsLauncherArch>,
-    launcher_type: LauncherType,
-    python_executable: &Path,
-    records: &mut Vec<RecordEntry>,
-) -> Result<(), UnpackError> {
-    // Determine the launcher architecture to use
-    let arch = match windows_launcher_arch {
-        Some(windows_launcher_arch) => windows_launcher_arch,
-        None => match WindowsLauncherArch::current() {
-            Some(arch) => arch,
-            None => return Err(UnpackError::UnsupportedWindowsArchitecture),
-        },
-    };
-
     for entry_point in entry_points {
-        // Convert the entry point filename. We strip `.py` from the filename and add `.exe`.
-        let script_name = format!(
-            "{}.exe",
-            entry_point
-                .script_name
-                .strip_suffix(".py")
-                .unwrap_or(&entry_point.script_name)
-        );
+        // Determine the name of the script
+        let script_name = if install_paths.is_windows() {
+            // Convert the entry point filename. We strip `.py` from the filename and add `.exe`.
+            Cow::Owned(format!(
+                "{}.exe",
+                entry_point
+                    .script_name
+                    .strip_suffix(".py")
+                    .unwrap_or(&entry_point.script_name)
+            ))
+        } else {
+            Cow::Borrowed(entry_point.script_name.as_str())
+        };
 
-        // Construct the launcher script
+        // Construct the trampoline
         let launch_script = entry_point.launch_script();
-        let launcher = build_windows_launcher(
-            &get_shebang(python_executable),
-            &launch_script,
-            arch,
-            launcher_type,
-        );
+        let trampoline =
+            trampoline_maker.make_trampoline(launcher_type, launch_script.as_bytes())?;
 
         // Write the launcher to the destination
-        let script_path = dest.join(install_paths.scripts()).join(script_name);
+        let script_path = dest
+            .join(install_paths.scripts())
+            .join(script_name.as_ref());
         let site_packages = dest.join(install_paths.site_packages());
         let relative_path = pathdiff::diff_paths(script_path, &site_packages).expect("should always be able to create relative path from site-packages to the scripts directory");
-        let record = write_generated_file(&relative_path, &site_packages, launcher, true)?;
+        let record = write_generated_file(&relative_path, &site_packages, &trampoline, true)?;
         records.push(record)
     }
 
     Ok(())
 }
 
-fn write_non_windows_script_entrypoint(
-    dest: &Path,
-    install_paths: &InstallPaths,
-    entry_points: &Vec<EntryPoint>,
-    python_executable: &Path,
-    records: &mut Vec<RecordEntry>,
-) -> Result<(), UnpackError> {
-    for entry_point in entry_points {
-        // Construct the launcher script
-        let launch_script = format!(
-            "{shebang}\n{launch_script}",
-            launch_script = entry_point.launch_script(),
-            shebang = get_shebang(python_executable)
-        );
+/// An object that can be used to generate trampolines.
+///
+/// Trampolines are executable that execute a certain python script using a certain python
+/// interpreter. They are used to launch entry points.
+///
+/// On unix based systems this simply creates a script with a python shebang. On windows this
+/// creates a separate executable that launches the python interpreter with the given script. See
+/// [`crate::launcher`] for more information.
+struct TrampolineMaker {
+    python_executable: PathBuf,
+    kind: TrampolineMakerKind,
+}
 
-        // Write the launcher to the destination
-        let script_path = dest
-            .join(install_paths.scripts())
-            .join(&entry_point.script_name);
-        let site_packages = dest.join(install_paths.site_packages());
-        let relative_path = pathdiff::diff_paths(script_path, &site_packages).expect("should always be able to create relative path from site-packages to the scripts directory");
-        let record = write_generated_file(&relative_path, &site_packages, launch_script, true)?;
-        records.push(record);
+/// The type of trampoline to create
+enum TrampolineMakerKind {
+    Windows { arch: Option<WindowsLauncherArch> },
+    Unix,
+}
+
+impl TrampolineMaker {
+    /// Returns the bytes of a launcher executable/script that can be used to launch the given
+    /// script.
+    pub fn make_trampoline(
+        &self,
+        launcher_type: LauncherType,
+        script: &[u8],
+    ) -> Result<Vec<u8>, UnpackError> {
+        let shebang = get_shebang(&self.python_executable);
+        match self.kind {
+            TrampolineMakerKind::Windows { arch } => {
+                let arch = match arch {
+                    Some(windows_launcher_arch) => windows_launcher_arch,
+                    None => match WindowsLauncherArch::current() {
+                        Some(arch) => arch,
+                        None => return Err(UnpackError::UnsupportedWindowsArchitecture),
+                    },
+                };
+
+                Ok(build_windows_launcher(
+                    &shebang,
+                    script,
+                    arch,
+                    launcher_type,
+                ))
+            }
+            TrampolineMakerKind::Unix => {
+                let mut bytes = format!("{}\n", shebang).into_bytes();
+                bytes.extend_from_slice(script);
+                Ok(bytes)
+            }
+        }
     }
-
-    Ok(())
 }
 
 /// Returns the shebang to use when calling a python script.
@@ -954,6 +996,31 @@ impl Scripts {
             gui_scripts,
         })
     }
+
+    /// Returns true if there is an entry point script with the given name.
+    pub fn contains(&self, name: &str) -> bool {
+        self.console_scripts.iter().any(|e| e.script_name == name)
+            || self.gui_scripts.iter().any(|e| e.script_name == name)
+    }
+
+    /// Returns true if the script at the given path is an entry point script.
+    ///
+    /// Setuptools generates wrapper scripts for entry-points. This function checks if the script at
+    /// the given path is such a script.
+    pub fn is_entrypoint_wrapper(&self, path: &Path) -> bool {
+        let file_name = path.file_name().map(OsStr::to_string_lossy);
+        let Some(file_name) = file_name else {
+            return false;
+        };
+
+        let script_name = file_name
+            .strip_suffix(".exe")
+            .or_else(|| file_name.strip_suffix("-script.py"))
+            .or_else(|| file_name.strip_suffix(".pya"))
+            .unwrap_or(&file_name);
+
+        self.contains(script_name)
+    }
 }
 
 /// Parse entry points from a section in the `entry_points.txt` file.
@@ -1019,11 +1086,11 @@ fn write_generated_file(
 
 /// Write a file from a wheel archive to disk.
 fn write_wheel_file(
-    mut zip_entry: &mut ZipFile,
-    destination: &PathBuf,
+    mut reader: &mut impl Read,
+    destination: &Path,
     _executable: bool,
 ) -> Result<(Option<u64>, Option<String>), UnpackError> {
-    let mut reader = rattler_digest::HashingReader::<_, Sha256>::new(&mut zip_entry);
+    let mut reader = rattler_digest::HashingReader::<_, Sha256>::new(&mut reader);
 
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true);
@@ -1103,9 +1170,11 @@ impl<'a> WheelPathTransformer<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::python_env::{PythonLocation, VEnv};
+    use crate::python_env::{PythonLocation, VEnv, WheelTags};
     use rstest::rstest;
     use tempfile::{tempdir, TempDir};
+    use test_utils::download_and_cache_file;
+    use tokio::runtime::Runtime;
     use url::Url;
 
     const INSTALLER: &str = "pixi_test";
@@ -1243,5 +1312,92 @@ mod test {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         insta::assert_snapshot!(stdout);
+    }
+
+    fn download_best_ruff_wheel() -> PathBuf {
+        download_best_matching_wheel("ruff",
+            &[
+            ("https://files.pythonhosted.org/packages/00/45/0907965db0e7640d8695a8c22fd8beed865fb21553359fa03d9ca71560e1/ruff-0.1.0-py3-none-macosx_10_7_x86_64.whl", "87114e254dee35e069e1b922d85d4b21a5b61aec759849f393e1dbb308a00439"),
+            ("https://files.pythonhosted.org/packages/55/4b/ac3b1c94eaa9039108bde3882bf3edb01c3ed98de5a3e95c10d3229a49ea/ruff-0.1.0-py3-none-macosx_10_9_x86_64.macosx_11_0_arm64.macosx_10_9_universal2.whl", "764f36d2982cc4a703e69fb73a280b7c539fd74b50c9ee531a4e3fe88152f521"),
+            ("https://files.pythonhosted.org/packages/e2/cd/02ba37dc8f45a5a3c79969cddc869f4bf1fa0d1a97c234e04b99fb5990e9/ruff-0.1.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", "65f4b7fb539e5cf0f71e9bd74f8ddab74cabdd673c6fb7f17a4dcfd29f126255"),
+            ("https://files.pythonhosted.org/packages/c9/3d/f25c2e2e08e94699999a1a79faaf8a1a5afd7bf75f9083fb72f28c953bae/ruff-0.1.0-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", "299fff467a0f163baa282266b310589b21400de0a42d8f68553422fa6bf7ee01"),
+            ("https://files.pythonhosted.org/packages/29/ac/a730ea13a1b94a897f1eb843711176e076b1730f586beec5dd6761833d13/ruff-0.1.0-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", "0d412678bf205787263bb702c984012a4f97e460944c072fd7cfa2bd084857c4"),
+            ("https://files.pythonhosted.org/packages/ef/18/a9f77c44fe3f8c481e414307f8c891fd2c70fb52112d18734b1eec660e9b/ruff-0.1.0-py3-none-manylinux_2_17_ppc64.manylinux2014_ppc64.whl", "a5391b49b1669b540924640587d8d24128e45be17d1a916b1801d6645e831581"),
+            ("https://files.pythonhosted.org/packages/5b/bf/8795534dffc59cc18c7a363b9db48af23cd8338108f59abf5e72899cea1e/ruff-0.1.0-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", "ee8cd57f454cdd77bbcf1e11ff4e0046fb6547cac1922cc6e3583ce4b9c326d1"),
+            ("https://files.pythonhosted.org/packages/c0/64/8835980bfb0dddccb1e75d12b6372610ea39a594f5dc931e38d8fa15a381/ruff-0.1.0-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", "fa7aeed7bc23861a2b38319b636737bf11cfa55d2109620b49cf995663d3e888"),
+            ("https://files.pythonhosted.org/packages/ac/22/0fc6119373ee9335a6ff41761eff4997e45c4773555100d150d4efba7395/ruff-0.1.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", "b04cd4298b43b16824d9a37800e4c145ba75c29c43ce0d74cad1d66d7ae0a4c5"),
+            ("https://files.pythonhosted.org/packages/ed/df/285f1ab2028a29e402da421eeb6523d56153d3a5f9f9d4e4e5df4e0a9ab7/ruff-0.1.0-py3-none-musllinux_1_2_aarch64.whl", "7186ccf54707801d91e6314a016d1c7895e21d2e4cd614500d55870ed983aa9f"),
+            ("https://files.pythonhosted.org/packages/fc/36/fd2d66b1e58a3dfb9211795ee060ecda9aa6e5ded5312e7a20f110f1bbd1/ruff-0.1.0-py3-none-musllinux_1_2_armv7l.whl", "d88adfd93849bc62449518228581d132e2023e30ebd2da097f73059900d8dce3"),
+            ("https://files.pythonhosted.org/packages/03/0a/d5df874a40fa3eae09626e072f4b1580b51025b964f699170404277678ed/ruff-0.1.0-py3-none-musllinux_1_2_i686.whl", "ad2ccdb3bad5a61013c76a9c1240fdfadf2c7103a2aeebd7bcbbed61f363138f"),
+            ("https://files.pythonhosted.org/packages/84/45/fd7cad3391108f5e4189af607f20c82eb3be85c7243162252ffb97e1e42c/ruff-0.1.0-py3-none-musllinux_1_2_x86_64.whl", "b77f6cfa72c6eb19b5cac967cc49762ae14d036db033f7d97a72912770fd8e1c"),
+            ("https://files.pythonhosted.org/packages/cc/12/7e37f538bf393a8df563d9b149631116a6a3d0ee3495e2ba224838dfbade/ruff-0.1.0-py3-none-win32.whl", "480bd704e8af1afe3fd444cc52e3c900b936e6ca0baf4fb0281124330b6ceba2"),
+            ("https://files.pythonhosted.org/packages/be/cd/da574980bf389f632a9da89aaa5baa5199a1b8860a1cf70a5b2e9a14c083/ruff-0.1.0-py3-none-win_amd64.whl", "a76ba81860f7ee1f2d5651983f87beb835def94425022dc5f0803108f1b8bfa2"),
+            ("https://files.pythonhosted.org/packages/88/79/aaf84a13905f98072c06826f85e0dbf9e8d8b7c811722cba1893d98edcfa/ruff-0.1.0-py3-none-win_arm64.whl", "45abdbdab22509a2c6052ecf7050b3f5c7d6b7898dc07e82869401b531d46da4")])
+    }
+
+    fn download_best_matching_wheel(package_name: &str, candidates: &[(&str, &str)]) -> PathBuf {
+        // HACK: create a runtime to call some async code
+        let rt = Runtime::new().unwrap();
+
+        // Determine the system wheel tags.
+        let tags = rt.block_on(async { WheelTags::from_env().await.unwrap() });
+
+        let package_name = NormalizedPackageName::from_str(package_name).unwrap();
+
+        let (_, url, sha) = candidates
+            .iter()
+            .flat_map(|(url, sha)| {
+                let url = Url::parse(url).unwrap();
+                let file_name = url.path_segments().unwrap().last().unwrap();
+                let file_name = WheelFilename::from_filename(file_name, &package_name).unwrap();
+                file_name
+                    .all_tags()
+                    .into_iter()
+                    .filter_map(|tag| tags.compatibility(&tag))
+                    .map(move |compatibility| (compatibility, url.clone(), *sha))
+            })
+            .max_by_key(|(compatibility, _, _)| *compatibility)
+            .unwrap();
+
+        download_and_cache_file(url, sha).unwrap()
+    }
+
+    #[test]
+    fn test_scripts_with_ruff() {
+        // Create a virtual environment in a temporary directory
+        let tmpdir = tempdir().unwrap();
+        let venv = VEnv::create(tmpdir.path(), PythonLocation::System).unwrap();
+
+        // Download our wheel file and install it in the virtual environment we just created
+        let package_path = download_best_ruff_wheel();
+        let wheel = Wheel::from_path(&package_path, &"ruff".parse().unwrap()).unwrap();
+        venv.install_wheel(&wheel, &Default::default()).unwrap();
+
+        // Determine the location of the installed script
+        let script_name = if venv.install_paths().is_windows() {
+            "ruff.exe"
+        } else {
+            "ruff"
+        };
+        let script_path = venv
+            .root()
+            .join(venv.install_paths().scripts())
+            .join(script_name);
+
+        // Execute the script
+        let output = std::process::Command::new(script_path)
+            .arg("--version")
+            .output()
+            .unwrap();
+
+        if !output.status.success() {
+            panic!(
+                "failed to execute script: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout.trim(), "ruff 0.1.0");
     }
 }
