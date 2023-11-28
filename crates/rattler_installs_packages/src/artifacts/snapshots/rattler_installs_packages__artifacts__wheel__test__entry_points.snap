@@ -1,0 +1,12 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/wheel.rs
+expression: stdout
+---
+borg : '=='
+dead : 'xx'
+default : 'oo'
+greedy : '$$'
+paranoid : '@@'
+tired : '--'
+wired : 'OO'
+young : '..'
