@@ -53,6 +53,17 @@ fn cache_dir() -> Result<PathBuf, Error> {
 }
 
 /// Downloads a file to a semi-temporary location that can be used for testing.
+pub async fn download_and_cache_file_async(
+    url: Url,
+    expected_sha256: &str,
+) -> Result<PathBuf, Error> {
+    let expected_sha256 = expected_sha256.to_owned();
+    tokio::task::spawn_blocking(move || download_and_cache_file(url, &expected_sha256))
+        .await
+        .unwrap()
+}
+
+/// Downloads a file to a semi-temporary location that can be used for testing.
 pub fn download_and_cache_file(url: Url, expected_sha256: &str) -> Result<PathBuf, Error> {
     // Acquire a lock to the cache directory
     let cache_dir = cache_dir()?;
@@ -73,7 +84,7 @@ pub fn download_and_cache_file(url: Url, expected_sha256: &str) -> Result<PathBu
     std::fs::create_dir_all(&final_parent_dir)
         .map_err(|e| Error::FailedToCreateCacheDir(final_parent_dir.display().to_string(), e))?;
 
-    // Aquire the lock on the cache directory
+    // Acquire the lock on the cache directory
     let mut lock = fslock::LockFile::open(&cache_dir.join(".lock"))
         .map_err(Error::FailedToAcquireCacheLock)?;
     lock.lock_with_pid()

@@ -62,7 +62,7 @@ impl WindowsLauncherArch {
 /// Constructs an executable that can be used to launch a python script on Windows.
 pub fn build_windows_launcher(
     shebang: &str,
-    launcher_python_script: &str,
+    launcher_python_script: &[u8],
     launcher_arch: WindowsLauncherArch,
     script_type: LauncherType,
 ) -> Vec<u8> {
@@ -77,9 +77,7 @@ pub fn build_windows_launcher(
         let mut archive = ZipWriter::new(Cursor::new(&mut stream));
         let error_msg = "Writing to Vec<u8> should never fail";
         archive.start_file("__main__.py", stored).expect(error_msg);
-        archive
-            .write_all(launcher_python_script.as_bytes())
-            .expect(error_msg);
+        archive.write_all(launcher_python_script).expect(error_msg);
         archive.finish().expect(error_msg);
     }
 
