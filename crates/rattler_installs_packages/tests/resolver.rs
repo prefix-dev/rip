@@ -2,9 +2,11 @@
 
 use pep508_rs::{MarkerEnvironment, Requirement};
 use rattler_installs_packages::{
+    index::PackageDb,
     resolve,
     tags::{WheelTag, WheelTags},
-    NormalizedPackageName, PackageDb, PinnedPackage, ResolveOptions, SDistResolution,
+    types::NormalizedPackageName,
+    PinnedPackage, ResolveOptions, SDistResolution,
 };
 use std::{collections::HashMap, path::Path, str::FromStr, sync::OnceLock};
 

@@ -153,8 +153,8 @@ impl VEnv {
 #[cfg(test)]
 mod tests {
     use super::VEnv;
+    use crate::types::NormalizedPackageName;
     use crate::venv::PythonLocation;
-    use crate::NormalizedPackageName;
     use std::path::Path;
     use std::str::FromStr;
 

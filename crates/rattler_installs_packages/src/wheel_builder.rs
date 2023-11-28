@@ -11,24 +11,24 @@ use std::{
 use pep508_rs::{MarkerEnvironment, Requirement};
 
 use crate::{
-    core_metadata::{WheelCoreMetaDataError, WheelCoreMetadata},
+    index::PackageDb,
     resolve,
     sdist::SDist,
     tags::WheelTags,
+    types::Artifact,
+    types::SDistFilename,
+    types::{WheelCoreMetaDataError, WheelCoreMetadata},
     venv::{PythonLocation, VEnv},
     wheel::UnpackError,
-    Artifact, PackageDb, PinnedPackage, ResolveOptions, SDistFilename, SDistResolution,
-    UnpackWheelOptions, Wheel,
+    PinnedPackage, ResolveOptions, SDistResolution, UnpackWheelOptions, Wheel,
 };
 
 // include static build_frontend.py string
 const BUILD_FRONTEND_PY: &str = include_str!("./wheel_builder_frontend.py");
-
-#[derive(Debug)]
-
 /// A build environment for building wheels
 /// This struct contains the virtualenv and everything that is needed
 /// to execute the PEP517 build backend hools
+#[derive(Debug)]
 pub struct BuildEnvironment<'db> {
     work_dir: tempfile::TempDir,
     package_dir: PathBuf,

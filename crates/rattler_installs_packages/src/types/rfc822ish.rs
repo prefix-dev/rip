@@ -1,6 +1,5 @@
 // Implementation comes from https://github.com/njsmith/posy/blob/main/src/vocab/rfc822ish.rs
 // Licensed under MIT or Apache-2.0
-
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -10,6 +9,39 @@ pub type Fields = HashMap<String, Vec<String>>;
 pub struct RFC822ish {
     pub fields: Fields,
     pub body: Option<String>,
+}
+
+impl RFC822ish {
+    pub fn take_all(&mut self, key: &str) -> Vec<String> {
+        match self.fields.remove(&key.to_ascii_lowercase()) {
+            Some(vec) => vec,
+            None => Vec::new(),
+        }
+    }
+
+    pub fn maybe_take(&mut self, key: &str) -> miette::Result<Option<String>> {
+        let mut values = self.take_all(key);
+        match values.len() {
+            0 => Ok(None),
+            1 => Ok(values.pop()),
+            _ => miette::bail!("multiple values for singleton key {}", key),
+        }
+    }
+
+    pub fn take(&mut self, key: &str) -> miette::Result<String> {
+        match self.maybe_take(key)? {
+            Some(result) => Ok(result),
+            None => miette::bail!("can't find required key {}", key),
+        }
+    }
+}
+
+impl FromStr for RFC822ish {
+    type Err = peg::error::ParseError<peg::str::LineCol>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        rfc822ish_parser::rfc822ish(s)
+    }
 }
 
 // Allegedly, a METADATA file is formatted as an RFC822 email message.
@@ -84,38 +116,5 @@ peg::parser! {
                      };
                      RFC822ish { fields, body, }
                  }
-    }
-}
-
-impl RFC822ish {
-    pub fn take_all(&mut self, key: &str) -> Vec<String> {
-        match self.fields.remove(&key.to_ascii_lowercase()) {
-            Some(vec) => vec,
-            None => Vec::new(),
-        }
-    }
-
-    pub fn maybe_take(&mut self, key: &str) -> miette::Result<Option<String>> {
-        let mut values = self.take_all(key);
-        match values.len() {
-            0 => Ok(None),
-            1 => Ok(values.pop()),
-            _ => miette::bail!("multiple values for singleton key {}", key),
-        }
-    }
-
-    pub fn take(&mut self, key: &str) -> miette::Result<String> {
-        match self.maybe_take(key)? {
-            Some(result) => Ok(result),
-            None => miette::bail!("can't find required key {}", key),
-        }
-    }
-}
-
-impl FromStr for RFC822ish {
-    type Err = peg::error::ParseError<peg::str::LineCol>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        rfc822ish_parser::rfc822ish(s)
     }
 }

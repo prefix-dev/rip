@@ -5,7 +5,7 @@
 //! which is based on [PEP 376](https://peps.python.org/pep-0376/) and [PEP 627](https://peps.python.org/pep-0627/).
 
 use crate::tags::WheelTag;
-use crate::{rfc822ish::RFC822ish, InstallPaths, NormalizedPackageName, PackageName};
+use crate::{types::NormalizedPackageName, types::PackageName, types::RFC822ish, InstallPaths};
 use indexmap::IndexSet;
 use itertools::Itertools;
 use pep440_rs::Version;

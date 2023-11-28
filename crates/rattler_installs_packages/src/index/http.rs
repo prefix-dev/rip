@@ -1,8 +1,8 @@
-use crate::file_store::FileLock;
-use crate::package_database::NotCached;
+use super::file_store::FileLock;
+use super::file_store::FileStore;
+use super::package_database::NotCached;
 use crate::seek_slice::SeekSlice;
 use crate::utils::{ReadAndSeek, StreamingOrLocal};
-use crate::FileStore;
 use bytes::Bytes;
 use futures::{Stream, StreamExt, TryStreamExt};
 use http::header::{ACCEPT, CACHE_CONTROL};
@@ -30,6 +30,7 @@ pub enum CacheStatus {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// Different caching semantics that can be applied to a request.
 pub enum CacheMode {
     /// Apply regular HTTP caching semantics
     Default,

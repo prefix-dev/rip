@@ -1,7 +1,7 @@
 //! Structs that represent the response from the Simple API when using JSON (PEP 691).
 
-use crate::artifact::Artifact;
-use crate::artifact_name::ArtifactName;
+use crate::types::Artifact;
+use crate::types::ArtifactName;
 use pep440_rs::VersionSpecifiers;
 use rattler_digest::{serde::SerializableHash, Sha256};
 use serde::{Deserialize, Serialize};

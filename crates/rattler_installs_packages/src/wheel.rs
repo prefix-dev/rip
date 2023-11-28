@@ -1,11 +1,15 @@
 use crate::{
-    core_metadata::{WheelCoreMetaDataError, WheelCoreMetadata},
-    entry_points::EntryPoint,
-    record::{Record, RecordEntry},
-    rfc822ish::RFC822ish,
     system_python::PythonInterpreterVersion,
+    types::Artifact,
+    types::EntryPoint,
+    types::Extra,
+    types::NormalizedPackageName,
+    types::PackageName,
+    types::RFC822ish,
+    types::WheelFilename,
+    types::{Record, RecordEntry},
+    types::{WheelCoreMetaDataError, WheelCoreMetadata},
     utils::ReadAndSeek,
-    Artifact, Extra, NormalizedPackageName, PackageName, WheelFilename,
 };
 use async_http_range_reader::AsyncHttpRangeReader;
 use async_zip::base::read::seek::ZipFileReader;
@@ -32,7 +36,7 @@ use thiserror::Error;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use zip::{read::ZipFile, result::ZipError, ZipArchive};
 
-use crate::launcher::{build_windows_launcher, LauncherType, WindowsLauncherArch};
+use crate::win::launcher::{build_windows_launcher, LauncherType, WindowsLauncherArch};
 
 /// Wheel file in the PyPI ecosystem.
 /// See the [Reference Page](https://packaging.python.org/en/latest/specifications/binary-distribution-format/#binary-distribution-format)

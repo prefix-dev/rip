@@ -1,9 +1,9 @@
 // Implementation comes from https://github.com/njsmith/posy/blob/main/src/vocab/core_metadata.rs
 // Licensed under MIT or Apache-2.0
 
-use crate::extra::ParseExtraError;
+use super::extra::ParseExtraError;
 use crate::{
-    extra::Extra, package_name::PackageName, rfc822ish::RFC822ish, ParsePackageNameError, Version,
+    types::Extra, types::PackageName, types::ParsePackageNameError, types::RFC822ish, Version,
     VersionSpecifiers,
 };
 use once_cell::sync::Lazy;
@@ -13,16 +13,27 @@ use std::{collections::HashSet, str::FromStr};
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
+
+/// The core metadata of a wheel.
 pub struct WheelCoreMetadata {
+    /// The name of the package
     pub name: PackageName,
+    /// Version w.r.t to PEP440
     pub version: Version,
+    /// Version of the metadata
     pub metadata_version: MetadataVersion,
+    /// Requirements for this distribution
+    /// Matches the Requires-Dist field
     pub requires_dist: Vec<Requirement>,
+    /// Python requirement
     pub requires_python: Option<VersionSpecifiers>,
+    /// Extras provided by this distribution
     pub extras: HashSet<Extra>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// Wrapper around a PEP440 version
+/// specifically for the metadata version
 pub struct MetadataVersion(pub Version);
 
 impl MetadataVersion {
@@ -41,6 +52,7 @@ impl MetadataVersion {
 }
 
 #[derive(Debug, Error)]
+#[allow(missing_docs)]
 pub enum WheelCoreMetaDataError {
     #[error(transparent)]
     FailedToParseMetadata(#[from] <RFC822ish as FromStr>::Err),

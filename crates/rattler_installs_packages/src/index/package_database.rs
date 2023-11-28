@@ -1,13 +1,12 @@
-use crate::core_metadata::WheelCoreMetadata;
+use crate::index::file_store::FileStore;
+use crate::index::html::{parse_package_names_html, parse_project_info_html};
+use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::sdist::SDist;
+use crate::types::{ArtifactInfo, ProjectInfo, WheelCoreMetadata};
 use crate::wheel_builder::WheelBuilder;
 use crate::{
-    artifact::Artifact,
-    artifact_name::InnerAsArtifactName,
-    html::{self, parse_project_info_html},
-    http::{CacheMode, Http, HttpRequestError},
-    project_info::{ArtifactInfo, ProjectInfo},
-    FileStore, NormalizedPackageName, Version, Wheel, WheelFilename,
+    types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName,
+    types::WheelFilename, Version, Wheel,
 };
 use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
 use elsa::sync::FrozenMap;
@@ -219,9 +218,6 @@ impl PackageDb {
         Ok(None)
     }
 
-    // TODO: As mentioned in the other todo below,
-    //       extract the builder into a separate struct
-    //       and pass that here
     async fn get_metadata_sdists<'a, 'i>(
         &self,
         artifacts: &[&'a ArtifactInfo],
@@ -380,7 +376,7 @@ impl PackageDb {
             let mut bytes = response.into_body().into_local().await.into_diagnostic()?;
             let mut source = String::new();
             bytes.read_to_string(&mut source).into_diagnostic()?;
-            html::parse_package_names_html(&source)
+            parse_package_names_html(&source)
         } else {
             Ok(vec![])
         }
@@ -480,7 +476,7 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::PackageName;
+    use crate::types::PackageName;
     use tempfile::TempDir;
 
     #[tokio::test]

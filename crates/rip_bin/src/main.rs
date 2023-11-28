@@ -88,7 +88,7 @@ async fn actual_main() -> miette::Result<()> {
     tracing::info!("cache directory: {}", cache_dir.display());
 
     // Construct a package database
-    let package_db = rattler_installs_packages::PackageDb::new(
+    let package_db = rattler_installs_packages::index::PackageDb::new(
         Default::default(),
         &[normalize_index_url(args.index_url.clone())],
         &cache_dir,

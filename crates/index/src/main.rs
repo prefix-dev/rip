@@ -14,7 +14,9 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
-use rattler_installs_packages::{normalize_index_url, Extra, PackageName, Requirement, Wheel};
+use rattler_installs_packages::{
+    normalize_index_url, types::Extra, types::PackageName, Requirement, Wheel,
+};
 use rip_bin::{global_multi_progress, IndicatifWriter};
 
 #[derive(Parser)]
@@ -38,7 +40,7 @@ pub async fn index(index_url: Url) -> Result<(), miette::Error> {
         .ok_or_else(|| miette::miette!("failed to determine cache directory"))?
         .join("rattler/pypi");
 
-    let package_db = rattler_installs_packages::PackageDb::new(
+    let package_db = rattler_installs_packages::index::PackageDb::new(
         Default::default(),
         &[normalize_index_url(index_url)],
         &cache_dir,

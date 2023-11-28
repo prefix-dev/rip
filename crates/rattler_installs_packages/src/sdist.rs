@@ -1,6 +1,6 @@
-use crate::core_metadata::{WheelCoreMetaDataError, WheelCoreMetadata};
+use crate::types::{Artifact, NormalizedPackageName, SDistFilename, SDistFormat};
+use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
-use crate::{Artifact, NormalizedPackageName, SDistFilename, SDistFormat};
 use flate2::read::GzDecoder;
 use miette::IntoDiagnostic;
 use parking_lot::Mutex;
@@ -186,7 +186,7 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::sdist::SDist;
-    use crate::{PackageDb, Pep508EnvMakers, ResolveOptions, WheelBuilder};
+    use crate::{index::PackageDb, Pep508EnvMakers, ResolveOptions, WheelBuilder};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use std::path::Path;
     use tempfile::TempDir;
@@ -194,7 +194,7 @@ mod tests {
     fn get_package_db() -> (PackageDb, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
         (
-            crate::PackageDb::new(
+            PackageDb::new(
                 Default::default(),
                 &[url::Url::parse("https://pypi.org/simple/").unwrap()],
                 tempdir.path(),

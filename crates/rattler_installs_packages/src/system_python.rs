@@ -3,9 +3,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
 
-// TODO: remove this once we are using this for sdist creation
-#[allow(dead_code)]
-
 /// Error that can occur while finding the python executable.
 #[derive(Debug, Error)]
 pub enum FindPythonError {

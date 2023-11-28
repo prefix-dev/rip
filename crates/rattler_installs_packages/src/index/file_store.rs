@@ -1,7 +1,7 @@
 // Implementation comes from https://github.com/njsmith/posy/blob/main/src/kvstore.rs
 // Licensed under MIT or Apache-2.0
 
-use crate::project_info::ArtifactHashes;
+use crate::types::ArtifactHashes;
 use crate::utils::retry_interrupted;
 use fs4::FileExt;
 use std::{

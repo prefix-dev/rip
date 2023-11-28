@@ -1,6 +1,6 @@
 //! Functionality to remove python distributions from an environment.
 
-use crate::record::Record;
+use crate::types::Record;
 use std::path::Path;
 use thiserror::Error;
 
@@ -69,7 +69,7 @@ pub fn uninstall_distribution(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::record::RecordEntry;
+    use crate::types::RecordEntry;
     use tempfile::tempdir;
 
     #[test]

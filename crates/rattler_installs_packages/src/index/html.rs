@@ -2,7 +2,7 @@
 use std::str::FromStr;
 use std::{borrow::Borrow, default::Default};
 
-use crate::{ArtifactHashes, ArtifactName, NormalizedPackageName};
+use crate::{types::ArtifactHashes, types::ArtifactName, types::NormalizedPackageName};
 use miette::{miette, IntoDiagnostic};
 use pep440_rs::VersionSpecifiers;
 
@@ -11,7 +11,7 @@ use rattler_digest::{parse_digest_from_hex, Sha256};
 use tl::HTMLTag;
 use url::Url;
 
-use super::project_info::{ArtifactInfo, DistInfoMetadata, ProjectInfo, Yanked};
+use crate::types::{ArtifactInfo, DistInfoMetadata, ProjectInfo, Yanked};
 
 fn parse_hash(s: &str) -> Option<ArtifactHashes> {
     if let Some(("sha256", hex)) = s.split_once('=') {

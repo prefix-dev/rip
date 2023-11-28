@@ -7,13 +7,14 @@
 //!
 //! See the `rip_bin` crate for an example of how to use the [`resolve`] function in the: [RIP Repo](https://github.com/prefix-dev/rip)
 
+use crate::index::PackageDb;
 use crate::sdist::SDist;
 use crate::tags::WheelTags;
 use crate::wheel::Wheel;
 use crate::wheel_builder::WheelBuilder;
 use crate::{
-    Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageDb, PackageName,
-    Requirement, Version,
+    types::Artifact, types::ArtifactInfo, types::ArtifactName, types::Extra,
+    types::NormalizedPackageName, types::PackageName, Requirement, Version,
 };
 use elsa::FrozenMap;
 use itertools::Itertools;

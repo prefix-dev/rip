@@ -1,8 +1,5 @@
-use crate::{
-    package_name::{PackageName, ParsePackageNameError},
-    tags::WheelTag,
-    NormalizedPackageName, Version,
-};
+use super::{NormalizedPackageName, PackageName, ParsePackageNameError};
+use crate::{tags::WheelTag, Version};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};

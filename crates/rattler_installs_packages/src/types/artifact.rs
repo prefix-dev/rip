@@ -1,4 +1,5 @@
-use crate::{artifact_name::InnerAsArtifactName, utils::ReadAndSeek};
+use super::artifact_name::InnerAsArtifactName;
+use crate::utils::ReadAndSeek;
 
 /// Trait that represents an artifact type in the PyPI ecosystem.
 pub trait Artifact: Sized {
