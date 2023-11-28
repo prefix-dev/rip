@@ -1,5 +1,5 @@
 use crate::{
-    system_python::PythonInterpreterVersion,
+    python_env::PythonInterpreterVersion,
     types::Artifact,
     types::EntryPoint,
     types::Extra,
@@ -319,6 +319,7 @@ impl Wheel {
 }
 
 #[derive(Debug)]
+/// Internals for the wheel that have to be present
 pub struct WheelVitals {
     dist_info: String,
     data: String,
@@ -328,6 +329,7 @@ pub struct WheelVitals {
 }
 
 #[derive(Debug, Error)]
+#[allow(missing_docs)]
 pub enum WheelVitalsError {
     #[error(".dist-info/ missing")]
     DistInfoMissing,
@@ -364,7 +366,7 @@ pub enum WheelVitalsError {
 }
 
 impl WheelVitalsError {
-    pub fn from_zip(file: String, err: ZipError) -> Self {
+    pub(crate) fn from_zip(file: String, err: ZipError) -> Self {
         match err {
             ZipError::Io(err) => WheelVitalsError::IoError(err),
             ZipError::FileNotFound => {
@@ -380,7 +382,7 @@ impl WheelVitalsError {
         }
     }
 
-    pub fn from_async_zip(file: String, err: async_zip::error::ZipError) -> Self {
+    pub(crate) fn from_async_zip(file: String, err: async_zip::error::ZipError) -> Self {
         match err {
             async_zip::error::ZipError::UpstreamReadError(err) => WheelVitalsError::IoError(err),
             _ => WheelVitalsError::AsyncZipError(file, err),
@@ -388,7 +390,7 @@ impl WheelVitalsError {
     }
 }
 
-pub fn parse_format_metadata_and_check_version(
+fn parse_format_metadata_and_check_version(
     input: &[u8],
     version_field: &str,
 ) -> Result<RFC822ish, WheelVitalsError> {
@@ -406,7 +408,7 @@ pub fn parse_format_metadata_and_check_version(
 }
 
 /// Helper method to read a particular file from a zip archive.
-pub fn read_entry_to_end<R: ReadAndSeek>(
+fn read_entry_to_end<R: ReadAndSeek>(
     archive: &mut ZipArchive<R>,
     name: &str,
 ) -> Result<Vec<u8>, WheelVitalsError> {
@@ -510,6 +512,7 @@ impl InstallPaths {
 }
 
 #[derive(Debug, Error)]
+#[allow(missing_docs)]
 pub enum UnpackError {
     #[error(transparent)]
     FailedToParseWheelVitals(#[from] WheelVitalsError),
@@ -540,7 +543,7 @@ pub enum UnpackError {
 }
 
 impl UnpackError {
-    pub fn from_zip_error(file: String, error: ZipError) -> Self {
+    pub(crate) fn from_zip_error(file: String, error: ZipError) -> Self {
         match error {
             ZipError::Io(err) => Self::IoError(file, err),
             _ => Self::ZipError(file, error),
@@ -570,6 +573,7 @@ pub struct UnpackWheelOptions {
 }
 
 #[derive(Debug)]
+/// Information about a wheel that has been unpacked into the destination directory.
 pub struct UnpackedWheel {
     /// The path to the *.dist-info directory of the unpacked wheel.
     pub dist_info: PathBuf,
@@ -1099,7 +1103,7 @@ impl<'a> WheelPathTransformer<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::venv::{PythonLocation, VEnv};
+    use crate::python_env::{PythonLocation, VEnv};
     use rstest::rstest;
     use tempfile::{tempdir, TempDir};
     use url::Url;
@@ -1175,7 +1179,7 @@ mod test {
             .file_name()
             .and_then(OsStr::to_str)
             .expect("could not determine filename");
-        let unpacked = unpack_wheel(&path, &normalized_package_name);
+        let unpacked = unpack_wheel(&path, normalized_package_name);
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = unpacked.dist_info.join("RECORD");

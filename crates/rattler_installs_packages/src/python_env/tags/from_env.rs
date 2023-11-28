@@ -1,5 +1,4 @@
-use crate::system_python::{system_python_executable, FindPythonError};
-use crate::tags::{WheelTag, WheelTags};
+use crate::python_env::{system_python_executable, FindPythonError, WheelTag, WheelTags};
 use crate::utils::VENDORED_PACKAGING_DIR;
 use serde::Deserialize;
 use std::io;

@@ -185,8 +185,10 @@ fn generic_archive_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::sdist::SDist;
-    use crate::{index::PackageDb, Pep508EnvMakers, ResolveOptions, WheelBuilder};
+    use crate::artifacts::SDist;
+    use crate::python_env::Pep508EnvMakers;
+    use crate::wheel_builder::WheelBuilder;
+    use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use std::path::Path;
     use tempfile::TempDir;
@@ -272,7 +274,7 @@ mod tests {
         let result = wheel_builder.build_wheel(&sdist).await.unwrap();
 
         // Try to re-open the wheel
-        let wheel = crate::wheel::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
+        let wheel = crate::artifacts::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
 
         let (_, metadata) = wheel.metadata().unwrap();
         assert_debug_snapshot!(metadata);
@@ -293,7 +295,7 @@ mod tests {
         let result = wheel_builder.build_wheel(&sdist).await.unwrap();
 
         // Try to re-open the wheel
-        let wheel = crate::wheel::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
+        let wheel = crate::artifacts::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
 
         let (_, metadata) = wheel.metadata().unwrap();
         assert_debug_snapshot!(metadata);

@@ -1,5 +1,6 @@
 use super::{NormalizedPackageName, PackageName, ParsePackageNameError};
-use crate::{tags::WheelTag, Version};
+use crate::python_env::WheelTag;
+use crate::types::Version;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};

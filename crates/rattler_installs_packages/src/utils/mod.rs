@@ -1,11 +1,15 @@
 mod read_and_seek;
 mod streaming_or_local;
 
+mod seek_slice;
+
 use include_dir::{include_dir, Dir};
 use url::Url;
 
 pub use read_and_seek::ReadAndSeek;
 pub use streaming_or_local::StreamingOrLocal;
+
+pub use seek_slice::SeekSlice;
 
 /// Keep retrying a certain IO function until it either succeeds or until it doesn't return
 /// [`std::io::ErrorKind::Interrupted`].

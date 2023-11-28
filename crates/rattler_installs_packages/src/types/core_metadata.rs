@@ -3,8 +3,8 @@
 
 use super::extra::ParseExtraError;
 use crate::{
-    types::Extra, types::PackageName, types::ParsePackageNameError, types::RFC822ish, Version,
-    VersionSpecifiers,
+    types::Extra, types::PackageName, types::ParsePackageNameError, types::RFC822ish,
+    types::Version, types::VersionSpecifiers,
 };
 use once_cell::sync::Lazy;
 use pep440_rs::Pep440Error;

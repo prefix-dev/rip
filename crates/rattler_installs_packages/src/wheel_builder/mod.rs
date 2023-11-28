@@ -11,17 +11,19 @@ use std::{
 use pep508_rs::{MarkerEnvironment, Requirement};
 
 use crate::{
+    artifacts::wheel::UnpackError,
+    artifacts::wheel::UnpackWheelOptions,
+    artifacts::SDist,
+    artifacts::Wheel,
     index::PackageDb,
-    resolve,
-    sdist::SDist,
-    tags::WheelTags,
+    python_env::WheelTags,
+    python_env::{PythonLocation, VEnv},
     types::Artifact,
     types::SDistFilename,
     types::{WheelCoreMetaDataError, WheelCoreMetadata},
-    venv::{PythonLocation, VEnv},
-    wheel::UnpackError,
-    PinnedPackage, ResolveOptions, SDistResolution, UnpackWheelOptions, Wheel,
 };
+
+use crate::resolve::{resolve, PinnedPackage, ResolveOptions, SDistResolution};
 
 // include static build_frontend.py string
 const BUILD_FRONTEND_PY: &str = include_str!("./wheel_builder_frontend.py");
@@ -406,16 +408,14 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
                 tracing::warn!("SDist build backend does not support metadata generation");
                 // build wheel instead
                 let wheel_file = self.build_wheel(sdist).await?;
-                let wheel = crate::wheel::Wheel::from_path(
-                    &wheel_file,
-                    &sdist.name().distribution.clone().into(),
-                )
-                .map_err(|e| {
-                    WheelBuildError::Error(format!(
-                        "Could not build wheel for metadata extraction: {}",
-                        e
-                    ))
-                })?;
+                let wheel =
+                    Wheel::from_path(&wheel_file, &sdist.name().distribution.clone().into())
+                        .map_err(|e| {
+                            WheelBuildError::Error(format!(
+                                "Could not build wheel for metadata extraction: {}",
+                                e
+                            ))
+                        })?;
 
                 return wheel.metadata().map_err(|e| {
                     WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))

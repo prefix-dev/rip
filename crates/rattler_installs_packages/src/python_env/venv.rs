@@ -3,12 +3,12 @@
 //! Later on we can look into actually creating the environment by linking to the python library,
 //! and creating the necessary files. See: [VEnv](https://packaging.python.org/en/latest/specifications/virtual-environments/#declaring-installation-environments-as-python-virtual-environments)
 #![allow(dead_code)]
-use crate::system_python::{
+use crate::artifacts::wheel::{InstallPaths, UnpackWheelOptions, Wheel};
+use crate::artifacts::wheel::{UnpackError, UnpackedWheel};
+use crate::python_env::{
     system_python_executable, FindPythonError, ParsePythonInterpreterVersionError,
     PythonInterpreterVersion,
 };
-use crate::wheel::{UnpackError, UnpackedWheel};
-use crate::{InstallPaths, UnpackWheelOptions, Wheel};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use thiserror::Error;
@@ -153,8 +153,8 @@ impl VEnv {
 #[cfg(test)]
 mod tests {
     use super::VEnv;
+    use crate::python_env::PythonLocation;
     use crate::types::NormalizedPackageName;
-    use crate::venv::PythonLocation;
     use std::path::Path;
     use std::str::FromStr;
 
@@ -166,7 +166,7 @@ mod tests {
         assert!(venv.python_executable().is_file());
 
         // Install wheel
-        let wheel = crate::wheel::Wheel::from_path(
+        let wheel = crate::artifacts::Wheel::from_path(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../test-data/wheels/wordle_python-2.3.32-py3-none-any.whl"),
             &NormalizedPackageName::from_str("wordle_python").unwrap(),

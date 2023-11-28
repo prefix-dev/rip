@@ -10,9 +10,10 @@ use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::tags::WheelTags;
+use rattler_installs_packages::python_env::WheelTags;
 use rattler_installs_packages::{
-    normalize_index_url, resolve, Pep508EnvMakers, Requirement, ResolveOptions,
+    normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve,
+    resolve::ResolveOptions, types::Requirement,
 };
 
 #[derive(Parser)]
@@ -53,18 +54,18 @@ struct SDistResolution {
     only_sdists: bool,
 }
 
-impl From<SDistResolution> for rattler_installs_packages::SDistResolution {
+impl From<SDistResolution> for resolve::SDistResolution {
     fn from(value: SDistResolution) -> Self {
         if value.only_sdists {
-            rattler_installs_packages::SDistResolution::OnlySDists
+            resolve::SDistResolution::OnlySDists
         } else if value.only_wheels {
-            rattler_installs_packages::SDistResolution::OnlyWheels
+            resolve::SDistResolution::OnlyWheels
         } else if value.prefer_sdists {
-            rattler_installs_packages::SDistResolution::PreferSDists
+            resolve::SDistResolution::PreferSDists
         } else if value.prefer_wheels {
-            rattler_installs_packages::SDistResolution::PreferWheels
+            resolve::SDistResolution::PreferWheels
         } else {
-            rattler_installs_packages::SDistResolution::Normal
+            resolve::SDistResolution::Normal
         }
     }
 }

@@ -28,7 +28,7 @@ impl WheelTag {
     /// multiple tags in a single string.
     ///
     /// ```rust
-    /// # use rattler_installs_packages::tags::WheelTag;
+    /// # use rattler_installs_packages::python_env::WheelTag;
     /// let tags = WheelTag::from_compound_string(
     ///     "cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64").unwrap();
     ///

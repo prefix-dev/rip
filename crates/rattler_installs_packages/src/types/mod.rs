@@ -17,7 +17,6 @@ mod entry_points;
 mod project_info;
 
 mod rfc822ish;
-
 pub use artifact::Artifact;
 
 pub use artifact_name::{
@@ -38,3 +37,6 @@ pub use entry_points::{EntryPoint, ParseEntryPointError};
 pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, ProjectInfo, Yanked};
 
 pub(crate) use rfc822ish::RFC822ish;
+
+pub use pep440_rs::{Version, VersionSpecifier, VersionSpecifiers};
+pub use pep508_rs::{MarkerEnvironment, Requirement};

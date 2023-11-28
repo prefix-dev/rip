@@ -1,8 +1,7 @@
 use super::file_store::FileLock;
 use super::file_store::FileStore;
 use super::package_database::NotCached;
-use crate::seek_slice::SeekSlice;
-use crate::utils::{ReadAndSeek, StreamingOrLocal};
+use crate::utils::{ReadAndSeek, SeekSlice, StreamingOrLocal};
 use bytes::Bytes;
 use futures::{Stream, StreamExt, TryStreamExt};
 use http::header::{ACCEPT, CACHE_CONTROL};

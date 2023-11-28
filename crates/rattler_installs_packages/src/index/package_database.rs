@@ -1,12 +1,12 @@
+use crate::artifacts::{SDist, Wheel};
 use crate::index::file_store::FileStore;
 use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
-use crate::sdist::SDist;
 use crate::types::{ArtifactInfo, ProjectInfo, WheelCoreMetadata};
 use crate::wheel_builder::WheelBuilder;
 use crate::{
-    types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName,
-    types::WheelFilename, Version, Wheel,
+    types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName, types::Version,
+    types::WheelFilename,
 };
 use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
 use elsa::sync::FrozenMap;
@@ -485,7 +485,7 @@ mod test {
         let package_db = PackageDb::new(
             Client::new(),
             &[Url::parse("https://pypi.org/simple/").unwrap()],
-            cache_dir.path().into(),
+            cache_dir.path(),
         )
         .unwrap();
 
@@ -514,7 +514,7 @@ mod test {
         let package_db = PackageDb::new(
             Client::new(),
             &[Url::parse("https://pypi.org/simple/").unwrap()],
-            cache_dir.path().into(),
+            cache_dir.path(),
         )
         .unwrap();
 

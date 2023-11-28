@@ -102,7 +102,7 @@ impl PythonInterpreterVersion {
 
 #[cfg(test)]
 mod tests {
-    use crate::system_python::PythonInterpreterVersion;
+    use crate::python_env::PythonInterpreterVersion;
 
     #[test]
     pub fn parse_python_version() {
