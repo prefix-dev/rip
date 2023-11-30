@@ -69,6 +69,9 @@ pub struct ByteCodeCompiler {
 }
 
 impl ByteCodeCompiler {
+    /// Constructs a new instance.
+    ///
+    /// This function spawns a new python process that will be used to compile python source code.
     pub fn new(python_path: &Path) -> Result<Self, SpawnCompilerError> {
         // Write the compilation host source code to a temporary file
         let compilation_source = tempfile::Builder::new()

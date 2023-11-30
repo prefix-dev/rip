@@ -1,0 +1,16 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/wheel.rs
+assertion_line: 1342
+expression: record_content
+---
+../../../bin/cowpy,sha256=SFF6UwGGzU1ml9elXqzPZDc32EjsJpLKC8MoU7S4yHI,200
+cowpy-1.1.5.dist-info/INSTALLER,sha256=FpzDrzfcP6oI1mbsvYAjw7hT2I4P4wr99k5NKqmKJt0,10
+cowpy-1.1.5.dist-info/LICENSE.md,sha256=aP4kRCPk1Pc11h2VaqptJ3jejrF5N0JPNQvM34wCFoo,11346
+cowpy-1.1.5.dist-info/METADATA,sha256=2hFQ8fNsIneBFh9xNZGgTZyuhY9op1GgBA5cWCi7iNY,438
+cowpy-1.1.5.dist-info/RECORD,,
+cowpy-1.1.5.dist-info/WHEEL,sha256=y3eDiaFVSNTPbgzfNn0nYn5tEn1cX6WrdetDlQM4xWw,83
+cowpy-1.1.5.dist-info/entry_points.txt,sha256=65rFxa9IJJm7mT1X4sKaKZ3AhxSPukmKDXlXwOnVxOM,40
+cowpy/__init__.py,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+cowpy/__pycache__/__init__.cpython-310.pyc,,
+cowpy/__pycache__/cow.cpython-310.pyc,,
+cowpy/cow.py,sha256=W9eX898X1ocpWGvF1SrBOEEiY7z8tfglxFmtmGrRwxw,41928
