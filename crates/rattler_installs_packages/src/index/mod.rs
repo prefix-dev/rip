@@ -8,4 +8,4 @@ mod package_database;
 
 pub use package_database::PackageDb;
 
-pub use http::CacheMode;
+pub use self::http::CacheMode;
