@@ -1338,6 +1338,11 @@ mod test {
         let record_content = std::fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
             .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
 
+        // Replace all cpython references with cpython-xxx to ensure that no matter the version of
+        // python the snapshot will match.
+        let regex = regex::Regex::new("cpython-([0-9]+)").unwrap();
+        let record_content = regex.replace_all(&record_content, "cpython-<version>");
+
         insta::assert_snapshot!(record_content);
     }
 
