@@ -850,9 +850,22 @@ impl Wheel {
         // Write all the compiled bytecode files to the RECORD file
         drop(pyc_tx);
         for (source, result) in pyc_rx {
-            let absolute_path = result.map_err(|err| {
-                UnpackError::ByteCodeCompilationFailed(source.display().to_string(), err)
-            })?;
+            let absolute_path = match result {
+                Ok(absolute_path) => absolute_path,
+                Err(CompilationError::NotAPythonFile | CompilationError::SourceNotFound) => {
+                    unreachable!("we check these guarantees")
+                }
+                Err(CompilationError::FailedToCompile) => {
+                    // Compilation errors are silently ignore.. This is the same behavior pip has.
+                    continue;
+                }
+                Err(err @ CompilationError::HostQuit) => {
+                    return Err(UnpackError::ByteCodeCompilationFailed(
+                        source.display().to_string(),
+                        err,
+                    ));
+                }
+            };
             let relative_path = pathdiff::diff_paths(&absolute_path, &site_packages)
                 .expect("can always create relative path from site-packages");
             let record = RecordEntry {
@@ -1325,13 +1338,14 @@ mod test {
 
     #[test]
     fn test_byte_code_compilation() {
+        // We check this specific package because some of the files will fail to compile.
         let package_path = test_utils::download_and_cache_file(
-            "https://files.pythonhosted.org/packages/29/a2/76daec910034d765f1018d22660c0970fb99f77143a42841d067b522903e/cowpy-1.1.5-py3-none-any.whl".parse().unwrap(),
-            "de5ae7646dd30b4936013666c6bd019af9cf411cc3b377c8538cfd8414262921").unwrap();
+            "https://files.pythonhosted.org/packages/2a/e8/4e05b0daceb19463339b2616bdb9d5ad6573e6259e4e665239e663c7ac3b/debugpy-1.5.1-cp38-cp38-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_12_x86_64.manylinux2010_x86_64.whl".parse().unwrap(),
+            "b2df2c373e85871086bd55271c929670cd4e1dba63e94a08d442db830646203b").unwrap();
 
         let python_path = system_python_executable().unwrap();
         let compiler = ByteCodeCompiler::new(&python_path).unwrap();
-        let unpacked = unpack_wheel(&package_path, &"cowpy".parse().unwrap(), Some(&compiler));
+        let unpacked = unpack_wheel(&package_path, &"debugpy".parse().unwrap(), Some(&compiler));
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = unpacked.dist_info.join("RECORD");
