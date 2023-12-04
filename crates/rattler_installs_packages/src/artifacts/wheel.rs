@@ -432,6 +432,7 @@ pub struct InstallPaths {
     platlib: PathBuf,
     scripts: PathBuf,
     data: PathBuf,
+    headers: PathBuf,
     windows: bool,
 }
 
@@ -467,6 +468,7 @@ impl InstallPaths {
             scripts,
             data,
             windows,
+            headers: PathBuf::from("include"),
         }
     }
 
@@ -500,15 +502,20 @@ impl InstallPaths {
         &self.data
     }
 
+    /// Returns the location of the headers directory. The location of headers is specific to a
+    /// distribution name.
+    pub fn headers(&self, distribution_name: &str) -> PathBuf {
+        self.headers.join(distribution_name)
+    }
+
     /// Matches the different categories to their install paths.
-    pub fn match_category<S: AsRef<str>>(&self, category: S) -> Option<&Path> {
-        let category = category.as_ref();
+    pub fn match_category(&self, category: &str, distribution_name: &str) -> Option<Cow<Path>> {
         match category {
-            "purelib" => Some(self.purelib()),
-            "platlib" => Some(self.platlib()),
-            "scripts" => Some(self.scripts()),
-            "data" => Some(self.data()),
-            // TODO: support headers?
+            "purelib" => Some(self.purelib().into()),
+            "platlib" => Some(self.platlib().into()),
+            "scripts" => Some(self.scripts().into()),
+            "data" => Some(self.data().into()),
+            "headers" => Some(self.headers(distribution_name).into()),
             &_ => None,
         }
     }
@@ -618,6 +625,7 @@ impl Wheel {
             data: vitals.data,
             root_is_purelib: vitals.root_is_purelib,
             paths,
+            name: self.name.distribution.as_str(),
         };
 
         let trampoline_maker = TrampolineMaker {
@@ -1190,6 +1198,9 @@ struct WheelPathTransformer<'a> {
 
     /// The location in the filesystem where to place files from the data directory.
     paths: &'a InstallPaths,
+
+    /// The name of the distribution
+    name: &'a str,
 }
 
 impl<'a> WheelPathTransformer<'a> {
@@ -1218,7 +1229,7 @@ impl<'a> WheelPathTransformer<'a> {
             (category, path)
         };
 
-        match self.paths.match_category(category.as_ref()) {
+        match self.paths.match_category(category.as_ref(), self.name) {
             Some(basepath) => Ok(Some((basepath.join(rest_of_path), category == "scripts"))),
             None => Err(UnpackError::UnsupportedDataDirectory(category.into_owned())),
         }
@@ -1358,6 +1369,23 @@ mod test {
         let record_content = regex.replace_all(&record_content, "cpython-<version>");
 
         insta::assert_snapshot!(record_content);
+    }
+
+    #[test]
+    fn test_headers() {
+        // Create a virtual environment in a temporary directory
+        let tmpdir = tempdir().unwrap();
+        let venv = VEnv::create(tmpdir.path(), PythonLocation::System).unwrap();
+
+        // Download our wheel file and install it in the virtual environment we just created
+        let package_path = test_utils::download_and_cache_file(
+            "https://files.pythonhosted.org/packages/02/72/36fb2c35547fdf473629579fc35d9a2034592ea3f01710702d81ef596e16/greenlet-3.0.1-cp310-cp310-win_amd64.whl".parse().unwrap(),
+            "52e93b28db27ae7d208748f45d2db8a7b6a380e0d703f099c949d0f0d80b70e9").unwrap();
+        let wheel = Wheel::from_path(&package_path, &"greenlet".parse().unwrap()).unwrap();
+        venv.install_wheel(&wheel, &Default::default()).unwrap();
+
+        // Check to make sure that the headers directory was created
+        assert!(venv.root().join("include/greenlet/greenlet.h").is_file());
     }
 
     #[test]
