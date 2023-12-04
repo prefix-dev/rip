@@ -12,8 +12,11 @@ mod system_python;
 mod uninstall;
 mod venv;
 
+mod byte_code_compiler;
+
 pub use tags::{WheelTag, WheelTags};
 
+pub use byte_code_compiler::{ByteCodeCompiler, CompilationError, SpawnCompilerError};
 pub use distribution_finder::{find_distributions_in_venv, Distribution, FindDistributionError};
 pub use env_markers::Pep508EnvMakers;
 pub(crate) use system_python::{
