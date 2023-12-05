@@ -305,12 +305,8 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         )?;
 
         // Reconstruct wheel from the path
-        let wheel = Wheel::from_path(&wheel_file, &package_name).map_err(|e| {
-            WheelBuildError::Error(format!(
-                "Could not build wheel for metadata extraction: {}",
-                e
-            ))
-        })?;
+        let wheel = Wheel::from_path(&wheel_file, &package_name)
+            .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))?;
 
         Ok(wheel)
     }
