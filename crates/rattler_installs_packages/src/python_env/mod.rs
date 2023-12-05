@@ -21,4 +21,4 @@ pub(crate) use system_python::{
     PythonInterpreterVersion,
 };
 pub use uninstall::{uninstall_distribution, UninstallDistributionError};
-pub(crate) use venv::{PythonLocation, VEnv};
+pub use venv::{PythonLocation, VEnv};

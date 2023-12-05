@@ -47,9 +47,9 @@ impl Display for PypiVersionSet {
 /// This is a wrapper around [`Version`] that serves a version
 /// within the [`PypiVersionSet`] version set.
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) enum PypiVersion {
     Version(Version),
+    #[allow(dead_code)]
     Url(Url),
 }
 
@@ -141,7 +141,13 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         options: &'i ResolveOptions,
     ) -> miette::Result<Self> {
-        let wheel_builder = WheelBuilder::new(package_db, markers, compatible_tags, options);
+        let wheel_builder = WheelBuilder::new(
+            package_db,
+            markers,
+            compatible_tags,
+            options,
+            package_db.cache_dir(),
+        );
 
         Ok(Self {
             pool: Pool::new(),

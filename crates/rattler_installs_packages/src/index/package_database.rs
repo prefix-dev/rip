@@ -15,6 +15,7 @@ use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
+use std::path::PathBuf;
 use std::{fmt::Display, io::Read, path::Path};
 use url::Url;
 
@@ -30,6 +31,9 @@ pub struct PackageDb {
 
     /// A cache of package name to version to artifacts.
     artifacts: FrozenMap<NormalizedPackageName, Box<IndexMap<Version, Vec<ArtifactInfo>>>>,
+
+    /// Reference to the cache directory for all caches
+    cache_dir: PathBuf,
 }
 
 impl PackageDb {
@@ -44,7 +48,13 @@ impl PackageDb {
             index_urls: index_urls.into(),
             metadata_cache: FileStore::new(&cache_dir.join("metadata"))?,
             artifacts: Default::default(),
+            cache_dir: cache_dir.to_owned(),
         })
+    }
+
+    /// Returns the cache directory
+    pub fn cache_dir(&self) -> &Path {
+        &self.cache_dir
     }
 
     /// Downloads and caches information about available artifiacts of a package from the index.
