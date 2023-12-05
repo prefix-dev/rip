@@ -15,6 +15,7 @@ type CompilationResponse = Result<PathBuf, CompilationError>;
 type CompilationRequest = PathBuf;
 
 type BoxedCallback = Box<dyn FnOnce(CompilationResponse) + Send + 'static>;
+type CompilationCallbackMap = HashMap<CompilationRequest, Vec<BoxedCallback>>;
 
 /// An error that can occur when compiling a source file.
 #[derive(Debug, Error, Clone)]
@@ -57,7 +58,7 @@ pub struct ByteCodeCompiler {
 
     /// Callback functions per compilation request. These are called when the compilation host
     /// finishes processing a request.
-    pending_callbacks: Arc<Mutex<HashMap<CompilationRequest, Vec<BoxedCallback>>>>,
+    pending_callbacks: Arc<Mutex<Option<CompilationCallbackMap>>>,
 
     /// The child process. This is waited upon on drop.
     child: Option<std::process::Child>,
@@ -114,10 +115,7 @@ impl ByteCodeCompiler {
 
         // Spawn another thread to process the output of the compilation process and forward it to the
         // response channel.
-        let pending_callbacks = Arc::new(Mutex::new(HashMap::<
-            CompilationRequest,
-            Vec<BoxedCallback>,
-        >::new()));
+        let pending_callbacks = Arc::new(Mutex::new(Some(CompilationCallbackMap::new())));
         let response_callbacks = pending_callbacks.clone();
         let child_stdout = BufReader::new(child.stdout.take().expect("stdout is piped"));
         std::thread::spawn(move || {
@@ -132,8 +130,14 @@ impl ByteCodeCompiler {
                     Ok(response) => {
                         tracing::trace!("finished compiling '{}'", response.path.display());
 
-                        let mut callbacks = response_callbacks.lock();
-                        match callbacks.remove(&response.path) {
+                        let callbacks = {
+                            let mut callback_lock = response_callbacks.lock();
+                            let callbacks = callback_lock.as_mut().expect(
+                                "the callbacks are not dropped until the end of this function",
+                            );
+                            callbacks.remove(&response.path)
+                        };
+                        match callbacks {
                             None => panic!(
                                 "received a response for an unknown request '{}'",
                                 response.path.display()
@@ -155,6 +159,19 @@ impl ByteCodeCompiler {
                         );
                         break;
                     }
+                }
+            }
+
+            tracing::trace!("compilation host stdout closed");
+
+            // Abort any pending callbacks and disable the ability to add new ones.
+            let callbacks = response_callbacks
+                .lock()
+                .take()
+                .expect("only we can drop the callbacks");
+            for (_, callbacks) in callbacks {
+                for callback in callbacks {
+                    callback(Err(CompilationError::HostQuit))
                 }
             }
         });
@@ -186,8 +203,12 @@ impl ByteCodeCompiler {
             return Err(CompilationError::SourceNotFound);
         }
 
-        self.pending_callbacks
-            .lock()
+        let mut lock = self.pending_callbacks.lock();
+        let Some(callbacks) = lock.as_mut() else {
+            return Err(CompilationError::HostQuit);
+        };
+
+        callbacks
             .entry(source_path.to_path_buf())
             .or_default()
             .push(Box::new(callback));
