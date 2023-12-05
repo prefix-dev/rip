@@ -1,3 +1,4 @@
+use crate::python_env::{ByteCodeCompiler, CompilationError};
 use crate::{
     python_env::PythonInterpreterVersion,
     types::Artifact,
@@ -21,6 +22,7 @@ use pep440_rs::Version;
 use rattler_digest::Sha256;
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader};
+use std::sync::mpsc::channel;
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -430,6 +432,7 @@ pub struct InstallPaths {
     platlib: PathBuf,
     scripts: PathBuf,
     data: PathBuf,
+    headers: PathBuf,
     windows: bool,
 }
 
@@ -465,6 +468,7 @@ impl InstallPaths {
             scripts,
             data,
             windows,
+            headers: PathBuf::from("include"),
         }
     }
 
@@ -498,15 +502,20 @@ impl InstallPaths {
         &self.data
     }
 
+    /// Returns the location of the headers directory. The location of headers is specific to a
+    /// distribution name.
+    pub fn headers(&self, distribution_name: &str) -> PathBuf {
+        self.headers.join(distribution_name)
+    }
+
     /// Matches the different categories to their install paths.
-    pub fn match_category<S: AsRef<str>>(&self, category: S) -> Option<&Path> {
-        let category = category.as_ref();
+    pub fn match_category(&self, category: &str, distribution_name: &str) -> Option<Cow<Path>> {
         match category {
-            "purelib" => Some(self.purelib()),
-            "platlib" => Some(self.platlib()),
-            "scripts" => Some(self.scripts()),
-            "data" => Some(self.data()),
-            // TODO: support headers?
+            "purelib" => Some(self.purelib().into()),
+            "platlib" => Some(self.platlib().into()),
+            "scripts" => Some(self.scripts().into()),
+            "data" => Some(self.data().into()),
+            "headers" => Some(self.headers(distribution_name).into()),
             &_ => None,
         }
     }
@@ -541,6 +550,9 @@ pub enum UnpackError {
 
     #[error("could not create entry points because the windows architecture is unsupported")]
     UnsupportedWindowsArchitecture,
+
+    #[error("bytecode compilation failed, {0}")]
+    ByteCodeCompilationFailed(String, #[source] CompilationError),
 }
 
 impl UnpackError {
@@ -556,7 +568,7 @@ impl UnpackError {
 ///
 /// Not all options in this struct are relevant. Typically you will default a number of fields.
 #[derive(Default)]
-pub struct UnpackWheelOptions {
+pub struct UnpackWheelOptions<'i> {
     /// When specified an INSTALLER file is written to the dist-info folder of the package.
     /// INSTALLER files are used to track the installer of a package. See [PEP 376](https://peps.python.org/pep-0376/) for more information.
     pub installer: Option<String>,
@@ -571,6 +583,10 @@ pub struct UnpackWheelOptions {
     /// If this field is `None` the architecture will be determined based on the architecture of the
     /// current process.
     pub launcher_arch: Option<WindowsLauncherArch>,
+
+    /// A reference to a bytecode compiler that can be used to compile the bytecode of the wheel. If
+    /// this field is `None` bytecode compilation will be skipped.
+    pub byte_code_compiler: Option<&'i ByteCodeCompiler>,
 }
 
 #[derive(Debug)]
@@ -609,6 +625,7 @@ impl Wheel {
             data: vitals.data,
             root_is_purelib: vitals.root_is_purelib,
             paths,
+            name: self.name.distribution.as_str(),
         };
 
         let trampoline_maker = TrampolineMaker {
@@ -639,6 +656,7 @@ impl Wheel {
             Scripts::from_wheel(&mut archive, &vitals.dist_info, options.extras.as_ref())?;
 
         let mut resulting_records = Vec::new();
+        let (pyc_tx, pyc_rx) = channel();
         for index in 0..archive.len() {
             let mut zip_entry = archive
                 .by_index(index)
@@ -733,6 +751,25 @@ impl Wheel {
                 write_wheel_file(&mut zip_entry, &destination, executable)?
             };
 
+            // If the file is a python file we need to compile it to bytecode
+            if let Some(bytecode_compiler) = options.byte_code_compiler.as_ref() {
+                if destination.extension() == Some(OsStr::new("py")) {
+                    let pyc_tx = pyc_tx.clone();
+                    let cloned_destination = destination.clone();
+                    bytecode_compiler
+                        .compile(&destination, move |result| {
+                            // Ignore any error that might occur due to the receiver being closed.
+                            let _ = pyc_tx.send((cloned_destination, result));
+                        })
+                        .map_err(|err| {
+                            UnpackError::ByteCodeCompilationFailed(
+                                destination.display().to_string(),
+                                err,
+                            )
+                        })?;
+                }
+            }
+
             // Make sure the hash matches with what we expect
             if let Some(encoded_hash) = encoded_hash {
                 let relative_path_string = relative_path.display().to_string();
@@ -816,6 +853,35 @@ impl Wheel {
                 format!("{}\n", installer.trim()),
                 false,
             )?);
+        }
+
+        // Write all the compiled bytecode files to the RECORD file
+        drop(pyc_tx);
+        for (source, result) in pyc_rx {
+            let absolute_path = match result {
+                Ok(absolute_path) => absolute_path,
+                Err(CompilationError::NotAPythonFile | CompilationError::SourceNotFound) => {
+                    unreachable!("we check these guarantees")
+                }
+                Err(CompilationError::FailedToCompile) => {
+                    // Compilation errors are silently ignore.. This is the same behavior pip has.
+                    continue;
+                }
+                Err(err @ CompilationError::HostQuit) => {
+                    return Err(UnpackError::ByteCodeCompilationFailed(
+                        source.display().to_string(),
+                        err,
+                    ));
+                }
+            };
+            let relative_path = pathdiff::diff_paths(&absolute_path, &site_packages)
+                .expect("can always create relative path from site-packages");
+            let record = RecordEntry {
+                path: relative_path.display().to_string().replace('\\', "/"),
+                hash: None,
+                size: None,
+            };
+            resulting_records.push(record);
         }
 
         // Write the resulting RECORD file
@@ -1132,6 +1198,9 @@ struct WheelPathTransformer<'a> {
 
     /// The location in the filesystem where to place files from the data directory.
     paths: &'a InstallPaths,
+
+    /// The name of the distribution
+    name: &'a str,
 }
 
 impl<'a> WheelPathTransformer<'a> {
@@ -1160,7 +1229,7 @@ impl<'a> WheelPathTransformer<'a> {
             (category, path)
         };
 
-        match self.paths.match_category(category.as_ref()) {
+        match self.paths.match_category(category.as_ref(), self.name) {
             Some(basepath) => Ok(Some((basepath.join(rest_of_path), category == "scripts"))),
             None => Err(UnpackError::UnsupportedDataDirectory(category.into_owned())),
         }
@@ -1170,7 +1239,7 @@ impl<'a> WheelPathTransformer<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::python_env::{PythonLocation, VEnv, WheelTags};
+    use crate::python_env::{system_python_executable, PythonLocation, VEnv, WheelTags};
     use rstest::rstest;
     use tempfile::{tempdir, TempDir};
     use test_utils::download_and_cache_file_async;
@@ -1214,7 +1283,11 @@ mod test {
         _install_paths: InstallPaths,
     }
 
-    fn unpack_wheel(path: &Path, normalized_package_name: &NormalizedPackageName) -> UnpackedWheel {
+    fn unpack_wheel(
+        path: &Path,
+        normalized_package_name: &NormalizedPackageName,
+        byte_code_compiler: Option<&ByteCodeCompiler>,
+    ) -> UnpackedWheel {
         let wheel = Wheel::from_path(path, normalized_package_name).unwrap();
         let tmpdir = tempdir().unwrap();
 
@@ -1229,6 +1302,7 @@ mod test {
                 Path::new("/invalid"),
                 &UnpackWheelOptions {
                     installer: Some(String::from(INSTALLER)),
+                    byte_code_compiler,
                     ..Default::default()
                 },
             )
@@ -1247,7 +1321,7 @@ mod test {
             .file_name()
             .and_then(OsStr::to_str)
             .expect("could not determine filename");
-        let unpacked = unpack_wheel(&path, normalized_package_name);
+        let unpacked = unpack_wheel(&path, normalized_package_name, None);
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = unpacked.dist_info.join("RECORD");
@@ -1264,12 +1338,54 @@ mod test {
                 "../../test-data/wheels/purelib_and_platlib-1.0.0-cp38-cp38-linux_x86_64.whl",
             ),
             &"purelib-and-platlib".parse().unwrap(),
+            None,
         );
 
         let relative_path = unpacked.dist_info.join("INSTALLER");
         let installer_content =
             std::fs::read_to_string(unpacked.tmpdir.path().join(relative_path)).unwrap();
         assert_eq!(installer_content, format!("{INSTALLER}\n"));
+    }
+
+    #[test]
+    fn test_byte_code_compilation() {
+        // We check this specific package because some of the files will fail to compile.
+        let package_path = test_utils::download_and_cache_file(
+            "https://files.pythonhosted.org/packages/2a/e8/4e05b0daceb19463339b2616bdb9d5ad6573e6259e4e665239e663c7ac3b/debugpy-1.5.1-cp38-cp38-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_12_x86_64.manylinux2010_x86_64.whl".parse().unwrap(),
+            "b2df2c373e85871086bd55271c929670cd4e1dba63e94a08d442db830646203b").unwrap();
+
+        let python_path = system_python_executable().unwrap();
+        let compiler = ByteCodeCompiler::new(&python_path).unwrap();
+        let unpacked = unpack_wheel(&package_path, &"debugpy".parse().unwrap(), Some(&compiler));
+
+        // Determine the location where we would expect the RECORD file to exist
+        let record_path = unpacked.dist_info.join("RECORD");
+        let record_content = std::fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
+            .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
+
+        // Replace all cpython references with cpython-xxx to ensure that no matter the version of
+        // python the snapshot will match.
+        let regex = regex::Regex::new("cpython-([0-9]+)").unwrap();
+        let record_content = regex.replace_all(&record_content, "cpython-<version>");
+
+        insta::assert_snapshot!(record_content);
+    }
+
+    #[test]
+    fn test_headers() {
+        // Create a virtual environment in a temporary directory
+        let tmpdir = tempdir().unwrap();
+        let venv = VEnv::create(tmpdir.path(), PythonLocation::System).unwrap();
+
+        // Download our wheel file and install it in the virtual environment we just created
+        let package_path = test_utils::download_and_cache_file(
+            "https://files.pythonhosted.org/packages/02/72/36fb2c35547fdf473629579fc35d9a2034592ea3f01710702d81ef596e16/greenlet-3.0.1-cp310-cp310-win_amd64.whl".parse().unwrap(),
+            "52e93b28db27ae7d208748f45d2db8a7b6a380e0d703f099c949d0f0d80b70e9").unwrap();
+        let wheel = Wheel::from_path(&package_path, &"greenlet".parse().unwrap()).unwrap();
+        venv.install_wheel(&wheel, &Default::default()).unwrap();
+
+        // Check to make sure that the headers directory was created
+        assert!(venv.root().join("include/greenlet/greenlet.h").is_file());
     }
 
     #[test]

@@ -166,6 +166,12 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         &self,
         artifacts: &'a [ArtifactInfo],
     ) -> Result<Vec<&'a ArtifactInfo>, &'static str> {
+        // Filter only artifacts we can work with
+        if artifacts.is_empty() {
+            // If there are no wheel artifacts, we're just gonna skip it
+            return Err("there are no packages available");
+        }
+
         let mut artifacts = artifacts
             .iter()
             .filter(|a| a.filename.version().pre.is_none() && a.filename.version().dev.is_none())
@@ -174,12 +180,6 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         if artifacts.is_empty() {
             // Skip all prereleases
             return Err("prereleases are not allowed");
-        }
-
-        // Filter only artifacts we can work with
-        if artifacts.is_empty() {
-            // If there are no wheel artifacts, we're just gonna skip it
-            return Err("there are no packages available");
         }
 
         // Filter yanked artifacts

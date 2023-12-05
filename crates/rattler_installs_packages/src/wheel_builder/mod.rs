@@ -1,5 +1,8 @@
 //! Turn an sdist into a wheel by creating a virtualenv and building the sdist in it
 
+mod build_environment;
+mod wheel_cache;
+
 use std::io::{Read, Seek};
 use std::path::Path;
 use std::sync::Arc;
@@ -22,10 +25,6 @@ use crate::{
     types::SDistFilename,
     types::{WheelCoreMetaDataError, WheelCoreMetadata},
 };
-
-mod build_environment;
-
-mod wheel_cache;
 
 type BuildCache<'db> = Mutex<HashMap<SDistFilename, Arc<BuildEnvironment<'db>>>>;
 
