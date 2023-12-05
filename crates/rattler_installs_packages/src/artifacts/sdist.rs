@@ -3,7 +3,7 @@ use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
 use flate2::read::GzDecoder;
 use miette::IntoDiagnostic;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use serde::Serialize;
 use std::ffi::OsStr;
 use std::io::{ErrorKind, Read, Seek};
@@ -133,6 +133,11 @@ impl SDist {
             None
         }
     }
+
+    /// Get a lock on the inner data
+    pub fn lock_data(&self) -> MutexGuard<Box<dyn ReadAndSeek + Send>> {
+        self.file.lock()
+    }
 }
 
 impl Artifact for SDist {
@@ -250,7 +255,13 @@ mod tests {
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
         let resolve_options = ResolveOptions::default();
-        let wheel_builder = WheelBuilder::new(&package_db.0, &env_markers, None, &resolve_options);
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            &package_db.1.path(),
+        );
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
 
@@ -267,14 +278,17 @@ mod tests {
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
         let resolve_options = ResolveOptions::default();
-        let wheel_builder = WheelBuilder::new(&package_db.0, &env_markers, None, &resolve_options);
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            &package_db.1.path(),
+        );
 
         // Build the wheel
         wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
-        let result = wheel_builder.build_wheel(&sdist).await.unwrap();
-
-        // Try to re-open the wheel
-        let wheel = crate::artifacts::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
+        let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
 
         let (_, metadata) = wheel.metadata().unwrap();
         assert_debug_snapshot!(metadata);
@@ -289,13 +303,16 @@ mod tests {
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
         let resolve_options = ResolveOptions::default();
-        let wheel_builder = WheelBuilder::new(&package_db.0, &env_markers, None, &resolve_options);
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            &package_db.1.path(),
+        );
 
         // Build the wheel
-        let result = wheel_builder.build_wheel(&sdist).await.unwrap();
-
-        // Try to re-open the wheel
-        let wheel = crate::artifacts::Wheel::from_path(&result, &"rich".parse().unwrap()).unwrap();
+        let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
 
         let (_, metadata) = wheel.metadata().unwrap();
         assert_debug_snapshot!(metadata);

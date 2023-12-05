@@ -1,0 +1,160 @@
+//! Create a cache for storing locally built wheels
+//! These are wheel files that are created when building a wheel from an sdist.
+//! That uses cacache as a backend to actually store wheels.
+
+use crate::artifacts::Wheel;
+use crate::types::{Artifact, WheelFilename};
+use cacache::{Integrity, WriteOpts};
+use rattler_digest::Sha256;
+use serde::{Deserialize, Serialize};
+use std::io::{Cursor, Read};
+use std::path::PathBuf;
+use std::str::FromStr;
+
+pub(crate) struct WheelCache {
+    // Path to the cache directory
+    path: PathBuf,
+}
+
+#[derive(Debug)]
+pub(crate) struct WheelKey(String);
+
+#[derive(Serialize, Deserialize, Debug)]
+struct WheelKeyMetadata {
+    wheel_filename: WheelFilename,
+    integrity: String,
+}
+
+impl WheelKey {
+    pub fn from_bytes(prefix: impl AsRef<str>, bytes: impl AsRef<[u8]>) -> Self {
+        let hash = rattler_digest::compute_bytes_digest::<Sha256>(bytes);
+        Self(format!("{}:{:x}", prefix.as_ref(), hash))
+    }
+
+    #[allow(dead_code)]
+    pub fn new(prefix: impl AsRef<str>, key: impl AsRef<str>) -> Self {
+        Self(format!("{}:{}", prefix.as_ref(), key.as_ref()))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WheelCacheError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Cacache(#[from] cacache::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("error constructing wheel")]
+    WheelConstruction,
+}
+
+impl WheelCache {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    /// Save wheel into cache
+    fn save_wheel(&self, wheel_contents: &mut dyn Read) -> Result<Integrity, WheelCacheError> {
+        // Write the wheel to the cache
+        let mut writer = WriteOpts::new().open_hash_sync(&self.path)?;
+        std::io::copy(wheel_contents, &mut writer)?;
+        Ok(writer.commit()?)
+    }
+
+    /// Associate wheel with key
+    pub fn associate_wheel(
+        &self,
+        key: &WheelKey,
+        wheel_name: WheelFilename,
+        wheel: &mut dyn Read,
+    ) -> Result<(), WheelCacheError> {
+        // Save the wheel to the cache
+        let wheel_integrity = self.save_wheel(wheel)?;
+        let metadata = serde_json::to_value(WheelKeyMetadata {
+            wheel_filename: wheel_name,
+            integrity: wheel_integrity.to_string(),
+        })?;
+        // Associate with the integrity
+        cacache::index::insert(
+            &self.path,
+            &key.0,
+            WriteOpts::new()
+                // This is just so the index entry is loadable.
+                .integrity("sha256-deadbeef".parse().unwrap())
+                .metadata(metadata),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn wheel_for_key(&self, wheel_key: &WheelKey) -> Result<Option<Wheel>, WheelCacheError> {
+        // Find metadata for the key
+        let metadata = cacache::index::find(&self.path, &wheel_key.0)?;
+
+        if let Some(metadata) = metadata {
+            // Find integrity associated with metadata
+            let value: WheelKeyMetadata = serde_json::from_value(metadata.metadata)?;
+            let integrity =
+                Integrity::from_str(&value.integrity).map_err(cacache::Error::IntegrityError)?;
+
+            // Find wheel associated with integrity
+            let bytes = Cursor::new(cacache::read_hash_sync(&self.path, &integrity)?);
+            let wheel = Wheel::new(value.wheel_filename, Box::new(bytes));
+
+            // Need to do this to get out of miette::Result
+            // TODO: change artifact to not use miette::Result?
+            match wheel {
+                Ok(wheel) => Ok(Some(wheel)),
+                Err(_) => Err(WheelCacheError::WheelConstruction),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::types::WheelFilename;
+    use crate::wheel_builder::wheel_cache::WheelCache;
+    use std::path::Path;
+
+    #[test]
+    pub fn test_key() {
+        let bytes = b"hello world";
+        let key = super::WheelKey::from_bytes("bla", bytes);
+        insta::assert_debug_snapshot!(key, @r###"
+        WheelKey(
+            "bla:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+        )
+        "###);
+    }
+
+    #[test]
+    pub fn save_retrieve_wheel() {
+        let cache = WheelCache::new(tempfile::tempdir().unwrap().into_path());
+
+        // Load the wheel file
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/wheels/purelib_and_platlib-1.0.0-cp38-cp38-linux_x86_64.whl");
+        let wheel = std::fs::File::open(&path).unwrap();
+        let wheel_filename = WheelFilename::from_filename(
+            path.file_name().unwrap().to_str().unwrap(),
+            &"purelib_and_platlib".parse().unwrap(),
+        )
+        .unwrap();
+
+        // Associate wheel with another key
+        // use a bit of random data here but we need to use
+        // the sdist content hash in reality
+        let key = super::WheelKey::from_bytes("bla", "foo");
+        cache
+            .associate_wheel(&key, wheel_filename, &mut std::io::BufReader::new(wheel))
+            .unwrap();
+
+        // Get back the wheel
+        // See if we have a value
+        cache.wheel_for_key(&key).unwrap().unwrap();
+    }
+}

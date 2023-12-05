@@ -1,13 +1,20 @@
 //! Turn an sdist into a wheel by creating a virtualenv and building the sdist in it
 
 mod build_environment;
+mod wheel_cache;
 
-use parking_lot::Mutex;
+use std::io::{Read, Seek};
+use std::path::Path;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
+use parking_lot::Mutex;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
+use crate::resolve::{ResolveOptions, SDistResolution};
+use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
+use crate::wheel_builder::build_environment::BuildEnvironment;
+use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
 use crate::{
     artifacts::wheel::UnpackError,
     artifacts::SDist,
@@ -18,9 +25,6 @@ use crate::{
     types::SDistFilename,
     types::{WheelCoreMetaDataError, WheelCoreMetadata},
 };
-
-use crate::resolve::{ResolveOptions, SDistResolution};
-use crate::wheel_builder::build_environment::BuildEnvironment;
 
 type BuildCache<'db> = Mutex<HashMap<SDistFilename, Arc<BuildEnvironment<'db>>>>;
 
@@ -42,6 +46,9 @@ pub struct WheelBuilder<'db, 'i> {
     /// only sdists, because otherwise we run into a chicken & egg problem where a sdist is required
     /// to build a sdist. E.g. `hatchling` requires `hatchling` as build system.
     resolve_options: ResolveOptions,
+
+    /// Cache of locally built wheels on the system
+    locally_built_wheels: WheelCache,
 }
 
 /// An error that can occur while building a wheel
@@ -71,6 +78,23 @@ pub enum WheelBuildError {
 
     #[error("Could not get artifact")]
     CouldNotGetArtifact,
+
+    #[error("Could not get artifact: {0}")]
+    CacheError(#[from] wheel_cache::WheelCacheError),
+
+    #[error("error parsing artifact name: {0}")]
+    ArtifactError(#[from] ParseArtifactNameError),
+}
+
+impl TryFrom<&SDist> for WheelKey {
+    type Error = std::io::Error;
+    fn try_from(value: &SDist) -> Result<WheelKey, Self::Error> {
+        let mut vec = vec![];
+        let mut inner = value.lock_data();
+        inner.rewind()?;
+        inner.read_to_end(&mut vec)?;
+        Ok(WheelKey::from_bytes("sdist", &vec))
+    }
 }
 
 /// Get the requirements for the build system from the pyproject.toml
@@ -100,6 +124,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
         _resolve_options: &'i ResolveOptions,
+        wheel_cache_dir: &Path,
     ) -> Self {
         // TODO: add this back later when we have a wheel cache
         // We are running into a chicken & egg problem if we want to build wheels for packages that
@@ -124,6 +149,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             env_markers,
             wheel_tags,
             resolve_options,
+            locally_built_wheels: WheelCache::new(wheel_cache_dir.to_path_buf()),
         }
     }
 
@@ -189,6 +215,15 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         &self,
         sdist: &SDist,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
+        // See if we have a locally built wheel for this sdist
+        // use that metadata instead
+        let key = WheelKey::try_from(sdist)?;
+        if let Some(wheel) = self.locally_built_wheels.wheel_for_key(&key)? {
+            return wheel.metadata().map_err(|e| {
+                WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
+            });
+        }
+
         let build_environment = self.setup_build_venv(sdist).await?;
 
         let output = build_environment.run_command("WheelMetadata")?;
@@ -197,15 +232,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             if output.status.code() == Some(50) {
                 tracing::warn!("SDist build backend does not support metadata generation");
                 // build wheel instead
-                let wheel_file = self.build_wheel(sdist).await?;
-                let wheel =
-                    Wheel::from_path(&wheel_file, &sdist.name().distribution.clone().into())
-                        .map_err(|e| {
-                            WheelBuildError::Error(format!(
-                                "Could not build wheel for metadata extraction: {}",
-                                e
-                            ))
-                        })?;
+                let wheel = self.build_wheel(sdist).await?;
 
                 return wheel.metadata().map_err(|e| {
                     WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
@@ -227,19 +254,115 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     /// Build a wheel from an sdist by using the build_backend in a virtual env.
     /// This function uses the `build_wheel` entry point of the build backend.
     #[tracing::instrument(skip_all, fields(name = %sdist.name().distribution.as_source_str(), version = %sdist.name().version))]
-    pub async fn build_wheel(&self, sdist: &SDist) -> Result<PathBuf, WheelBuildError> {
+    pub async fn build_wheel(&self, sdist: &SDist) -> Result<Wheel, WheelBuildError> {
+        // Check if we have already built this wheel locally and use that instead
+        let key = WheelKey::try_from(sdist)?;
+        if let Some(wheel) = self.locally_built_wheels.wheel_for_key(&key)? {
+            return Ok(wheel);
+        }
+
+        // Setup a new virtualenv for building the wheel or use an existing
         let build_environment = self.setup_build_venv(sdist).await?;
 
+        // Run the wheel stage
         let output = build_environment.run_command("Wheel")?;
 
+        // Check for success
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stderr);
             return Err(WheelBuildError::Error(stdout.to_string()));
         }
 
-        let result = std::fs::read_to_string(build_environment.work_dir().join("wheel_result"))?;
-        let wheel_file = PathBuf::from(result.trim());
+        // This is where the wheel file is located
+        let wheel_file: PathBuf =
+            std::fs::read_to_string(build_environment.work_dir().join("wheel_result"))?
+                .trim()
+                .into();
 
-        Ok(wheel_file)
+        // Get the name of the package
+        let package_name: NormalizedPackageName = sdist.name().distribution.clone().into();
+
+        // Save the wheel into the cache
+        let key = WheelKey::try_from(sdist)?;
+
+        // Reconstruction of the wheel filename
+        let file_component = wheel_file
+            .file_name()
+            .and_then(|f| f.to_str())
+            .ok_or_else(|| {
+                WheelBuildError::Error(format!(
+                    "Could not get extract file component from {}",
+                    wheel_file.display()
+                ))
+            })?;
+        let wheel_file_name = WheelFilename::from_filename(file_component, &package_name)?;
+
+        // Associate the wheel with the key which is the hashed sdist
+        self.locally_built_wheels.associate_wheel(
+            &key,
+            wheel_file_name,
+            &mut std::fs::File::open(&wheel_file)?,
+        )?;
+
+        // Reconstruct wheel from the path
+        let wheel = Wheel::from_path(&wheel_file, &package_name)
+            .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))?;
+
+        Ok(wheel)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::artifacts::SDist;
+    use crate::index::PackageDb;
+    use crate::python_env::Pep508EnvMakers;
+    use crate::resolve::ResolveOptions;
+    use crate::wheel_builder::wheel_cache::WheelKey;
+    use crate::wheel_builder::WheelBuilder;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    fn get_package_db() -> (PackageDb, TempDir) {
+        let tempdir = tempfile::tempdir().unwrap();
+        (
+            PackageDb::new(
+                Default::default(),
+                &[url::Url::parse("https://pypi.org/simple/").unwrap()],
+                tempdir.path(),
+            )
+            .unwrap(),
+            tempdir,
+        )
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_with_cache() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            &package_db.1.path(),
+        );
+
+        // Build the wheel
+        wheel_builder.build_wheel(&sdist).await.unwrap();
+
+        // See if we can retrieve it from the cache
+        let key = WheelKey::try_from(&sdist).unwrap();
+        wheel_builder
+            .locally_built_wheels
+            .wheel_for_key(&key)
+            .unwrap()
+            .unwrap();
     }
 }
