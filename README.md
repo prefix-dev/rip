@@ -37,12 +37,15 @@ the authors where possible.
 # Showcase
 
 Let's resolve the `flask` python package.
-We've added a small binary to showcase this:
+We've added a small binary in `rip_bin` to showcase this:
 
 ![flask-install](https://github.com/prefix-dev/rip/assets/4995967/5b0356b6-8e06-47bb-9424-94b3fdd9da09)
 
 This showcases the downloading and caching of metadata from PyPI. As well as the package resolution using our solver, more on this below.
 We cache everything in a local directory so that we can re-use the metadata and don't have to download it again.
+
+Currently in the showcase we do not actually install wheel files.
+* [ ] We want to add some sort of installation to the `rip` showcase binary.
 
 ## Features
 
@@ -50,8 +53,8 @@ This is a list of current and planned features of `RIP`, the biggest are listed 
 
 * [x] Downloading and aggressive caching of PyPI metadata.
 * [x] Resolving of PyPI packages using [Resolvo](https://github.com/mamba-org/resolvo).
-* [ ] Installation of wheel files (partial support see: https://github.com/prefix-dev/rip/issues/6)
-* [ ] Support sdist files (planned)
+* [x] Installation of wheel files (see: https://github.com/prefix-dev/rip/issues/6 for last open issues)
+* [x] Support sdist files
 
 More intricacies of the PyPI ecosystem need to be implemented, see our GitHub issues for more details.
 
