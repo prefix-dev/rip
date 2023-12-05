@@ -67,6 +67,7 @@ pyproject-toml = "0.8.0"
 async-once-cell = "0.5.3"
 configparser = "3.0.3"
 cacache = { version = "12.0.0", default-features = false, features = ["tokio-runtime", "mmap"] }
+async-recursion = "1.0.5"
 
 [dev-dependencies]
 criterion = "0.5"

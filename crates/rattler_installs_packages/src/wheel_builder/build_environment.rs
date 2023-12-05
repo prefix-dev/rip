@@ -1,10 +1,10 @@
 use crate::artifacts::wheel::UnpackWheelOptions;
-use crate::artifacts::{SDist, Wheel};
-use crate::index::PackageDb;
+use crate::artifacts::SDist;
+
 use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
 use crate::types::Artifact;
-use crate::wheel_builder::{build_requirements, WheelBuildError};
+use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -73,9 +73,9 @@ impl<'db> BuildEnvironment<'db> {
     /// Install extra requirements into the venv, if any extra were found
     /// If the extra requirements are already installed, this will do nothing
     /// for that requirement.
-    pub(crate) async fn install_extra_requirements(
+    pub(crate) async fn install_extra_requirements<'i>(
         &self,
-        package_db: &'db PackageDb,
+        wheel_builder: &WheelBuilder<'db, 'i>,
         env_markers: &MarkerEnvironment,
         wheel_tags: Option<&WheelTags>,
         resolve_options: &ResolveOptions,
@@ -98,7 +98,7 @@ impl<'db> BuildEnvironment<'db> {
             let favored_packages = HashMap::default();
             let all_requirements = combined_requirements.to_vec();
             let extra_resolved_wheels = resolve(
-                package_db,
+                wheel_builder.package_db,
                 all_requirements.iter(),
                 env_markers,
                 wheel_tags,
@@ -120,8 +120,9 @@ impl<'db> BuildEnvironment<'db> {
                     package_info.version
                 );
                 let artifact_info = package_info.artifacts.first().unwrap();
-                let artifact = package_db
-                    .get_artifact::<Wheel>(artifact_info)
+                let artifact = wheel_builder
+                    .package_db
+                    .get_wheel(artifact_info, Some(wheel_builder))
                     .await
                     .expect("could not get artifact");
 
@@ -145,9 +146,9 @@ impl<'db> BuildEnvironment<'db> {
     }
 
     /// Setup the build environment so that we can build a wheel from an sdist
-    pub(crate) async fn setup(
+    pub(crate) async fn setup<'i>(
         sdist: &SDist,
-        package_db: &'db PackageDb,
+        wheel_builder: &WheelBuilder<'db, 'i>,
         env_markers: &MarkerEnvironment,
         wheel_tags: Option<&WheelTags>,
         resolve_options: &ResolveOptions,
@@ -167,9 +168,16 @@ impl<'db> BuildEnvironment<'db> {
                 });
         // Find the build requirements
         let build_requirements = build_requirements(&build_system);
+        tracing::info!(
+            "build requirements: {:?}",
+            build_requirements
+                .iter()
+                .map(|r| r.to_string())
+                .collect::<Vec<_>>()
+        );
         // Resolve the build environment
         let resolved_wheels = resolve(
-            package_db,
+            wheel_builder.package_db,
             build_requirements.iter(),
             env_markers,
             wheel_tags,
@@ -183,10 +191,12 @@ impl<'db> BuildEnvironment<'db> {
         // Install into venv
         for package_info in resolved_wheels.iter() {
             let artifact_info = package_info.artifacts.first().unwrap();
-            let artifact = package_db
-                .get_artifact::<Wheel>(artifact_info)
+
+            let artifact = wheel_builder
+                .package_db
+                .get_wheel(artifact_info, Some(wheel_builder))
                 .await
-                .map_err(|_| WheelBuildError::CouldNotGetArtifact)?;
+                .map_err(WheelBuildError::CouldNotGetArtifact)?;
 
             venv.install_wheel(
                 &artifact,

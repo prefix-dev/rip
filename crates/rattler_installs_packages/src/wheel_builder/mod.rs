@@ -55,31 +55,31 @@ pub struct WheelBuilder<'db, 'i> {
 #[allow(missing_docs)]
 #[derive(thiserror::Error, Debug)]
 pub enum WheelBuildError {
-    #[error("Could not build wheel: {0}")]
+    #[error("could not build wheel: {0}")]
     Error(String),
 
-    #[error("Could not install artifact in virtual environment")]
+    #[error("could not install artifact in virtual environment: {0}")]
     UnpackError(#[from] UnpackError),
 
-    #[error("Could not build wheel: {0}")]
+    #[error("could not build wheel: {0}")]
     IoError(#[from] std::io::Error),
 
-    #[error("Could not run command {0} to build wheel: {1}")]
+    #[error("could not run command {0} to build wheel: {1}")]
     CouldNotRunCommand(String, std::io::Error),
 
-    #[error("Could not resolve environment for wheel building")]
+    #[error("could not resolve environment for wheel building")]
     CouldNotResolveEnvironment(Vec<Requirement>),
 
-    #[error("Error parsing JSON from extra_requirements.json: {0}")]
+    #[error("error parsing JSON from extra_requirements.json: {0}")]
     JSONError(#[from] serde_json::Error),
 
-    #[error("Could not parse generated wheel metadata: {0}")]
+    #[error("could not parse generated wheel metadata: {0}")]
     WheelCoreMetadataError(#[from] WheelCoreMetaDataError),
 
-    #[error("Could not get artifact")]
-    CouldNotGetArtifact,
+    #[error("could not get artifact: {0}")]
+    CouldNotGetArtifact(miette::Report),
 
-    #[error("Could not get artifact: {0}")]
+    #[error("could not get artifact from cache: {0}")]
     CacheError(#[from] wheel_cache::WheelCacheError),
 
     #[error("error parsing artifact name: {0}")]
@@ -123,24 +123,20 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         package_db: &'db PackageDb,
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
-        _resolve_options: &'i ResolveOptions,
+        resolve_options: &'i ResolveOptions,
         wheel_cache_dir: &Path,
     ) -> Self {
-        // TODO: add this back later when we have a wheel cache
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
         // build system. Hypothetically we'd have to look through all the hatchling sdists to find the one
         // that doesn't depend on itself.
         // Instead, we use wheels to build wheels.
-        // let resolve_options = if resolve_options.sdist_resolution == SDistResolution::OnlySDists {
-        //     ResolveOptions {
-        //         sdist_resolution: SDistResolution::Only,
-        //     }
-        // } else {
-        //     resolve_options.clone()
-        // };
-        let resolve_options = ResolveOptions {
-            sdist_resolution: SDistResolution::OnlyWheels,
+        let resolve_options = if resolve_options.sdist_resolution == SDistResolution::OnlySDists {
+            ResolveOptions {
+                sdist_resolution: SDistResolution::PreferWheels,
+            }
+        } else {
+            resolve_options.clone()
         };
 
         Self {
@@ -175,7 +171,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         let build_environment = BuildEnvironment::setup(
             sdist,
-            self.package_db,
+            self,
             self.env_markers,
             self.wheel_tags,
             &self.resolve_options,
@@ -187,7 +183,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         // Install extra requirements if any
         build_environment
             .install_extra_requirements(
-                self.package_db,
+                self,
                 self.env_markers,
                 self.wheel_tags,
                 &self.resolve_options,
@@ -351,7 +347,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            &package_db.1.path(),
+            package_db.1.path(),
         );
 
         // Build the wheel

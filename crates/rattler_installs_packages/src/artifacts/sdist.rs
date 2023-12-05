@@ -260,7 +260,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            &package_db.1.path(),
+            package_db.1.path(),
         );
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -283,7 +283,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            &package_db.1.path(),
+            package_db.1.path(),
         );
 
         // Build the wheel
@@ -308,7 +308,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            &package_db.1.path(),
+            package_db.1.path(),
         );
 
         // Build the wheel
