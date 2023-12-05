@@ -9,6 +9,7 @@ use crate::{
     types::WheelFilename,
 };
 use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
+use async_recursion::async_recursion;
 use elsa::sync::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
 use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
@@ -429,11 +430,27 @@ impl PackageDb {
 
     /// Opens the specified artifact info. Downloads the artifact data from the remote location if
     /// the information is not already cached.
-    pub async fn get_artifact<A: Artifact>(
+    #[async_recursion]
+    pub async fn get_wheel<'db, 'i>(
         &self,
         artifact_info: &ArtifactInfo,
-    ) -> miette::Result<A> {
-        self.get_artifact_with_cache(artifact_info, CacheMode::Default)
+        builder: Option<&'async_recursion WheelBuilder<'db, 'i>>,
+    ) -> miette::Result<Wheel> {
+        // Try to build the wheel for this SDist if possible
+        if artifact_info.is::<SDist>() {
+            if let Some(builder) = builder {
+                let sdist = self
+                    .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
+                    .await?;
+
+                return builder.build_wheel(&sdist).await.into_diagnostic();
+            } else {
+                miette::bail!("cannot build wheel without a wheel builder");
+            }
+        }
+
+        // Otherwise just retrieve the wheel
+        self.get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::Default)
             .await
     }
 }
