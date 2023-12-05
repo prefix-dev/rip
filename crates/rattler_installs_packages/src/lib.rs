@@ -15,7 +15,7 @@ mod utils;
 
 pub mod resolve;
 
-mod wheel_builder;
+pub mod wheel_builder;
 
 mod win;
 
