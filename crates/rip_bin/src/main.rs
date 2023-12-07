@@ -1,6 +1,7 @@
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::collections::HashMap;
 use std::io::Write;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::Parser;
@@ -10,7 +11,9 @@ use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use url::Url;
 
-use rattler_installs_packages::python_env::WheelTags;
+use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
+use rattler_installs_packages::python_env::{PythonLocation, WheelTags};
+use rattler_installs_packages::wheel_builder::WheelBuilder;
 use rattler_installs_packages::{
     normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve,
     resolve::ResolveOptions, types::Requirement,
@@ -21,6 +24,11 @@ use rattler_installs_packages::{
 struct Args {
     #[clap(num_args=1.., required=true)]
     specs: Vec<Requirement>,
+
+    /// Create a venv and install into this environment
+    /// Does not check for any installed packages for now
+    #[clap(long)]
+    install_into: Option<PathBuf>,
 
     /// Base URL of the Python Package Index (default <https://pypi.org/simple>). This should point
     /// to a repository compliant with PEP 503 (the simple repository API).
@@ -120,6 +128,9 @@ async fn actual_main() -> miette::Result<()> {
         compatible_tags.tags().format(", ")
     );
 
+    let resolve_opts = ResolveOptions {
+        sdist_resolution: args.sdist_resolution.into(),
+    };
     // Solve the environment
     let blueprint = match resolve(
         &package_db,
@@ -128,9 +139,7 @@ async fn actual_main() -> miette::Result<()> {
         Some(&compatible_tags),
         HashMap::default(),
         HashMap::default(),
-        &ResolveOptions {
-            sdist_resolution: args.sdist_resolution.into(),
-        },
+        &resolve_opts,
     )
     .await
     {
@@ -153,7 +162,7 @@ async fn actual_main() -> miette::Result<()> {
         console::style("Version").bold()
     )
     .into_diagnostic()?;
-    for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
+    for pinned_package in blueprint.iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
         write!(tabbed_stdout, "{name}", name = pinned_package.name.as_str()).into_diagnostic()?;
         if !pinned_package.extras.is_empty() {
             write!(
@@ -171,6 +180,48 @@ async fn actual_main() -> miette::Result<()> {
         .into_diagnostic()?;
     }
     tabbed_stdout.flush().into_diagnostic()?;
+
+    // Try to install into this environment
+    if let Some(install) = args.install_into {
+        println!(
+            "\n\nInstalling into: {}",
+            console::style(install.display()).bold()
+        );
+        if !install.exists() {
+            std::fs::create_dir_all(&install).into_diagnostic()?;
+        }
+
+        let venv =
+            rattler_installs_packages::python_env::VEnv::create(&install, PythonLocation::System)
+                .into_diagnostic()?;
+        let wheel_builder = WheelBuilder::new(
+            &package_db,
+            &env_markers,
+            Some(&compatible_tags),
+            &resolve_opts,
+            package_db.cache_dir(),
+        );
+
+        for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
+            println!(
+                "\ninstalling: {} - {}",
+                console::style(pinned_package.name).bold().green(),
+                console::style(pinned_package.version).italic()
+            );
+            let artifact_info = pinned_package.artifacts.first().unwrap();
+            let artifact = package_db
+                .get_wheel(artifact_info, Some(&wheel_builder))
+                .await
+                .expect("could not get artifact");
+            venv.install_wheel(&artifact, &UnpackWheelOptions::default())
+                .into_diagnostic()?;
+        }
+    }
+
+    println!(
+        "\n{}",
+        console::style("Successfully installed environment!").bold()
+    );
 
     Ok(())
 }
