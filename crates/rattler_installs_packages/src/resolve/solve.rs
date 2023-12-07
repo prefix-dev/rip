@@ -31,7 +31,7 @@ pub struct PinnedPackage<'db> {
 }
 
 /// Defines how to handle sdists during resolution.
-#[derive(Default, Clone, Copy, Eq, PartialOrd, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, Eq, PartialOrd, PartialEq)]
 pub enum SDistResolution {
     /// Both versions with wheels and/or sdists are allowed to be selected during resolution. But
     /// during resolution the metadata from wheels is preferred over sdists.
