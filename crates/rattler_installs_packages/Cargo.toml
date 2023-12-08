@@ -10,7 +10,7 @@ repository.workspace = true
 license.workspace = true
 readme.workspace = true
 rust-version.workspace = true
-include = ["vendor/"]
+include = ["src/", "vendor/", "benches/"]
 
 [features]
 default = ["native-tls"]
