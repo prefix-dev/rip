@@ -44,8 +44,12 @@ We've added a small binary in `rip_bin` to showcase this:
 This showcases the downloading and caching of metadata from PyPI. As well as the package resolution using our solver, more on this below.
 We cache everything in a local directory so that we can re-use the metadata and don't have to download it again.
 
-Currently in the showcase we do not actually install wheel files.
-* [ ] We want to add some sort of installation to the `rip` showcase binary.
+# Installation
+
+We have added very simple installation support for the resolved packages.
+For testing purposes exclusively, we have added a `--install-into` flag to the `rip_bin` binary.
+Use the `--install-into <some_path>` to create a venv and install the packages into it.
+There is no detection of existing packages yet.
 
 ## Features
 
