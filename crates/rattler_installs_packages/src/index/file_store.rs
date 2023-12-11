@@ -275,6 +275,7 @@ fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
 
     // Lock the file. On unix this is apparently a thin wrapper around flock(2) and it doesn't
     // properly handle EINTR so we keep retrying when that happens.
+
     retry_interrupted(|| lock.lock_exclusive())?;
 
     Ok(lock)
@@ -283,6 +284,8 @@ fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::sync::Arc;
+    use tokio::sync::Notify;
 
     #[test]
     fn test_file_store() {
@@ -298,5 +301,34 @@ mod test {
             .read_to_end(&mut read_back)
             .unwrap();
         assert_eq!(read_back, hello);
+    }
+
+    #[tokio::test]
+    async fn test_locking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let path2 = dir.path().to_path_buf();
+
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+        let notify3 = notify.clone();
+
+        let one = tokio::spawn(async move {
+            let lock = lock(&path, LockMode::Lock).unwrap();
+            notify2.notify_one();
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        });
+
+        let two = tokio::spawn(async move {
+            notify3.notified().await;
+            tokio::task::spawn_blocking(move || lock(&path2, LockMode::IfExists))
+                .await
+                .unwrap()
+                .unwrap();
+        });
+
+        let (a, b) = tokio::join!(one, two);
+        a.unwrap();
+        b.unwrap();
     }
 }
