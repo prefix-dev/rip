@@ -331,7 +331,7 @@ mod test {
 
         let two = tokio::spawn(async move {
             notify3.notified().await;
-            let lock = lock(&path, LockMode::Lock).await.unwrap();
+            let lock = lock(&path2, LockMode::Lock).await.unwrap();
         });
 
         let (a, b) = tokio::join!(one, two);
