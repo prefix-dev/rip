@@ -97,7 +97,7 @@ impl Http {
             Ok(response)
         } else {
             let key = key_for_request(&url, method, &headers);
-            let lock = self.http_cache.lock(&key.as_slice())?;
+            let lock = self.http_cache.lock(&key.as_slice()).await?;
 
             if let Some((old_policy, final_url, old_body)) = lock
                 .reader()
