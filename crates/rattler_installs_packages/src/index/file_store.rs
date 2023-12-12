@@ -294,7 +294,9 @@ async fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
 mod test {
     use super::*;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::Notify;
+    use tokio::time::timeout;
 
     #[tokio::test]
     async fn test_file_store() {
@@ -313,8 +315,12 @@ mod test {
         assert_eq!(read_back, hello);
     }
 
+    /// Test deadlock situation that occurred
+    /// We want to test that progress can still be made even though a task is holding the lock
+    /// In the old implementation this would deadlock.
     #[tokio::test]
     async fn test_locking() {
+        // Start with some annoying async rust bookkeeping
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_path_buf();
         let path2 = dir.path().to_path_buf();
@@ -323,19 +329,25 @@ mod test {
         let notify2 = notify.clone();
         let notify3 = notify.clone();
 
+        // Use the same lock file for both tasks
         let one = tokio::spawn(async move {
-            let lock = lock(&path, LockMode::Lock).await.unwrap();
+            let _lock = lock(&path, LockMode::Lock).await.unwrap();
             notify2.notify_one();
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         });
 
         let two = tokio::spawn(async move {
             notify3.notified().await;
-            let lock = lock(&path2, LockMode::Lock).await.unwrap();
+            let _lock = lock(&path2, LockMode::Lock).await.unwrap();
         });
 
-        let (a, b) = tokio::join!(one, two);
-        a.unwrap();
-        b.unwrap();
+        // We expect this to finish in a reasonable amount of time
+        // so we set a timeout of 2 seconds
+        let (a, b) = tokio::join!(
+            timeout(Duration::from_secs(2), one),
+            timeout(Duration::from_secs(2), two)
+        );
+        a.unwrap().unwrap();
+        b.unwrap().unwrap();
     }
 }
