@@ -2,7 +2,7 @@ use super::SDistResolution;
 use crate::artifacts::SDist;
 use crate::artifacts::Wheel;
 use crate::index::PackageDb;
-use crate::python_env::WheelTags;
+use crate::python_env::{PythonLocation, WheelTags};
 use crate::resolve::{PinnedPackage, ResolveOptions};
 use crate::types::{
     Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
@@ -140,6 +140,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         options: &'i ResolveOptions,
+        python_location: PythonLocation,
     ) -> miette::Result<Self> {
         let wheel_builder = WheelBuilder::new(
             package_db,
@@ -147,6 +148,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             compatible_tags,
             options,
             package_db.cache_dir(),
+            python_location,
         );
 
         Ok(Self {

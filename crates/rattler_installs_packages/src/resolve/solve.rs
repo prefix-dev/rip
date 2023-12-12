@@ -1,6 +1,6 @@
 use super::dependency_provider::PypiPackageName;
 use crate::index::PackageDb;
-use crate::python_env::WheelTags;
+use crate::python_env::{PythonLocation, WheelTags};
 use crate::resolve::dependency_provider::{PypiDependencyProvider, PypiVersion};
 use crate::types::PackageName;
 use crate::{types::ArtifactInfo, types::Extra, types::NormalizedPackageName, types::Version};
@@ -157,7 +157,9 @@ pub struct ResolveOptions {
 ///
 /// If `compatible_tags` is defined then the available artifacts of a distribution are filtered to
 /// include only artifacts that are compatible with the specified tags. If `None` is passed, the
-/// artifacts are not filtered at all.
+/// artifacts are not filtered at all
+// TODO: refactor this into an input type of sorts later
+#[allow(clippy::too_many_arguments)]
 pub async fn resolve<'db>(
     package_db: &'db PackageDb,
     requirements: impl IntoIterator<Item = &Requirement>,
@@ -166,6 +168,7 @@ pub async fn resolve<'db>(
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     options: &ResolveOptions,
+    python_location: PythonLocation,
 ) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct a provider
     let provider = PypiDependencyProvider::new(
@@ -175,6 +178,7 @@ pub async fn resolve<'db>(
         locked_packages,
         favored_packages,
         options,
+        python_location,
     )?;
     let pool = &provider.pool;
 

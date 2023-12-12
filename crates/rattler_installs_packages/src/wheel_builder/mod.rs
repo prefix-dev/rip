@@ -11,6 +11,7 @@ use std::{collections::HashMap, path::PathBuf};
 use parking_lot::Mutex;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
+use crate::python_env::{PythonLocation, VEnvError};
 use crate::resolve::{ResolveOptions, SDistResolution};
 use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
@@ -49,6 +50,9 @@ pub struct WheelBuilder<'db, 'i> {
 
     /// Cache of locally built wheels on the system
     locally_built_wheels: WheelCache,
+
+    /// Location of the python interpreter to use
+    python_location: PythonLocation,
 }
 
 /// An error that can occur while building a wheel
@@ -84,6 +88,9 @@ pub enum WheelBuildError {
 
     #[error("error parsing artifact name: {0}")]
     ArtifactError(#[from] ParseArtifactNameError),
+
+    #[error("error creating venv: {0}")]
+    VEnvError(#[from] VEnvError),
 }
 
 impl TryFrom<&SDist> for WheelKey {
@@ -125,6 +132,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &'i ResolveOptions,
         wheel_cache_dir: &Path,
+        python_location: PythonLocation,
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
@@ -146,6 +154,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             wheel_tags,
             resolve_options,
             locally_built_wheels: WheelCache::new(wheel_cache_dir.to_path_buf()),
+            python_location,
         }
     }
 
@@ -163,7 +172,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             return Ok(venv.clone());
         }
 
-        // If not in cache, create a new one
         tracing::debug!(
             "creating virtual env for: {:?}",
             sdist.name().distribution.as_source_str()
@@ -175,6 +183,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             self.env_markers,
             self.wheel_tags,
             &self.resolve_options,
+            self.python_location.clone(),
         )
         .await?;
 
@@ -312,7 +321,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 mod tests {
     use crate::artifacts::SDist;
     use crate::index::PackageDb;
-    use crate::python_env::Pep508EnvMakers;
+    use crate::python_env::{Pep508EnvMakers, PythonLocation};
     use crate::resolve::ResolveOptions;
     use crate::wheel_builder::wheel_cache::WheelKey;
     use crate::wheel_builder::WheelBuilder;
@@ -348,6 +357,7 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
+            PythonLocation::System,
         );
 
         // Build the wheel

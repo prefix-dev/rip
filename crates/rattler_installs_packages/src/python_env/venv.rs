@@ -32,6 +32,7 @@ impl PythonLocation {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Error, Debug)]
 pub enum VEnvError {
     #[error(transparent)]
