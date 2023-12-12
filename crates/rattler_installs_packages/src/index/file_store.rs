@@ -12,6 +12,7 @@ use std::{
     marker::PhantomData,
     path::{Path, PathBuf},
 };
+use tokio::task;
 
 /// Types that implement this can be used as keys of the [`FileStore`].
 pub trait CacheKey {
@@ -88,11 +89,11 @@ impl FileStore {
 
     /// Gets readable access to the data with the specified key. If no such entry exists the
     /// function `f` is called to populate the entry.
-    pub fn get_or_set<K: CacheKey, F>(&self, key: &K, f: F) -> io::Result<impl Read + Seek>
+    pub async fn get_or_set<K: CacheKey, F>(&self, key: &K, f: F) -> io::Result<impl Read + Seek>
     where
         F: FnOnce(&mut dyn Write) -> io::Result<()>,
     {
-        let lock = self.lock(key)?;
+        let lock = self.lock(key).await?;
         if let Some(reader) = lock.reader() {
             // We use `detach_unlocked` here because we are sure that if the file exists it also has
             // immutable content.
@@ -106,8 +107,8 @@ impl FileStore {
 
     /// Gets readable access to the data with the specified key. Returns `None` if no such key
     /// exists in the store.
-    pub fn get<K: CacheKey>(&self, key: &K) -> Option<impl Read + Seek> {
-        if let Some(lock) = self.lock_if_exists(key) {
+    pub async fn get<K: CacheKey>(&self, key: &K) -> Option<impl Read + Seek> {
+        if let Some(lock) = self.lock_if_exists(key).await {
             if let Some(reader) = lock.reader() {
                 return Some(reader.detach_unlocked());
             }
@@ -116,9 +117,9 @@ impl FileStore {
     }
 
     /// Locks a certain file in the cache for exclusive access.
-    pub fn lock<K: CacheKey>(&self, key: &K) -> io::Result<FileLock> {
+    pub async fn lock<K: CacheKey>(&self, key: &K) -> io::Result<FileLock> {
         let path = self.base.join(key.key());
-        let lock = lock(&path, LockMode::Lock)?;
+        let lock = lock(&path, LockMode::Lock).await?;
         Ok(FileLock {
             tmp: self.tmp.clone(),
             _lock_file: lock,
@@ -130,13 +131,16 @@ impl FileStore {
     ///
     /// This function exists to ensure that we don't create tons of directories just to check if an
     /// entry exists or not.
-    pub fn lock_if_exists<K: CacheKey>(&self, key: &K) -> Option<FileLock> {
+    pub async fn lock_if_exists<K: CacheKey>(&self, key: &K) -> Option<FileLock> {
         let path = self.base.join(key.key());
-        lock(&path, LockMode::IfExists).ok().map(|lock| FileLock {
-            tmp: self.tmp.clone(),
-            _lock_file: lock,
-            path,
-        })
+        lock(&path, LockMode::IfExists)
+            .await
+            .ok()
+            .map(|lock| FileLock {
+                tmp: self.tmp.clone(),
+                _lock_file: lock,
+                path,
+            })
     }
 }
 
@@ -252,7 +256,7 @@ enum LockMode {
 
 /// Create a `.lock` file for the file at the specified `path`. Only a single process has access to
 /// the lock-file.
-fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
+async fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
     // Determine the path of the lockfile
     let lock_path = path.with_extension(".lock");
 
@@ -275,7 +279,13 @@ fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
 
     // Lock the file. On unix this is apparently a thin wrapper around flock(2) and it doesn't
     // properly handle EINTR so we keep retrying when that happens.
-    retry_interrupted(|| lock.lock_exclusive())?;
+
+    let lock = task::spawn_blocking(move || {
+        retry_interrupted(|| lock.lock_exclusive()).unwrap();
+        lock
+    })
+    .await
+    .unwrap();
 
     Ok(lock)
 }
@@ -283,9 +293,13 @@ fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+    use tokio::time::timeout;
 
-    #[test]
-    fn test_file_store() {
+    #[tokio::test]
+    async fn test_file_store() {
         let dir = tempfile::tempdir().unwrap();
         let store = FileStore::new(dir.path()).unwrap();
 
@@ -294,9 +308,46 @@ mod test {
         let mut read_back = Vec::new();
         store
             .get_or_set(&hello, |w| w.write_all(hello))
+            .await
             .unwrap()
             .read_to_end(&mut read_back)
             .unwrap();
         assert_eq!(read_back, hello);
+    }
+
+    /// Test deadlock situation that occurred
+    /// We want to test that progress can still be made even though a task is holding the lock
+    /// In the old implementation this would deadlock.
+    #[tokio::test]
+    async fn test_locking() {
+        // Start with some annoying async rust bookkeeping
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        let path2 = dir.path().to_path_buf();
+
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
+        let notify3 = notify.clone();
+
+        // Use the same lock file for both tasks
+        let one = tokio::spawn(async move {
+            let _lock = lock(&path, LockMode::Lock).await.unwrap();
+            notify2.notify_one();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        });
+
+        let two = tokio::spawn(async move {
+            notify3.notified().await;
+            let _lock = lock(&path2, LockMode::Lock).await.unwrap();
+        });
+
+        // We expect this to finish in a reasonable amount of time
+        // so we set a timeout of 2 seconds
+        let (a, b) = tokio::join!(
+            timeout(Duration::from_secs(2), one),
+            timeout(Duration::from_secs(2), two)
+        );
+        a.unwrap().unwrap();
+        b.unwrap().unwrap();
     }
 }

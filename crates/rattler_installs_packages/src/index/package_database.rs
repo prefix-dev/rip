@@ -103,8 +103,8 @@ impl PackageDb {
 
     /// Reads the metadata for the given artifact from the cache or return `None` if the metadata
     /// could not be found in the cache.
-    fn metadata_from_cache(&self, ai: &ArtifactInfo) -> Option<Vec<u8>> {
-        let mut data = self.metadata_cache.get(&ai.hashes.as_ref()?)?;
+    async fn metadata_from_cache(&self, ai: &ArtifactInfo) -> Option<Vec<u8>> {
+        let mut data = self.metadata_cache.get(&ai.hashes.as_ref()?).await?;
         let mut bytes = Vec::new();
         data.read_to_end(&mut bytes).ok()?;
         Some(bytes)
@@ -112,10 +112,11 @@ impl PackageDb {
 
     /// Writes the metadata for the given artifact into the cache. If the metadata already exists
     /// its not overwritten.
-    fn put_metadata_in_cache(&self, ai: &ArtifactInfo, blob: &[u8]) -> miette::Result<()> {
+    async fn put_metadata_in_cache(&self, ai: &ArtifactInfo, blob: &[u8]) -> miette::Result<()> {
         if let Some(hash) = &ai.hashes {
             self.metadata_cache
                 .get_or_set(&hash, |w| w.write_all(blob))
+                .await
                 .into_diagnostic()?;
         }
         Ok(())
@@ -140,7 +141,7 @@ impl PackageDb {
                         let metadata = artifact.metadata();
                         match metadata {
                             Ok((blob, metadata)) => {
-                                self.put_metadata_in_cache(artifact_info, &blob)?;
+                                self.put_metadata_in_cache(artifact_info, &blob).await?;
                                 return Ok(Some((artifact_info, metadata)));
                             }
                             Err(err) => {
@@ -170,7 +171,7 @@ impl PackageDb {
                         // Save the pep643 metadata in the cache if it is available
                         let metadata = sdist.pep643_metadata();
                         if let Some((bytes, _)) = metadata {
-                            self.put_metadata_in_cache(artifact_info, &bytes)?;
+                            self.put_metadata_in_cache(artifact_info, &bytes).await?;
                         }
                     }
                     Err(err) => match err.downcast_ref::<HttpRequestError>() {
@@ -213,7 +214,7 @@ impl PackageDb {
             let metadata = artifact.metadata();
             match metadata {
                 Ok((blob, metadata)) => {
-                    self.put_metadata_in_cache(artifact_info, &blob)?;
+                    self.put_metadata_in_cache(artifact_info, &blob).await?;
                     return Ok(Some((artifact_info, metadata)));
                 }
                 Err(err) => {
@@ -246,7 +247,7 @@ impl PackageDb {
             let metadata = wheel_builder.get_sdist_metadata(&artifact).await;
             match metadata {
                 Ok((blob, metadata)) => {
-                    self.put_metadata_in_cache(artifact_info, &blob)?;
+                    self.put_metadata_in_cache(artifact_info, &blob).await?;
                     return Ok(Some((artifact_info, metadata)));
                 }
                 Err(err) => {
@@ -272,7 +273,7 @@ impl PackageDb {
         // Check if we already have information about any of the artifacts cached.
         // Return if we do
         for artifact_info in artifacts.iter().copied() {
-            if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info) {
+            if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info).await {
                 return Ok(Some((
                     artifact_info,
                     WheelCoreMetadata::try_from(metadata_bytes.as_slice()).into_diagnostic()?,
@@ -329,7 +330,7 @@ impl PackageDb {
         {
             match Wheel::read_metadata_bytes(name, &mut reader).await {
                 Ok((blob, metadata)) => {
-                    self.put_metadata_in_cache(artifact_info, &blob)?;
+                    self.put_metadata_in_cache(artifact_info, &blob).await?;
                     return Ok(Some(metadata));
                 }
                 Err(err) => {
@@ -366,7 +367,7 @@ impl PackageDb {
             .into_diagnostic()?;
 
         let metadata = WheelCoreMetadata::try_from(bytes.as_slice()).into_diagnostic()?;
-        self.put_metadata_in_cache(artifact_info, &bytes)?;
+        self.put_metadata_in_cache(artifact_info, &bytes).await?;
         Ok((artifact_info, metadata))
     }
 
