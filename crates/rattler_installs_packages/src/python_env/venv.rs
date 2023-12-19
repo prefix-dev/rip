@@ -189,7 +189,7 @@ impl VEnv {
             }
         }
 
-        /// # https://bugs.python.org/issue21197
+        /// https://bugs.python.org/issue21197
         /// create lib64 as a symlink to lib on 64-bit non-OS X POSIX
         #[cfg(all(target_pointer_width = "64", unix, not(target_os = "macos")))]
         {
@@ -202,7 +202,7 @@ impl VEnv {
         Ok(())
     }
 
-    /// create pyvenv.cfg and write it's content based on system python
+    /// Create pyvenv.cfg and write it's content based on system python
     pub fn create_pyvenv(
         venv_path: &Path,
         python_path: &Path,
@@ -227,7 +227,10 @@ home = {}
 include-system-site-packages = false
 version = {}.{}.{}
 prompt = {}"#,
-            python_path.parent().unwrap().display(),
+            python_path
+                .parent()
+                .expect("system python path should have parent folder")
+                .display(),
             python_version.major,
             python_version.minor,
             python_version.patch,
@@ -239,7 +242,7 @@ prompt = {}"#,
         Ok(())
     }
 
-    /// copy original python executable and populate other suffixed binaries
+    /// Copy original python executable and populate other suffixed binaries
     pub fn setup_python(
         venv_exe_path: &Path,
         original_python_exe: &Path,
@@ -255,7 +258,9 @@ prompt = {}"#,
             &format!("python{}.{}", python_version.major, python_version.minor).to_string(),
         ];
 
-        let venv_bin = venv_exe_path.parent().unwrap();
+        let venv_bin = venv_exe_path
+            .parent()
+            .expect("venv exe binary should have parent folder");
 
         for bin_name in python_bins.into_iter() {
             let venv_python_bin = venv_bin.join(bin_name);
@@ -274,7 +279,7 @@ mod tests {
     use crate::python_env::PythonLocation;
     use crate::types::NormalizedPackageName;
     use std::env;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::str::FromStr;
 
     #[test]
