@@ -186,8 +186,8 @@ impl VEnv {
             }
         }
 
-        /// https://bugs.python.org/issue21197
-        /// create lib64 as a symlink to lib on 64-bit non-OS X POSIX
+        // https://bugs.python.org/issue21197
+        // create lib64 as a symlink to lib on 64-bit non-OS X POSIX
         #[cfg(all(target_pointer_width = "64", unix, not(target_os = "macos")))]
         {
             let lib64 = venv_abs_path.join("lib64");
@@ -249,20 +249,53 @@ prompt = {}"#,
             copy_file(original_python_exe, venv_exe_path)?;
         }
 
-        let python_bins = [
-            "python",
-            "python3",
-            &format!("python{}.{}", python_version.major, python_version.minor).to_string(),
-        ];
-
         let venv_bin = venv_exe_path
             .parent()
             .expect("venv exe binary should have parent folder");
 
-        for bin_name in python_bins.into_iter() {
-            let venv_python_bin = venv_bin.join(bin_name);
-            if !venv_python_bin.exists() {
-                copy_file(venv_exe_path, &venv_python_bin)?;
+        #[cfg(not(windows))]
+        {
+            let python_bins = [
+                "python",
+                "python3",
+                &format!("python{}.{}", python_version.major, python_version.minor).to_string(),
+            ];
+
+            for bin_name in python_bins.into_iter() {
+                let venv_python_bin = venv_bin.join(bin_name);
+                if !venv_python_bin.exists() {
+                    copy_file(venv_exe_path, &venv_python_bin)?;
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            let base_exe_name = venv_exe_path
+                .file_name()
+                .expect("Cannot get windows venv exe name");
+            let python_bins = [
+                "python.exe",
+                "python_d.exe",
+                "pythonw.exe",
+                "pythonw_d.exe",
+                base_exe_name
+                    .to_str()
+                    .expect("cannot convert windows venv exe name"),
+            ];
+
+            let original_python_bin_dir = original_python_exe
+                .parent()
+                .expect("Cannot get system python parent folder");
+            for bin_name in python_bins.into_iter() {
+                let original_python_bin = original_python_bin_dir.join(bin_name);
+
+                if original_python_bin.exists() {
+                    let venv_python_bin = venv_bin.join(bin_name);
+                    if !venv_python_bin.exists() {
+                        copy_file(venv_exe_path, &venv_python_bin)?;
+                    }
+                }
             }
         }
 
