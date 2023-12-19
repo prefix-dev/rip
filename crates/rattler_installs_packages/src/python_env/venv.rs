@@ -237,7 +237,7 @@ prompt = {}"#,
     pub fn setup_python(
         venv_exe_path: &Path,
         original_python_exe: &Path,
-        python_version: PythonInterpreterVersion,
+        #[cfg(not(windows))] python_version: PythonInterpreterVersion,
     ) -> std::io::Result<()> {
         if !venv_exe_path.exists() {
             copy_file(original_python_exe, venv_exe_path)?;

@@ -30,7 +30,12 @@ pub fn system_python_executable() -> Result<PathBuf, FindPythonError> {
         .map_err(|_| FindPythonError::NotFound)?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let python_path = PathBuf::from_str(&stdout).map_err(|_| FindPythonError::NotFound)?;
+    let python_path = PathBuf::from_str(&stdout).unwrap();
+
+    // sys.executable can return empty string or python's None
+    if !python_path.exists() {
+        return Err(FindPythonError::NotFound);
+    }
 
     Ok(python_path)
 }
