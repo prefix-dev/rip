@@ -25,7 +25,6 @@ pub fn copy_file<P: AsRef<Path>, U: AsRef<Path>>(from: P, to: U) -> std::io::Res
 #[cfg(windows)]
 pub fn copy_file<P: AsRef<Path>, U: AsRef<Path>>(from: P, to: U) -> std::io::Result<()> {
     fs::copy(from, to)?;
-    fs::set_permissions(to, fs::Permissions::from_mode(0o755)).unwrap();
     Ok(())
 }
 
