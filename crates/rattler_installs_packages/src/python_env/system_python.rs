@@ -44,6 +44,7 @@ pub enum ParsePythonInterpreterVersionError {
     FindPythonError(#[from] FindPythonError),
 }
 
+#[derive(Clone)]
 pub struct PythonInterpreterVersion {
     pub major: u32,
     pub minor: u32,
