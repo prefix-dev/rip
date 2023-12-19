@@ -56,8 +56,6 @@ pub enum VEnvError {
     FindPythonError(#[from] FindPythonError),
     #[error(transparent)]
     ParsePythonInterpreterVersionError(#[from] ParsePythonInterpreterVersionError),
-    #[error("failed to run 'python -m venv': `{0}`")]
-    FailedToRun(String),
     #[error(transparent)]
     FailedToCreate(#[from] std::io::Error),
 }
@@ -159,10 +157,7 @@ impl VEnv {
 
         Self::setup_python(&abs_exe_path, &base_python_path, base_python_version)?;
 
-        Ok(Self {
-            location: venv_abs_dir.to_path_buf(),
-            install_paths,
-        })
+        Ok(VEnv::new(venv_abs_dir.to_path_buf(), install_paths))
     }
 
     /// Create all directories based on venv install paths mapping
@@ -348,7 +343,6 @@ mod tests {
         let venv_dir = tempfile::tempdir().unwrap();
 
         let venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
-        let system_exec = crate::python_env::system_python_executable().unwrap();
 
         let base_prefix_output = venv
             .execute_command("import sys; print(sys.base_prefix, end='')")
