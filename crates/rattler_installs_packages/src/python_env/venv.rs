@@ -152,11 +152,9 @@ impl VEnv {
         let install_paths = InstallPaths::for_venv(base_python_version.clone(), windows);
 
         Self::create_install_paths(venv_abs_dir, &install_paths)?;
-
         Self::create_pyvenv(venv_abs_dir, &base_python_path, base_python_version.clone())?;
 
         let exe_path = install_paths.scripts().join(base_python_name);
-
         let abs_exe_path = venv_abs_dir.join(exe_path);
 
         Self::setup_python(&abs_exe_path, &base_python_path, base_python_version)?;
