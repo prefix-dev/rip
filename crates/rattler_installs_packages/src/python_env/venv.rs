@@ -138,7 +138,6 @@ impl VEnv {
 
     /// Create a virtual environment at specified directory
     /// allows specifying if this is a windows venv
-    /// venv_dir is an absolute path
     pub fn create_custom(
         venv_abs_dir: &Path,
         python: PythonLocation,
