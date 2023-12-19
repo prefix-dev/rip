@@ -275,7 +275,7 @@ prompt = {}"#,
         {
             let base_exe_name = venv_exe_path
                 .file_name()
-                .expect("Cannot get windows venv exe name");
+                .expect("cannot get windows venv exe name");
             let python_bins = [
                 "python.exe",
                 "python_d.exe",
@@ -288,7 +288,7 @@ prompt = {}"#,
 
             let original_python_bin_dir = original_python_exe
                 .parent()
-                .expect("Cannot get system python parent folder");
+                .expect("cannot get system python parent folder");
             for bin_name in python_bins.into_iter() {
                 let original_python_bin = original_python_bin_dir.join(bin_name);
 
