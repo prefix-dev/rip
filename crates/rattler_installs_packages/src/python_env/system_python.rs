@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
@@ -8,6 +9,8 @@ use thiserror::Error;
 pub enum FindPythonError {
     #[error("could not find python executable")]
     NotFound,
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
 }
 
 /// Try to find the python executable in the current environment.
