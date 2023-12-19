@@ -154,7 +154,15 @@ impl VEnv {
         let exe_path = install_paths.scripts().join(base_python_name);
         let abs_exe_path = venv_abs_dir.join(exe_path);
 
-        Self::setup_python(&abs_exe_path, &base_python_path, base_python_version)?;
+        #[cfg(not(windows))]
+        {
+            Self::setup_python(&abs_exe_path, &base_python_path, base_python_version)?;
+        }
+
+        #[cfg(windows)]
+        {
+            Self::setup_python(&abs_exe_path, &base_python_path)?;
+        }
 
         Ok(VEnv::new(venv_abs_dir.to_path_buf(), install_paths))
     }

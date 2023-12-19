@@ -17,7 +17,8 @@ pub fn system_python_executable() -> Result<PathBuf, FindPythonError> {
     // When installed with homebrew on macOS, the python3 executable is called `python3` instead
     // Also on some ubuntu installs this is the case
     // For windows it should just be python
-    let output = std::process::Command::new("python3")
+
+    let output = match std::process::Command::new("python3")
         .arg("-c")
         .arg("import sys; print(sys.executable, end='')")
         .output()
@@ -26,8 +27,11 @@ pub fn system_python_executable() -> Result<PathBuf, FindPythonError> {
                 .arg("-c")
                 .arg("import sys; print(sys.executable, end='')")
                 .output()
-        })
-        .map_err(|_| FindPythonError::NotFound)?;
+        }) {
+        Err(e) if e.kind() == ErrorKind::NotFound => return Err(FindPythonError::NotFound),
+        Err(e) => return Err(FindPythonError::IoError(e)),
+        Ok(output) => output,
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let python_path = PathBuf::from_str(&stdout).unwrap();
