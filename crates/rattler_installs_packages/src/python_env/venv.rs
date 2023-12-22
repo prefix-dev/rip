@@ -8,9 +8,25 @@ use crate::python_env::{
     system_python_executable, FindPythonError, ParsePythonInterpreterVersionError,
     PythonInterpreterVersion,
 };
+use std::ffi::OsStr;
+use std::fmt::Debug;
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use thiserror::Error;
+
+#[cfg(unix)]
+pub fn copy_file<P: AsRef<Path>, U: AsRef<Path>>(from: P, to: U) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(from, to)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn copy_file<P: AsRef<Path>, U: AsRef<Path>>(from: P, to: U) -> std::io::Result<()> {
+    fs::copy(from, to)?;
+    Ok(())
+}
 
 /// Specifies where to find the python executable
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,8 +55,6 @@ pub enum VEnvError {
     FindPythonError(#[from] FindPythonError),
     #[error(transparent)]
     ParsePythonInterpreterVersionError(#[from] ParsePythonInterpreterVersionError),
-    #[error("failed to run 'python -m venv': `{0}`")]
-    FailedToRun(String),
     #[error(transparent)]
     FailedToCreate(#[from] std::io::Error),
 }
@@ -122,31 +136,172 @@ impl VEnv {
     /// Create a virtual environment at specified directory
     /// allows specifying if this is a windows venv
     pub fn create_custom(
-        venv_dir: &Path,
+        venv_abs_dir: &Path,
         python: PythonLocation,
         windows: bool,
     ) -> Result<VEnv, VEnvError> {
-        // Find python executable
-        let python = python.executable()?;
+        let base_python_path = python.executable()?;
+        let base_python_version = PythonInterpreterVersion::from_path(&base_python_path)?;
+        let base_python_name = base_python_path
+            .file_name()
+            .expect("Cannot extract base python name");
 
-        // Execute command
-        // Don't need pip for our use-case
-        let output = Command::new(&python)
-            .arg("-m")
-            .arg("venv")
-            .arg(venv_dir)
-            .arg("--without-pip")
-            .output()?;
+        let install_paths = InstallPaths::for_venv(base_python_version.clone(), windows);
 
-        // Parse output
-        if !output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stderr);
-            return Err(VEnvError::FailedToRun(stdout.to_string()));
+        Self::create_install_paths(venv_abs_dir, &install_paths)?;
+        Self::create_pyvenv(venv_abs_dir, &base_python_path, base_python_version.clone())?;
+
+        let exe_path = install_paths.scripts().join(base_python_name);
+        let abs_exe_path = venv_abs_dir.join(exe_path);
+
+        #[cfg(not(windows))]
+        {
+            Self::setup_python(&abs_exe_path, &base_python_path, base_python_version)?;
         }
 
-        let version = PythonInterpreterVersion::from_path(&python)?;
-        let install_paths = InstallPaths::for_venv(version, windows);
-        Ok(VEnv::new(venv_dir.to_path_buf(), install_paths))
+        #[cfg(windows)]
+        {
+            Self::setup_python(&abs_exe_path, &base_python_path)?;
+        }
+
+        Ok(VEnv::new(venv_abs_dir.to_path_buf(), install_paths))
+    }
+
+    /// Create all directories based on venv install paths mapping
+    pub fn create_install_paths(
+        venv_abs_path: &Path,
+        install_paths: &InstallPaths,
+    ) -> std::io::Result<()> {
+        if !venv_abs_path.exists() {
+            fs::create_dir_all(venv_abs_path)?;
+        }
+
+        let libpath = Path::new(&venv_abs_path).join(install_paths.site_packages());
+        let include_path = Path::new(&venv_abs_path).join(install_paths.include());
+        let bin_path = Path::new(&venv_abs_path).join(install_paths.scripts());
+
+        let paths_to_create = [libpath, include_path, bin_path];
+
+        for path in paths_to_create.iter() {
+            if !path.exists() {
+                fs::create_dir_all(path)?;
+            }
+        }
+
+        // https://bugs.python.org/issue21197
+        // create lib64 as a symlink to lib on 64-bit non-OS X POSIX
+        #[cfg(all(target_pointer_width = "64", unix, not(target_os = "macos")))]
+        {
+            let lib64 = venv_abs_path.join("lib64");
+            if !lib64.exists() {
+                std::os::unix::fs::symlink("lib", lib64)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Create pyvenv.cfg and write it's content based on system python
+    pub fn create_pyvenv(
+        venv_path: &Path,
+        python_path: &Path,
+        python_version: PythonInterpreterVersion,
+    ) -> std::io::Result<()> {
+        let venv_name = venv_path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    format!(
+                        "cannot extract base name from venv path {}",
+                        venv_path.display()
+                    ),
+                )
+            })?;
+
+        let pyenv_cfg_content = format!(
+            r#"
+home = {}
+include-system-site-packages = false
+version = {}.{}.{}
+prompt = {}"#,
+            python_path
+                .parent()
+                .expect("system python path should have parent folder")
+                .display(),
+            python_version.major,
+            python_version.minor,
+            python_version.patch,
+            venv_name,
+        );
+
+        let cfg_path = Path::new(&venv_path).join("pyvenv.cfg");
+        std::fs::write(cfg_path, pyenv_cfg_content)?;
+        Ok(())
+    }
+
+    /// Copy original python executable and populate other suffixed binaries
+    pub fn setup_python(
+        venv_exe_path: &Path,
+        original_python_exe: &Path,
+        #[cfg(not(windows))] python_version: PythonInterpreterVersion,
+    ) -> std::io::Result<()> {
+        if !venv_exe_path.exists() {
+            copy_file(original_python_exe, venv_exe_path)?;
+        }
+
+        let venv_bin = venv_exe_path
+            .parent()
+            .expect("venv exe binary should have parent folder");
+
+        #[cfg(not(windows))]
+        {
+            let python_bins = [
+                "python",
+                "python3",
+                &format!("python{}.{}", python_version.major, python_version.minor).to_string(),
+            ];
+
+            for bin_name in python_bins.into_iter() {
+                let venv_python_bin = venv_bin.join(bin_name);
+                if !venv_python_bin.exists() {
+                    copy_file(venv_exe_path, &venv_python_bin)?;
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            let base_exe_name = venv_exe_path
+                .file_name()
+                .expect("cannot get windows venv exe name");
+            let python_bins = [
+                "python.exe",
+                "python_d.exe",
+                "pythonw.exe",
+                "pythonw_d.exe",
+                base_exe_name
+                    .to_str()
+                    .expect("cannot convert windows venv exe name"),
+            ];
+
+            let original_python_bin_dir = original_python_exe
+                .parent()
+                .expect("cannot get system python parent folder");
+            for bin_name in python_bins.into_iter() {
+                let original_python_bin = original_python_bin_dir.join(bin_name);
+
+                if original_python_bin.exists() {
+                    let venv_python_bin = venv_bin.join(bin_name);
+                    if !venv_python_bin.exists() {
+                        copy_file(venv_exe_path, &venv_python_bin)?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -155,13 +310,15 @@ mod tests {
     use super::VEnv;
     use crate::python_env::PythonLocation;
     use crate::types::NormalizedPackageName;
+    use std::env;
     use std::path::Path;
     use std::str::FromStr;
 
     #[test]
     pub fn venv_creation() {
         let venv_dir = tempfile::tempdir().unwrap();
-        let venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
+        let venv = VEnv::create(&venv_dir.path(), PythonLocation::System).unwrap();
+
         // Does python exist
         assert!(venv.python_executable().is_file());
 
@@ -186,5 +343,56 @@ mod tests {
             String::from_utf8(output.stdout).unwrap().trim(),
             "('A   d   i   E   u   ', False)"
         );
+    }
+
+    #[test]
+    pub fn test_python_set_env_prefix() {
+        let venv_dir = tempfile::tempdir().unwrap();
+
+        let venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
+
+        let base_prefix_output = venv
+            .execute_command("import sys; print(sys.base_prefix, end='')")
+            .unwrap();
+        let base_prefix = String::from_utf8_lossy(&base_prefix_output.stdout);
+
+        let venv_prefix_output = venv
+            .execute_command("import sys; print(sys.prefix, end='')")
+            .unwrap();
+        let venv_prefix = String::from_utf8_lossy(&venv_prefix_output.stdout);
+
+        assert!(
+            base_prefix != venv_prefix,
+            "base prefix of venv should be different from prefix"
+        )
+    }
+
+    #[test]
+    pub fn test_python_install_paths_are_created() {
+        let venv_dir = tempfile::tempdir().unwrap();
+
+        let venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
+        let install_paths = venv.install_paths;
+
+        let platlib_path = venv_dir.path().join(install_paths.platlib());
+        let scripts_path = venv_dir.path().join(install_paths.scripts());
+        let include_path = venv_dir.path().join(install_paths.include());
+
+        assert!(platlib_path.exists(), "platlib path is not created");
+        assert!(scripts_path.exists(), "scripts path is not created");
+        assert!(include_path.exists(), "include path is not created");
+    }
+
+    #[test]
+    pub fn test_same_venv_can_be_created_twice() {
+        let venv_dir = tempfile::tempdir().unwrap();
+
+        let venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
+        let another_same_venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
+
+        assert!(
+            venv.location == another_same_venv.location,
+            "same venv was not created in same location"
+        )
     }
 }

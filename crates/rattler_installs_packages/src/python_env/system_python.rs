@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use thiserror::Error;
@@ -8,16 +9,42 @@ use thiserror::Error;
 pub enum FindPythonError {
     #[error("could not find python executable")]
     NotFound,
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
 }
 
 /// Try to find the python executable in the current environment.
+/// Using sys.executable aproach will return original interpretator path
+/// and not the shim in case of using which
 pub fn system_python_executable() -> Result<PathBuf, FindPythonError> {
     // When installed with homebrew on macOS, the python3 executable is called `python3` instead
     // Also on some ubuntu installs this is the case
     // For windows it should just be python
-    which::which("python3")
-        .or_else(|_| which::which("python"))
-        .map_err(|_| FindPythonError::NotFound)
+
+    let output = match std::process::Command::new("python3")
+        .arg("-c")
+        .arg("import sys; print(sys.executable, end='')")
+        .output()
+        .or_else(|_| {
+            std::process::Command::new("python")
+                .arg("-c")
+                .arg("import sys; print(sys.executable, end='')")
+                .output()
+        }) {
+        Err(e) if e.kind() == ErrorKind::NotFound => return Err(FindPythonError::NotFound),
+        Err(e) => return Err(FindPythonError::IoError(e)),
+        Ok(output) => output,
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let python_path = PathBuf::from_str(&stdout).unwrap();
+
+    // sys.executable can return empty string or python's None
+    if !python_path.exists() {
+        return Err(FindPythonError::NotFound);
+    }
+
+    Ok(python_path)
 }
 
 /// Errors that can occur while trying to parse the python version
@@ -29,6 +56,7 @@ pub enum ParsePythonInterpreterVersionError {
     FindPythonError(#[from] FindPythonError),
 }
 
+#[derive(Clone)]
 pub struct PythonInterpreterVersion {
     pub major: u32,
     pub minor: u32,

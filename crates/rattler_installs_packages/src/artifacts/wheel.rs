@@ -502,6 +502,15 @@ impl InstallPaths {
         &self.data
     }
 
+    /// Returns the location of the include directory
+    pub fn include(&self) -> PathBuf {
+        if self.windows {
+            PathBuf::from("Include")
+        } else {
+            PathBuf::from("include")
+        }
+    }
+
     /// Returns the location of the headers directory. The location of headers is specific to a
     /// distribution name.
     pub fn headers(&self, distribution_name: &str) -> PathBuf {
