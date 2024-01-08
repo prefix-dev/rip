@@ -26,6 +26,7 @@ pub(crate) struct BuildEnvironment<'db> {
     build_requirements: Vec<Requirement>,
     resolved_wheels: Vec<PinnedPackage<'db>>,
     venv: VEnv,
+    #[allow(dead_code)]
     python_location: PythonLocation,
 }
 
@@ -90,7 +91,7 @@ impl<'db> BuildEnvironment<'db> {
             .cloned()
             .collect::<Vec<_>>();
 
-        // Install extra requirements if any new ones were foujnd
+        // Install extra requirements if any new ones were found
         if !extra_requirements.is_empty()
             && self.build_requirements.len() != combined_requirements.len()
         {
@@ -106,7 +107,6 @@ impl<'db> BuildEnvironment<'db> {
                 locked_packages,
                 favored_packages,
                 resolve_options,
-                self.python_location.clone(),
             )
             .await
             .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(all_requirements))?;
@@ -154,11 +154,13 @@ impl<'db> BuildEnvironment<'db> {
         env_markers: &MarkerEnvironment,
         wheel_tags: Option<&WheelTags>,
         resolve_options: &ResolveOptions,
-        python_location: PythonLocation,
     ) -> Result<BuildEnvironment<'db>, WheelBuildError> {
         // Setup a work directory and a new env dir
         let work_dir = tempfile::tempdir().unwrap();
-        let venv = VEnv::create(&work_dir.path().join("venv"), python_location.clone())?;
+        let venv = VEnv::create(
+            &work_dir.path().join("venv"),
+            resolve_options.python_location.clone(),
+        )?;
 
         // Find the build system
         let build_system =
@@ -187,7 +189,6 @@ impl<'db> BuildEnvironment<'db> {
             HashMap::default(),
             HashMap::default(),
             resolve_options,
-            python_location.clone(),
         )
         .await
         .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(build_requirements.to_vec()))?;
@@ -232,7 +233,7 @@ impl<'db> BuildEnvironment<'db> {
             entry_point,
             resolved_wheels,
             venv,
-            python_location,
+            python_location: resolve_options.python_location.clone(),
         })
     }
 }

@@ -191,7 +191,7 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::artifacts::SDist;
-    use crate::python_env::{Pep508EnvMakers, PythonLocation};
+    use crate::python_env::Pep508EnvMakers;
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
@@ -261,7 +261,6 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            PythonLocation::System,
         );
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -285,7 +284,6 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            PythonLocation::System,
         );
 
         // Build the wheel
@@ -311,7 +309,6 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            PythonLocation::System,
         );
 
         // Build the wheel
