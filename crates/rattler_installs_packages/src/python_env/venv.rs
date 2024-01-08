@@ -317,7 +317,7 @@ mod tests {
     #[test]
     pub fn venv_creation() {
         let venv_dir = tempfile::tempdir().unwrap();
-        let venv = VEnv::create(&venv_dir.path(), PythonLocation::System).unwrap();
+        let venv = VEnv::create(venv_dir.path(), PythonLocation::System).unwrap();
 
         // Does python exist
         assert!(venv.python_executable().is_file());

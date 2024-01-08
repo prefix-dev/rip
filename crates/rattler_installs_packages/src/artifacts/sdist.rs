@@ -191,7 +191,7 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::artifacts::SDist;
-    use crate::python_env::{Pep508EnvMakers, PythonLocation};
+    use crate::python_env::Pep508EnvMakers;
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
