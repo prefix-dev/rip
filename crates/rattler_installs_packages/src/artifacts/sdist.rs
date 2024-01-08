@@ -261,7 +261,6 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            PythonLocation::System,
         );
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -285,7 +284,6 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            PythonLocation::System,
         );
 
         // Build the wheel
@@ -311,7 +309,6 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            PythonLocation::System,
         );
 
         // Build the wheel

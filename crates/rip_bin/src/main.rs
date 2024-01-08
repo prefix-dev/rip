@@ -130,6 +130,7 @@ async fn actual_main() -> miette::Result<()> {
 
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
+        ..Default::default()
     };
     // Solve the environment
     let blueprint = match resolve(
@@ -140,7 +141,6 @@ async fn actual_main() -> miette::Result<()> {
         HashMap::default(),
         HashMap::default(),
         &resolve_opts,
-        PythonLocation::System,
     )
     .await
     {
@@ -201,7 +201,6 @@ async fn actual_main() -> miette::Result<()> {
             Some(&compatible_tags),
             &resolve_opts,
             package_db.cache_dir(),
-            PythonLocation::System,
         );
 
         for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {

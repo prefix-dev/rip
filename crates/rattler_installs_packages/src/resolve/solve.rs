@@ -146,6 +146,10 @@ pub struct ResolveOptions {
     /// Defines how to handle sdists during resolution. By default sdists will be treated the same
     /// as wheels.
     pub sdist_resolution: SDistResolution,
+
+    /// Defines what python interpreter to use for resolution. By default the python interpreter
+    /// from the system is used. This is only used during resolution and building of wheel files
+    pub python_location: PythonLocation,
 }
 
 /// Resolves an environment that contains the given requirements and all dependencies of those
@@ -168,7 +172,6 @@ pub async fn resolve<'db>(
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     options: &ResolveOptions,
-    python_location: PythonLocation,
 ) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct a provider
     let provider = PypiDependencyProvider::new(
@@ -178,7 +181,6 @@ pub async fn resolve<'db>(
         locked_packages,
         favored_packages,
         options,
-        python_location,
     )?;
     let pool = &provider.pool;
 
