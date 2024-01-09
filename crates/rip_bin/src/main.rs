@@ -1,4 +1,5 @@
 use fs_err as fs;
+use rattler_installs_packages::resolve::PreReleaseResolution;
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::collections::HashMap;
 use std::io::Write;
@@ -56,6 +57,10 @@ struct Args {
     #[arg(long)]
     /// Save failed wheel build environments
     save_on_failure: bool,
+
+    /// Prefer pre-releases over normal releases
+    #[clap(long)]
+    pre: bool,
 }
 
 #[derive(Parser)]
@@ -169,11 +174,18 @@ async fn actual_main() -> miette::Result<()> {
         OnWheelBuildFailure::DeleteBuildEnv
     };
 
+    let pre_release_resolution = if args.pre {
+        PreReleaseResolution::Allow
+    } else {
+        PreReleaseResolution::AllowIfNoOtherVersions
+    };
+
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
         python_location: python_location.clone(),
         clean_env: args.clean_env,
         on_wheel_build_failure,
+        pre_release_resolution,
     };
 
     // Solve the environment
