@@ -1,3 +1,4 @@
+use super::solve::PreReleaseResolution;
 use super::SDistResolution;
 use crate::artifacts::SDist;
 use crate::artifacts::Wheel;
@@ -172,20 +173,31 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             return Err("there are no packages available");
         }
 
-        let mut artifacts = artifacts
-            .iter()
-            .filter(|a| a.filename.version().pre.is_none() && a.filename.version().dev.is_none())
-            .collect::<Vec<_>>();
+        let mut artifacts = artifacts.iter().collect::<Vec<_>>();
+        // Filter yanked artifacts
+        artifacts.retain(|a| !a.yanked.yanked);
+
+        if artifacts.is_empty() {
+            return Err("it is yanked");
+        }
+
+        let is_pre = |a: &ArtifactInfo| {
+            a.filename.version().pre.is_some() || a.filename.version().dev.is_some()
+        };
+        // Filter based on pre-release resolution
+        match self.options.pre_release_resolution {
+            PreReleaseResolution::Disallow => artifacts.retain(|a| !is_pre(a)),
+            PreReleaseResolution::AllowIfNoOtherVersions
+                if !artifacts.iter().all(|a| is_pre(a)) =>
+            {
+                artifacts.retain(|a| !is_pre(a))
+            }
+            _ => {}
+        }
 
         if artifacts.is_empty() {
             // Skip all prereleases
             return Err("prereleases are not allowed");
-        }
-
-        // Filter yanked artifacts
-        artifacts.retain(|a| !a.yanked.yanked);
-        if artifacts.is_empty() {
-            return Err("it is yanked");
         }
 
         // This should keep only the wheels
