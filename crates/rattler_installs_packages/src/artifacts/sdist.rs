@@ -44,8 +44,9 @@ pub enum SDistError {
     WheelCoreMetaDataError(#[from] WheelCoreMetaDataError),
 }
 
-/// Pop until the file name is found an use the rest of the path
-fn strip_until_containing_prefix(name: &str, path: &Path) -> PathBuf {
+/// Returns the remainder of the path that follows the last component that starts with "prefix".
+/// E.g: `strip_until_starts_with_prefix("bla", "/my/blafoo/path/bla/path/remainder) -> "path/remainder"`
+fn strip_until_starts_with_prefix(name: &str, path: &Path) -> PathBuf {
     // Use up until the last occurrence of the distribution name
     let components = path
         .components()
@@ -55,7 +56,7 @@ fn strip_until_containing_prefix(name: &str, path: &Path) -> PathBuf {
                 .to_str()
                 // Keep taking if we cannot convert
                 .unwrap_or("")
-                .contains(name)
+                .starts_with(name)
         })
         .collect::<Vec<_>>();
 
@@ -90,7 +91,7 @@ impl SDist {
             let mut entry = entry?;
 
             // Find name in archive and return this
-            if strip_until_containing_prefix(
+            if strip_until_starts_with_prefix(
                 self.name.distribution.as_source_str(),
                 entry.path()?.as_ref(),
             ) == name.as_ref()
@@ -238,15 +239,15 @@ mod tests {
     pub fn test_strip_until_containing_prefix() {
         let name = "fake-flask";
         let path = Path::new("/bar/foo/bla/fake-flask-3.0.0/baz");
-        let result = super::strip_until_containing_prefix(name, path);
+        let result = super::strip_until_starts_with_prefix(name, path);
         assert_eq!(result, Path::new("baz"));
 
         let path = Path::new("/bar/fake-flask/bla/fake-flask-3.0.0/ping/baz");
-        let result = super::strip_until_containing_prefix(name, path);
+        let result = super::strip_until_starts_with_prefix(name, path);
         assert_eq!(result, Path::new("ping/baz"));
 
         let path = Path::new("/var/foo/arg");
-        let result = super::strip_until_containing_prefix(name, path);
+        let result = super::strip_until_starts_with_prefix(name, path);
         assert_eq!(result, path);
     }
 
