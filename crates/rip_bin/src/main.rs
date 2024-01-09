@@ -1,3 +1,4 @@
+use rattler_installs_packages::resolve::PreReleaseResolution;
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::collections::HashMap;
 use std::io::Write;
@@ -40,6 +41,10 @@ struct Args {
 
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
+
+    /// Prefer pre-releases over normal releases
+    #[clap(long)]
+    pre: bool,
 }
 
 #[derive(Parser)]
@@ -128,8 +133,15 @@ async fn actual_main() -> miette::Result<()> {
         compatible_tags.tags().format(", ")
     );
 
+    let pre_release_resolution = if args.pre {
+        PreReleaseResolution::Allow
+    } else {
+        PreReleaseResolution::AllowIfNoOtherVersions
+    };
+
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
+        pre_release_resolution,
         ..Default::default()
     };
     // Solve the environment

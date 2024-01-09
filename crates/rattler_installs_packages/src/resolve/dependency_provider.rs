@@ -184,12 +184,22 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         let is_pre = |a: &ArtifactInfo| {
             a.filename.version().pre.is_some() || a.filename.version().dev.is_some()
         };
+
+        if artifacts.iter().all(|a| is_pre(a)) {
+            // Skip all prereleases
+            println!("All are pre-releases: ");
+            for artifact in artifacts.iter() {
+                println!("{}", artifact.filename);
+            }
+        }
+
         // Filter based on pre-release resolution
         match self.options.pre_release_resolution {
             PreReleaseResolution::Disallow => artifacts.retain(|a| !is_pre(a)),
             PreReleaseResolution::AllowIfNoOtherVersions
                 if !artifacts.iter().all(|a| is_pre(a)) =>
             {
+                // println!("Removing prereleases because there are no other versions");
                 artifacts.retain(|a| !is_pre(a))
             }
             _ => {}
