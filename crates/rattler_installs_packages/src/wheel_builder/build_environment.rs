@@ -51,9 +51,7 @@ impl<'db> BuildEnvironment<'db> {
     /// this might not be available for all build backends.
     /// and it can also return an empty list of requirements.
     fn get_extra_requirements(&self) -> Result<HashSet<Requirement>, WheelBuildError> {
-        let output = self.run_command("GetRequiresForBuildWheel").map_err(|e| {
-            WheelBuildError::CouldNotRunCommand("GetRequiresForBuildWheel".into(), e)
-        })?;
+        let output = self.run_command("GetRequiresForBuildWheel")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -136,15 +134,42 @@ impl<'db> BuildEnvironment<'db> {
     }
 
     /// Run a command in the build environment
-    pub(crate) fn run_command(&self, stage: &str) -> std::io::Result<Output> {
-        // three args: cache.folder, goal
+    pub(crate) fn run_command(&self, stage: &str) -> Result<Output, WheelBuildError> {
+        // We modify the environment of the user
+        // so that we can use the scripts directory to run the build frontend
+        // e.g maturin depends on an executable in the scripts directory
+        let script_path = self.venv.root().join(self.venv.install_paths().scripts());
+        let path_var = if let Some(path) = std::env::var_os("PATH") {
+            let mut paths = std::env::split_paths(&path).collect::<Vec<_>>();
+            paths.push(script_path);
+            std::env::join_paths(paths.iter()).map_err(|e| {
+                WheelBuildError::CouldNotRunCommand(
+                    stage.into(),
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("could not setup env path: {}", e),
+                    ),
+                )
+            })?
+        } else {
+            // If we find not PATH variable, we just use the script path
+            script_path.as_os_str().to_owned()
+        };
+
         Command::new(self.venv.python_executable())
             .current_dir(&self.package_dir)
+            .env("PATH", path_var)
+            // Script to run
             .arg(self.work_dir.path().join("build_frontend.py"))
+            // The working directory to use
+            // will contain the output of the build
             .arg(self.work_dir.path())
+            // Build system entry point
             .arg(&self.entry_point)
+            // Building Wheel or Metadata
             .arg(stage)
             .output()
+            .map_err(|e| WheelBuildError::CouldNotRunCommand(stage.into(), e))
     }
 
     /// Setup the build environment so that we can build a wheel from an sdist
