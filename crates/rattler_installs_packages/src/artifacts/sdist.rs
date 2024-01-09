@@ -44,26 +44,6 @@ pub enum SDistError {
     WheelCoreMetaDataError(#[from] WheelCoreMetaDataError),
 }
 
-/// Returns the remainder of the path that follows the last component that starts with "prefix".
-/// E.g: `strip_until_starts_with_prefix("bla", "/my/blafoo/path/bla/path/remainder) -> "path/remainder"`
-fn strip_until_starts_with_prefix(name: &str, path: &Path) -> PathBuf {
-    // Use up until the last occurrence of the distribution name
-    let components = path
-        .components()
-        .rev()
-        .take_while(|c| {
-            !c.as_os_str()
-                .to_str()
-                // Keep taking if we cannot convert
-                .unwrap_or("")
-                .starts_with(name)
-        })
-        .collect::<Vec<_>>();
-
-    // reverse it again to get it in the original form and collect it into a PathBuf
-    components.iter().rev().collect::<PathBuf>()
-}
-
 impl SDist {
     /// Create this struct from a path
     #[allow(dead_code)]
@@ -86,16 +66,16 @@ impl SDist {
         let mut lock = self.file.lock();
         let mut archive = generic_archive_reader(&mut lock, self.name.format)?;
 
+        fn skip_first_component(path: &Path) -> PathBuf {
+            path.components().skip(1).collect()
+        }
+
         // Loop over entries
         for entry in archive.entries()? {
             let mut entry = entry?;
 
             // Find name in archive and return this
-            if strip_until_starts_with_prefix(
-                self.name.distribution.as_source_str(),
-                entry.path()?.as_ref(),
-            ) == name.as_ref()
-            {
+            if skip_first_component(entry.path()?.as_ref()) == name.as_ref() {
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes)?;
                 return Ok(Some(bytes));
@@ -233,22 +213,6 @@ mod tests {
             .unwrap(),
             tempdir,
         )
-    }
-
-    #[test]
-    pub fn test_strip_until_containing_prefix() {
-        let name = "fake-flask";
-        let path = Path::new("/bar/foo/bla/fake-flask-3.0.0/baz");
-        let result = super::strip_until_starts_with_prefix(name, path);
-        assert_eq!(result, Path::new("baz"));
-
-        let path = Path::new("/bar/fake-flask/bla/fake-flask-3.0.0/ping/baz");
-        let result = super::strip_until_starts_with_prefix(name, path);
-        assert_eq!(result, Path::new("ping/baz"));
-
-        let path = Path::new("/var/foo/arg");
-        let result = super::strip_until_starts_with_prefix(name, path);
-        assert_eq!(result, path);
     }
 
     #[tokio::test]
