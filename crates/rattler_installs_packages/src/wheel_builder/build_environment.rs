@@ -171,6 +171,7 @@ impl<'db> BuildEnvironment<'db> {
                     build_backend: None,
                     backend_path: None,
                 });
+
         // Find the build requirements
         let build_requirements = build_requirements(&build_system);
         tracing::info!(

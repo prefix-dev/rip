@@ -169,7 +169,7 @@ impl PackageDb {
                 match result {
                     Ok(sdist) => {
                         // Save the pep643 metadata in the cache if it is available
-                        let metadata = sdist.pep643_metadata();
+                        let metadata = sdist.pep643_metadata().into_diagnostic()?;
                         if let Some((bytes, _)) = metadata {
                             self.put_metadata_in_cache(artifact_info, &bytes).await?;
                         }

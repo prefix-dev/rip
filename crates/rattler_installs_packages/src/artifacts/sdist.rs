@@ -5,6 +5,7 @@ use flate2::read::GzDecoder;
 use miette::IntoDiagnostic;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Serialize;
+
 use std::ffi::OsStr;
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -43,6 +44,25 @@ pub enum SDistError {
     WheelCoreMetaDataError(#[from] WheelCoreMetaDataError),
 }
 
+/// Pop until the file name is found an use the rest of the path
+fn strip_until_containing_prefix(name: &str, path: &Path) -> PathBuf {
+    // Use up until the last occurrence of the distribution name
+    let components = path
+        .components()
+        .rev()
+        .take_while(|c| {
+            !c.as_os_str()
+                .to_str()
+                // Keep taking if we cannot convert
+                .unwrap_or("")
+                .contains(name)
+        })
+        .collect::<Vec<_>>();
+
+    // reverse it again to get it in the original form and collect it into a PathBuf
+    components.iter().rev().collect::<PathBuf>()
+}
+
 impl SDist {
     /// Create this struct from a path
     #[allow(dead_code)]
@@ -61,7 +81,7 @@ impl SDist {
     }
 
     /// Find entry in tar archive
-    fn find_entry(&self, name: impl AsRef<str>) -> std::io::Result<Option<Vec<u8>>> {
+    fn find_entry(&self, name: impl AsRef<Path>) -> std::io::Result<Option<Vec<u8>>> {
         let mut lock = self.file.lock();
         let mut archive = generic_archive_reader(&mut lock, self.name.format)?;
 
@@ -70,7 +90,11 @@ impl SDist {
             let mut entry = entry?;
 
             // Find name in archive and return this
-            if entry.path()?.ends_with(name.as_ref()) {
+            if strip_until_containing_prefix(
+                self.name.distribution.as_source_str(),
+                entry.path()?.as_ref(),
+            ) == name.as_ref()
+            {
                 let mut bytes = Vec::new();
                 entry.read_to_end(&mut bytes)?;
                 return Ok(Some(bytes));
@@ -91,7 +115,6 @@ impl SDist {
     }
 
     /// Read the build system info from the pyproject.toml
-    #[allow(dead_code)]
     pub fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
         if let Some(bytes) = self.find_entry("pyproject.toml")? {
             let source = String::from_utf8(bytes).map_err(|e| {
@@ -124,13 +147,13 @@ impl SDist {
 
     /// Checks if this artifact implements PEP 643
     /// and returns the metadata if it does
-    pub fn pep643_metadata(&self) -> Option<(Vec<u8>, WheelCoreMetadata)> {
+    pub fn pep643_metadata(&self) -> Result<Option<(Vec<u8>, WheelCoreMetadata)>, SDistError> {
         // Assume we have a PKG-INFO
-        let (bytes, metadata) = self.read_package_info().ok()?;
+        let (bytes, metadata) = self.read_package_info()?;
         if metadata.metadata_version.implements_pep643() {
-            Some((bytes, metadata))
+            Ok(Some((bytes, metadata)))
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -211,6 +234,22 @@ mod tests {
         )
     }
 
+    #[test]
+    pub fn test_strip_until_containing_prefix() {
+        let name = "fake-flask";
+        let path = Path::new("/bar/foo/bla/fake-flask-3.0.0/baz");
+        let result = super::strip_until_containing_prefix(name, path);
+        assert_eq!(result, Path::new("baz"));
+
+        let path = Path::new("/bar/fake-flask/bla/fake-flask-3.0.0/ping/baz");
+        let result = super::strip_until_containing_prefix(name, path);
+        assert_eq!(result, Path::new("ping/baz"));
+
+        let path = Path::new("/var/foo/arg");
+        let result = super::strip_until_containing_prefix(name, path);
+        assert_eq!(result, path);
+    }
+
     #[tokio::test]
     pub async fn correct_metadata_fake_flask() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -220,7 +259,7 @@ mod tests {
         // Should not fail as it is a valid PKG-INFO
         // and considered reliable
         let _package_db = get_package_db();
-        sdist.pep643_metadata().unwrap();
+        sdist.pep643_metadata().unwrap().unwrap();
     }
 
     #[test]
