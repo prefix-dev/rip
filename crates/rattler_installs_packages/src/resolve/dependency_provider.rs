@@ -166,6 +166,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
     fn filter_candidates<'a>(
         &self,
         artifacts: &'a [ArtifactInfo],
+        all_pre_release: bool,
     ) -> Result<Vec<&'a ArtifactInfo>, &'static str> {
         // Filter only artifacts we can work with
         if artifacts.is_empty() {
@@ -181,28 +182,17 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             return Err("it is yanked");
         }
 
-        let is_pre = |a: &ArtifactInfo| {
-            a.filename.version().pre.is_some() || a.filename.version().dev.is_some()
+        // Filter based on pre-release resolution
+        let remove_pre_releases = match self.options.pre_release_resolution {
+            PreReleaseResolution::Disallow => true,
+            PreReleaseResolution::AllowIfNoOtherVersions => !all_pre_release,
+            PreReleaseResolution::Allow => false,
         };
 
-        if artifacts.iter().all(|a| is_pre(a)) {
-            // Skip all prereleases
-            println!("All are pre-releases: ");
-            for artifact in artifacts.iter() {
-                println!("{}", artifact.filename);
-            }
-        }
-
-        // Filter based on pre-release resolution
-        match self.options.pre_release_resolution {
-            PreReleaseResolution::Disallow => artifacts.retain(|a| !is_pre(a)),
-            PreReleaseResolution::AllowIfNoOtherVersions
-                if !artifacts.iter().all(|a| is_pre(a)) =>
-            {
-                // println!("Removing prereleases because there are no other versions");
-                artifacts.retain(|a| !is_pre(a))
-            }
-            _ => {}
+        if remove_pre_releases {
+            artifacts.retain(|a| {
+                a.filename.version().pre.is_none() && a.filename.version().dev.is_none()
+            })
         }
 
         if artifacts.is_empty() {
@@ -388,6 +378,11 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         let mut candidates = Candidates::default();
         let locked_package = self.locked_packages.get(package_name.base());
         let favored_package = self.favored_packages.get(package_name.base());
+
+        let all_pre_release = artifacts
+            .iter()
+            .all(|(version, _)| version.pre.is_some() || version.dev.is_some());
+
         for (version, artifacts) in artifacts.iter() {
             // Skip this version if a locked or favored version exists for this version. It will be
             // added below.
@@ -404,7 +399,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             candidates.candidates.push(solvable_id);
 
             // Determine the candidates
-            match self.filter_candidates(artifacts) {
+            match self.filter_candidates(artifacts, all_pre_release) {
                 Ok(artifacts) => {
                     self.cached_artifacts.insert(solvable_id, artifacts);
                 }

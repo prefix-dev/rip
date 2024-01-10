@@ -11,4 +11,4 @@
 mod dependency_provider;
 mod solve;
 
-pub use solve::{resolve, PinnedPackage, ResolveOptions, SDistResolution, PreReleaseResolution};
+pub use solve::{resolve, PinnedPackage, PreReleaseResolution, ResolveOptions, SDistResolution};
