@@ -2016,7 +2016,7 @@ dependencies = [
 
 [[package]]
 name = "rattler_installs_packages"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-once-cell",
  "async-recursion",
@@ -2259,7 +2259,7 @@ dependencies = [
 
 [[package]]
 name = "rip_bin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "console",
@@ -2778,7 +2778,7 @@ dependencies = [
 
 [[package]]
 name = "test-utils"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "data-encoding",
  "dirs",
