@@ -127,7 +127,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         package_db: &'db PackageDb,
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
-        resolve_options: &'i ResolveOptions,
+        resolve_options: &ResolveOptions,
         wheel_cache_dir: &Path,
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
