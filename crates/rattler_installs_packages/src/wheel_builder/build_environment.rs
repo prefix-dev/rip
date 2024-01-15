@@ -142,7 +142,6 @@ impl<'db> BuildEnvironment<'db> {
         // e.g maturin depends on an executable in the scripts directory
         let script_path = self.venv.root().join(self.venv.install_paths().scripts());
 
-        // should we use passed PATH variable?
         let path_var = if let Some(path) = std::env::var_os("PATH") {
             let mut paths = std::env::split_paths(&path).collect::<Vec<_>>();
             paths.push(script_path);
@@ -162,7 +161,7 @@ impl<'db> BuildEnvironment<'db> {
 
         Command::new(self.venv.python_executable())
             .current_dir(&self.package_dir)
-            // pass all variables defined by user
+            // pass all env variables defined by user
             .envs(&self.envs_variables)
             .env("PATH", path_var)
             // Script to run
