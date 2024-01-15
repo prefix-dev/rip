@@ -46,7 +46,7 @@ struct Args {
     
     #[arg(short = 'e', long, value_parser = parse_key_val::<String>)]
     /// Enviroment variables that should be used when building wheels.
-    /// Used in KEY=VALUE
+    /// Can be passed using KEY=VALUE
     enviroment_variables: HashMap<String, String>,
 }
 
