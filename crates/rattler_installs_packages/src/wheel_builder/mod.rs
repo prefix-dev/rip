@@ -133,7 +133,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
         wheel_cache_dir: &Path,
-        env_variables: HashMap<String, String>
+        env_variables: HashMap<String, String>,
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
@@ -156,7 +156,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             wheel_tags,
             resolve_options,
             locally_built_wheels: WheelCache::new(wheel_cache_dir.to_path_buf()),
-            env_variables
+            env_variables,
         }
     }
 

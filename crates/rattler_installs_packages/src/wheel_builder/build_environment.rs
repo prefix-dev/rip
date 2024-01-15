@@ -108,7 +108,7 @@ impl<'db> BuildEnvironment<'db> {
                 locked_packages,
                 favored_packages,
                 resolve_options,
-                self.envs_variables.clone()
+                self.envs_variables.clone(),
             )
             .await
             .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(all_requirements))?;
@@ -143,7 +143,7 @@ impl<'db> BuildEnvironment<'db> {
         // so that we can use the scripts directory to run the build frontend
         // e.g maturin depends on an executable in the scripts directory
         let script_path = self.venv.root().join(self.venv.install_paths().scripts());
-        
+
         // PATH from env variables have higher priority over var_os one
         let env_path = if let Some(path) = self.envs_variables.get("PATH") {
             Some(OsString::from(path))
@@ -164,14 +164,12 @@ impl<'db> BuildEnvironment<'db> {
                         ),
                     )
                 })?
-            },
-            None => {
-                script_path.as_os_str().to_owned()
             }
+            None => script_path.as_os_str().to_owned(),
         };
 
         let mut base_command = Command::new(self.venv.python_executable());
-        if self.clean_env{
+        if self.clean_env {
             base_command.env_clear();
         }
         base_command
@@ -201,7 +199,7 @@ impl<'db> BuildEnvironment<'db> {
         env_markers: &MarkerEnvironment,
         wheel_tags: Option<&WheelTags>,
         resolve_options: &ResolveOptions,
-        env_variables: HashMap<String, String>
+        env_variables: HashMap<String, String>,
     ) -> Result<BuildEnvironment<'db>, WheelBuildError> {
         // Setup a work directory and a new env dir
         let work_dir = tempfile::tempdir().unwrap();

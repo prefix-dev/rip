@@ -185,7 +185,7 @@ pub async fn resolve<'db>(
         locked_packages,
         favored_packages,
         options,
-        env_variables
+        env_variables,
     )?;
     let pool = &provider.pool;
 

@@ -1,11 +1,8 @@
-use clap::builder::OsStr;
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::collections::HashMap;
-use std::error::Error;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::hash::Hash;
 
 use clap::Parser;
 use itertools::Itertools;
@@ -43,15 +40,11 @@ struct Args {
 
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
-    
+
     #[arg(short = 'c', long)]
     /// Disable inheritance of env variables.
     clean_env: bool,
 }
-
-
-
-
 
 #[derive(Parser)]
 #[group(multiple = false)]
@@ -155,7 +148,6 @@ async fn actual_main() -> miette::Result<()> {
         HashMap::default(),
         &resolve_opts,
         HashMap::default(),
-        
     )
     .await
     {
@@ -260,21 +252,4 @@ pub fn get_default_env_filter(verbose: bool) -> EnvFilter {
     }
 
     result
-}
-
-/// Parse a single key-value pair and store it in a HashMap
-/// inspired from: https://github.com/clap-rs/clap/blob/master/examples/typed-derive.rs
-fn parse_key_val<T>(s: &str) -> Result<HashMap<T, T>, Box<dyn Error + Send + Sync + 'static>>
-where
-    T: std::str::FromStr + Hash + Eq,
-    T::Err: Error + Send + Sync + 'static,
-{
-    let pos = s
-        .find('=')
-        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
-
-    let mut map = HashMap::new();
-    map.insert(s[..pos].parse()?, s[pos + 1..].parse()?);
-
-    Ok(map)
 }
