@@ -7,7 +7,7 @@ use crate::resolve::{PinnedPackage, ResolveOptions};
 use crate::types::{
     Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
 };
-use crate::wheel_builder::WheelBuilder;
+use crate::wheel_builder::{WheelBuilder, WheelCache};
 use elsa::FrozenMap;
 use itertools::Itertools;
 use pep440_rs::{Operator, Version, VersionSpecifier, VersionSpecifiers};
@@ -146,7 +146,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             markers,
             compatible_tags,
             options,
-            package_db.cache_dir(),
+            WheelCache::new(package_db.cache_dir().join("wheels")),
         );
 
         Ok(Self {

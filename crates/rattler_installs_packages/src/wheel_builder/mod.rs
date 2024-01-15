@@ -4,7 +4,6 @@ mod build_environment;
 mod wheel_cache;
 
 use std::io::{Read, Seek};
-use std::path::Path;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
@@ -15,7 +14,7 @@ use crate::python_env::VEnvError;
 use crate::resolve::{ResolveOptions, SDistResolution};
 use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
-use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
+pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
 use crate::{
     artifacts::wheel::UnpackError,
     artifacts::SDist,
@@ -128,7 +127,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
-        wheel_cache_dir: &Path,
+        wheel_cache: WheelCache,
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
@@ -150,9 +149,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             env_markers,
             wheel_tags,
             resolve_options,
-            locally_built_wheels: WheelCache::new(
-                wheel_cache_dir.to_path_buf().join("wheel_cache"),
-            ),
+            locally_built_wheels: wheel_cache,
         }
     }
 

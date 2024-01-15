@@ -11,13 +11,17 @@ use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub(crate) struct WheelCache {
+/// Wrapper around an API built on top of cacache
+/// This is used to store wheels that are built from sdists
+#[derive(Debug, Clone)]
+pub struct WheelCache {
     // Path to the cache directory
     path: PathBuf,
 }
 
 #[derive(Debug)]
-pub(crate) struct WheelKey(String);
+/// A key that can be used to retrieve a wheel from the cache
+pub struct WheelKey(String);
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WheelKeyMetadata {
@@ -26,12 +30,13 @@ struct WheelKeyMetadata {
 }
 
 impl WheelKey {
+    /// Create a wheel key from bytes, will become '{prefix}:{hash_hexadecimal}'
     pub fn from_bytes(prefix: impl AsRef<str>, bytes: impl AsRef<[u8]>) -> Self {
         let hash = rattler_digest::compute_bytes_digest::<Sha256>(bytes);
         Self(format!("{}:{:x}", prefix.as_ref(), hash))
     }
 
-    #[allow(dead_code)]
+    /// Create a wheel key from a prefix and a string, will become '{prefix}:{string}'
     pub fn new(prefix: impl AsRef<str>, key: impl AsRef<str>) -> Self {
         Self(format!("{}:{}", prefix.as_ref(), key.as_ref()))
     }
@@ -50,6 +55,8 @@ pub enum WheelCacheError {
 }
 
 impl WheelCache {
+    /// Create a new entry into the wheel cache
+    /// **path** is the path to the cache directory
     pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
@@ -88,6 +95,7 @@ impl WheelCache {
         Ok(())
     }
 
+    /// Get wheel for key, returns None if it does not exist for this key
     pub fn wheel_for_key(&self, wheel_key: &WheelKey) -> Result<Option<Wheel>, WheelCacheError> {
         // Find metadata for the key
         let metadata = cacache::index::find(&self.path, &wheel_key.0)?;
