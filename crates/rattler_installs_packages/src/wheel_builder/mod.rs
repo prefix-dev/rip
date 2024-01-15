@@ -233,7 +233,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let build_environment = self.setup_build_venv(sdist).await?;
 
         let output = build_environment.run_command("WheelMetadata")?;
-        println!("OUTPUT IS {:?}", output);
 
         if !output.status.success() {
             if output.status.code() == Some(50) {
