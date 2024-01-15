@@ -7,6 +7,7 @@
 use crate::artifacts::wheel::InstallPaths;
 use crate::python_env::WheelTag;
 use crate::{types::NormalizedPackageName, types::PackageName, types::RFC822ish};
+use fs_err as fs;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use pep440_rs::Version;
@@ -121,14 +122,14 @@ fn analyze_distribution(
     };
 
     // Try to read the INSTALLER file from the distribution directory
-    let installer = std::fs::read_to_string(dist_info_path.join("INSTALLER"))
+    let installer = fs::read_to_string(dist_info_path.join("INSTALLER"))
         .map(|i| i.trim().to_owned())
         .ok();
 
     // Check if there is a WHEEL file from where we can read tags
     let wheel_path = dist_info_path.join("WHEEL");
     let tags = if wheel_path.is_file() {
-        let mut parsed = RFC822ish::from_str(&std::fs::read_to_string(&wheel_path)?)
+        let mut parsed = RFC822ish::from_str(&fs::read_to_string(&wheel_path)?)
             .map_err(move |e| FindDistributionError::FailedToParseWheel(wheel_path, e))?;
 
         Some(

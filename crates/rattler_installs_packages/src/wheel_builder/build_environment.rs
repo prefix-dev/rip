@@ -5,7 +5,7 @@ use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
 use crate::types::Artifact;
 use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
-use async_zip::base;
+use fs_err as fs;
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -40,7 +40,7 @@ impl<'db> BuildEnvironment<'db> {
         // Extract the sdist to the work folder
         sdist.extract_to(self.work_dir.path())?;
         // Write the python frontend to the work folder
-        std::fs::write(
+        fs::write(
             self.work_dir.path().join("build_frontend.py"),
             BUILD_FRONTEND_PY,
         )
@@ -63,7 +63,7 @@ impl<'db> BuildEnvironment<'db> {
 
         // The extra requirements are stored in a file called extra_requirements.json
         let extra_requirements_json =
-            std::fs::read_to_string(self.work_dir.path().join("extra_requirements.json"))?;
+            fs::read_to_string(self.work_dir.path().join("extra_requirements.json"))?;
         let extra_requirements: Vec<String> = serde_json::from_str(&extra_requirements_json)?;
 
         Ok(HashSet::<Requirement>::from_iter(

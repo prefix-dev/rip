@@ -1,6 +1,7 @@
 //! Functionality to remove python distributions from an environment.
 
 use crate::types::Record;
+use fs_err as fs;
 use indexmap::IndexSet;
 use itertools::Itertools;
 use std::{collections::HashSet, path::Path};
@@ -59,7 +60,7 @@ pub fn uninstall_distribution(
     let mut directories = HashSet::new();
     for entry in record.into_iter() {
         let entry_path = site_packages_dir.join(&entry.path);
-        if let Err(e) = std::fs::remove_file(&entry_path) {
+        if let Err(e) = fs::remove_file(&entry_path) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 return Err(UninstallDistributionError::FailedToDeleteFile(
                     entry.path, e,
@@ -77,7 +78,7 @@ pub fn uninstall_distribution(
         match directory.read_dir().and_then(|mut r| r.next().transpose()) {
             Ok(None) => {
                 // The directory is empty, delete it
-                std::fs::remove_dir(&directory).map_err(|e| {
+                fs::remove_dir(&directory).map_err(|e| {
                     UninstallDistributionError::FailedToDeleteDirectory(
                         directory.to_string_lossy().to_string(),
                         e,
@@ -103,15 +104,16 @@ pub fn uninstall_distribution(
 mod test {
     use super::*;
     use crate::types::RecordEntry;
+    use fs_err as fs;
     use tempfile::tempdir;
 
     #[test]
     fn test_uninstall_distribution() {
         let temp_dir = tempdir().unwrap();
         let site_packages_dir = temp_dir.path().join("site-packages");
-        std::fs::create_dir(&site_packages_dir).unwrap();
+        fs::create_dir(&site_packages_dir).unwrap();
         let dist_info_dir = Path::new("test-1.0.0.dist-info");
-        std::fs::create_dir(&site_packages_dir.join(dist_info_dir)).unwrap();
+        fs::create_dir(&site_packages_dir.join(dist_info_dir)).unwrap();
 
         let files = [
             "test-1.0.0.dist-info/RECORD",
@@ -134,13 +136,13 @@ mod test {
         for entry in record.iter() {
             let path = site_packages_dir.join(&entry.path);
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).unwrap();
+                fs::create_dir_all(parent).unwrap();
             }
-            std::fs::File::create(path).unwrap();
+            fs::File::create(path).unwrap();
         }
 
         // Create an extra file that is not in the RECORD file
-        std::fs::File::create(site_packages_dir.join("test/module/extra.py")).unwrap();
+        fs::File::create(site_packages_dir.join("test/module/extra.py")).unwrap();
 
         // Overwrite the RECORD file
         record
