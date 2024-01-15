@@ -1,3 +1,4 @@
+use clap::builder::OsStr;
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::collections::HashMap;
 use std::io::Write;
@@ -40,6 +41,9 @@ struct Args {
 
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
+    
+    // #[clap(num_args=1..)]
+    // enviroment_variables: HashMap<String, String>,
 }
 
 #[derive(Parser)]
@@ -132,6 +136,12 @@ async fn actual_main() -> miette::Result<()> {
         sdist_resolution: args.sdist_resolution.into(),
         ..Default::default()
     };
+
+    // env variables
+    let mut env_vars:HashMap<String, String> = HashMap::new();
+    // env_vars.insert(String::from("CFLAGS"), String::from("MY_SET_FLAG"));
+    
+
     // Solve the environment
     let blueprint = match resolve(
         &package_db,
@@ -141,6 +151,8 @@ async fn actual_main() -> miette::Result<()> {
         HashMap::default(),
         HashMap::default(),
         &resolve_opts,
+        env_vars
+        
     )
     .await
     {
@@ -201,6 +213,7 @@ async fn actual_main() -> miette::Result<()> {
             Some(&compatible_tags),
             &resolve_opts,
             package_db.cache_dir(),
+            Default::default(),
         );
 
         for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {

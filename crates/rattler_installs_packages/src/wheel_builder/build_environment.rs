@@ -7,6 +7,7 @@ use crate::types::Artifact;
 use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::str::FromStr;
@@ -26,6 +27,7 @@ pub(crate) struct BuildEnvironment<'db> {
     build_requirements: Vec<Requirement>,
     resolved_wheels: Vec<PinnedPackage<'db>>,
     venv: VEnv,
+    envs_variables: HashMap<String, String>,
     #[allow(dead_code)]
     python_location: PythonLocation,
 }
@@ -52,7 +54,6 @@ impl<'db> BuildEnvironment<'db> {
     /// and it can also return an empty list of requirements.
     fn get_extra_requirements(&self) -> Result<HashSet<Requirement>, WheelBuildError> {
         let output = self.run_command("GetRequiresForBuildWheel")?;
-
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(WheelBuildError::Error(stderr.to_string()));
@@ -105,6 +106,7 @@ impl<'db> BuildEnvironment<'db> {
                 locked_packages,
                 favored_packages,
                 resolve_options,
+                self.envs_variables.clone()
             )
             .await
             .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(all_requirements))?;
@@ -155,9 +157,15 @@ impl<'db> BuildEnvironment<'db> {
             // If we find not PATH variable, we just use the script path
             script_path.as_os_str().to_owned()
         };
+        
+        // overide venv PATH variable
+        // letself.venvs_variables
+
 
         Command::new(self.venv.python_executable())
             .current_dir(&self.package_dir)
+            // pass all variables defined by user
+            .envs(&self.envs_variables)
             .env("PATH", path_var)
             // Script to run
             .arg(self.work_dir.path().join("build_frontend.py"))
@@ -179,6 +187,7 @@ impl<'db> BuildEnvironment<'db> {
         env_markers: &MarkerEnvironment,
         wheel_tags: Option<&WheelTags>,
         resolve_options: &ResolveOptions,
+        env_variables: HashMap<String, String>
     ) -> Result<BuildEnvironment<'db>, WheelBuildError> {
         // Setup a work directory and a new env dir
         let work_dir = tempfile::tempdir().unwrap();
@@ -215,6 +224,7 @@ impl<'db> BuildEnvironment<'db> {
             HashMap::default(),
             HashMap::default(),
             resolve_options,
+            Default::default(),
         )
         .await
         .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(build_requirements.to_vec()))?;
@@ -259,6 +269,7 @@ impl<'db> BuildEnvironment<'db> {
             entry_point,
             resolved_wheels,
             venv,
+            envs_variables: env_variables,
             python_location: resolve_options.python_location.clone(),
         })
     }

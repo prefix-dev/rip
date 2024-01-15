@@ -172,6 +172,7 @@ pub async fn resolve<'db>(
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     options: &ResolveOptions,
+    env_variables: HashMap<String, String>,
 ) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct a provider
     let provider = PypiDependencyProvider::new(
@@ -181,6 +182,7 @@ pub async fn resolve<'db>(
         locked_packages,
         favored_packages,
         options,
+        env_variables
     )?;
     let pool = &provider.pool;
 

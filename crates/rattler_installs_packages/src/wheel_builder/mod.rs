@@ -50,6 +50,9 @@ pub struct WheelBuilder<'db, 'i> {
 
     /// Cache of locally built wheels on the system
     locally_built_wheels: WheelCache,
+
+    /// The passed enviroment variables
+    env_variables: HashMap<String, String>,
 }
 
 /// An error that can occur while building a wheel
@@ -129,6 +132,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
         wheel_cache_dir: &Path,
+        env_variables: HashMap<String, String>
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
@@ -151,6 +155,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             wheel_tags,
             resolve_options,
             locally_built_wheels: WheelCache::new(wheel_cache_dir.to_path_buf()),
+            env_variables
         }
     }
 
@@ -179,6 +184,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             self.env_markers,
             self.wheel_tags,
             &self.resolve_options,
+            self.env_variables.clone(),
         )
         .await?;
 
@@ -226,29 +232,35 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         let build_environment = self.setup_build_venv(sdist).await?;
 
-        let output = build_environment.run_command("WheelMetadata")?;
+        // let output = build_environment.run_command("WheelMetadata")?;
+        // println!("OUTPUT IS {:?}", output);
 
-        if !output.status.success() {
-            if output.status.code() == Some(50) {
-                tracing::warn!("SDist build backend does not support metadata generation");
-                // build wheel instead
-                let wheel = self.build_wheel(sdist).await?;
+        // if !output.status.success() {
+        //     if output.status.code() == Some(50) {
+        //         tracing::warn!("SDist build backend does not support metadata generation");
+        //         // build wheel instead
+        //         let wheel = self.build_wheel(sdist).await?;
 
-                return wheel.metadata().map_err(|e| {
-                    WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
-                });
-            }
-            let stdout = String::from_utf8_lossy(&output.stderr);
-            return Err(WheelBuildError::Error(stdout.to_string()));
-        }
+        //         return wheel.metadata().map_err(|e| {
+        //             WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
+        //         });
+        //     }
+        //     let stdout = String::from_utf8_lossy(&output.stderr);
+        //     return Err(WheelBuildError::Error(stdout.to_string()));
+        // }
+        let wheel = self.build_wheel(sdist).await?;
 
-        let result = std::fs::read_to_string(build_environment.work_dir().join("metadata_result"))?;
-        let folder = PathBuf::from(result.trim());
-        let path = folder.join("METADATA");
+        return wheel.metadata().map_err(|e| {
+            WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
+        });
 
-        let metadata = std::fs::read(path)?;
-        let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice())?;
-        Ok((metadata, wheel_metadata))
+        // let result = std::fs::read_to_string(build_environment.work_dir().join("metadata_result"))?;
+        // let folder = PathBuf::from(result.trim());
+        // let path = folder.join("METADATA");
+
+        // let metadata = std::fs::read(path)?;
+        // let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice())?;
+        // Ok((metadata, wheel_metadata))
     }
 
     /// Build a wheel from an sdist by using the build_backend in a virtual env.
@@ -266,6 +278,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         // Run the wheel stage
         let output = build_environment.run_command("Wheel")?;
+        println!("OUTPUT from build wheel IS {:?}", output);
 
         // Check for success
         if !output.status.success() {
@@ -352,6 +365,7 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
+            Default::default(),
         );
 
         // Build the wheel
