@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    pub async fn build_wheel_and_pass_env_variables() {
+    pub async fn build_wheel_and_with_clean_env_and_pass_env_variables() {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/env_package-0.1.tar.gz");
 
@@ -335,7 +335,10 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let resolve_options = ResolveOptions{
+            clean_env: true,
+            ..Default::default()
+        };
         
         let mut mandatory_env = HashMap::new();
         
@@ -357,4 +360,43 @@ mod tests {
         let (_, metadata) = wheel.metadata().unwrap();
         assert_debug_snapshot!(metadata);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_and_will_fail_when_clean_env_is_used() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/env_package-0.1.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"env_package".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions{
+            clean_env: true,
+            ..Default::default()
+        };
+        
+        // Do not pass any mandatory env for wheel builder, and do not inherit
+        // this should fail
+        let mandatory_env = HashMap::new();
+        
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            package_db.1.path(),
+            mandatory_env,
+        );
+
+        // Build the wheel
+        let wheel = wheel_builder.build_wheel(&sdist).await;
+        let err_string = wheel.err().unwrap().to_string();
+
+        assert!(err_string.contains("could not build wheel"));
+        assert!(err_string.contains("MY_ENV_VAR should be set in order to build wheel"));
+
+        // let (_, metadata) = wheel.metadata().unwrap();
+        // assert_debug_snapshot!(metadata);
+    }
+
 }

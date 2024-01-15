@@ -5,8 +5,10 @@ use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
 use crate::types::Artifact;
 use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
+use async_zip::base;
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::str::FromStr;
@@ -27,6 +29,7 @@ pub(crate) struct BuildEnvironment<'db> {
     resolved_wheels: Vec<PinnedPackage<'db>>,
     venv: VEnv,
     envs_variables: HashMap<String, String>,
+    clean_env: bool,
     #[allow(dead_code)]
     python_location: PythonLocation,
 }
@@ -140,28 +143,43 @@ impl<'db> BuildEnvironment<'db> {
         // so that we can use the scripts directory to run the build frontend
         // e.g maturin depends on an executable in the scripts directory
         let script_path = self.venv.root().join(self.venv.install_paths().scripts());
-
-        let path_var = if let Some(path) = std::env::var_os("PATH") {
-            let mut paths = std::env::split_paths(&path).collect::<Vec<_>>();
-            paths.push(script_path);
-            std::env::join_paths(paths.iter()).map_err(|e| {
-                WheelBuildError::CouldNotRunCommand(
-                    stage.into(),
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("could not setup env path: {}", e),
-                    ),
-                )
-            })?
+        
+        // PATH from env variables have higher priority over var_os one
+        let env_path = if let Some(path) = self.envs_variables.get("PATH") {
+            Some(OsString::from(path))
         } else {
-            // If we find not PATH variable, we just use the script path
-            script_path.as_os_str().to_owned()
+            std::env::var_os("PATH")
         };
 
-        Command::new(self.venv.python_executable())
+        let path_var = match env_path {
+            Some(path) => {
+                let mut paths = std::env::split_paths(&path).collect::<Vec<_>>();
+                paths.push(script_path);
+                std::env::join_paths(paths.iter()).map_err(|e| {
+                    WheelBuildError::CouldNotRunCommand(
+                        stage.into(),
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("could not setup env path: {}", e),
+                        ),
+                    )
+                })?
+            },
+            None => {
+                script_path.as_os_str().to_owned()
+            }
+        };
+
+        let mut base_command = Command::new(self.venv.python_executable());
+        if self.clean_env{
+            base_command.env_clear();
+        }
+        base_command
             .current_dir(&self.package_dir)
             // pass all env variables defined by user
             .envs(&self.envs_variables)
+            // even if PATH is present in self.env_variables
+            // it will overwritten by more actual one
             .env("PATH", path_var)
             // Script to run
             .arg(self.work_dir.path().join("build_frontend.py"))
@@ -266,6 +284,7 @@ impl<'db> BuildEnvironment<'db> {
             resolved_wheels,
             venv,
             envs_variables: env_variables,
+            clean_env: resolve_options.clean_env,
             python_location: resolve_options.python_location.clone(),
         })
     }

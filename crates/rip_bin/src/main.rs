@@ -44,10 +44,9 @@ struct Args {
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
     
-    #[arg(short = 'e', long, value_parser = parse_key_val::<String>)]
-    /// Enviroment variables that should be used when building wheels.
-    /// Can be passed using KEY=VALUE
-    enviroment_variables: HashMap<String, String>,
+    #[arg(short = 'c', long)]
+    /// Disable inheritance of env variables.
+    clean_env: bool,
 }
 
 
@@ -142,13 +141,9 @@ async fn actual_main() -> miette::Result<()> {
 
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
+        clean_env: args.clean_env,
         ..Default::default()
     };
-
-    // env variables
-    // let mut env_vars:HashMap<String, String> = HashMap::new();
-    // env_vars.insert(String::from("CFLAGS"), String::from("MY_SET_FLAG"));
-    
 
     // Solve the environment
     let blueprint = match resolve(
@@ -159,7 +154,7 @@ async fn actual_main() -> miette::Result<()> {
         HashMap::default(),
         HashMap::default(),
         &resolve_opts,
-        args.enviroment_variables,
+        HashMap::default(),
         
     )
     .await

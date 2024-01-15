@@ -150,6 +150,9 @@ pub struct ResolveOptions {
     /// Defines what python interpreter to use for resolution. By default the python interpreter
     /// from the system is used. This is only used during resolution and building of wheel files
     pub python_location: PythonLocation,
+
+    /// Defines if we should inherit env variables during build process of wheel files
+    pub clean_env: bool,
 }
 
 /// Resolves an environment that contains the given requirements and all dependencies of those
