@@ -51,21 +51,7 @@ struct Args {
 }
 
 
-/// Parse a single key-value pair and store it in a HashMap
-fn parse_key_val<T>(s: &str) -> Result<HashMap<T, T>, Box<dyn Error + Send + Sync + 'static>>
-where
-    T: std::str::FromStr + Hash + Eq,
-    T::Err: Error + Send + Sync + 'static,
-{
-    let pos = s
-        .find('=')
-        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
 
-    let mut map = HashMap::new();
-    map.insert(s[..pos].parse()?, s[pos + 1..].parse()?);
-
-    Ok(map)
-}
 
 
 #[derive(Parser)]
@@ -279,4 +265,20 @@ pub fn get_default_env_filter(verbose: bool) -> EnvFilter {
     }
 
     result
+}
+
+/// Parse a single key-value pair and store it in a HashMap
+fn parse_key_val<T>(s: &str) -> Result<HashMap<T, T>, Box<dyn Error + Send + Sync + 'static>>
+where
+    T: std::str::FromStr + Hash + Eq,
+    T::Err: Error + Send + Sync + 'static,
+{
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+
+    let mut map = HashMap::new();
+    map.insert(s[..pos].parse()?, s[pos + 1..].parse()?);
+
+    Ok(map)
 }
