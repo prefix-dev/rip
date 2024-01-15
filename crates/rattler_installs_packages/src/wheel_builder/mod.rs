@@ -318,7 +318,7 @@ mod tests {
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::ResolveOptions;
     use crate::wheel_builder::wheel_cache::WheelKey;
-    use crate::wheel_builder::WheelBuilder;
+    use crate::wheel_builder::{WheelBuilder, WheelCache};
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -350,7 +350,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
+            WheelCache::new(package_db.1.path().join("wheels")),
         );
 
         // Build the wheel

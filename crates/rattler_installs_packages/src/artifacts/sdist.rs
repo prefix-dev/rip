@@ -196,7 +196,7 @@ fn generic_archive_reader(
 mod tests {
     use crate::artifacts::SDist;
     use crate::python_env::Pep508EnvMakers;
-    use crate::wheel_builder::WheelBuilder;
+    use crate::wheel_builder::{WheelBuilder, WheelCache};
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use std::path::Path;
@@ -264,7 +264,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
+            WheelCache::new(package_db.1.path().join("wheels")),
         );
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -287,7 +287,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
+            WheelCache::new(package_db.1.path().join("wheels")),
         );
 
         // Build the wheel
@@ -312,7 +312,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
+            WheelCache::new(package_db.1.path().join("wheels")),
         );
 
         // Build the wheel
