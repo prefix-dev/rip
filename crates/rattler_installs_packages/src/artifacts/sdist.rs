@@ -199,6 +199,7 @@ mod tests {
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
+    use std::collections::HashMap;
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -316,6 +317,38 @@ mod tests {
             &resolve_options,
             package_db.1.path(),
             Default::default(),
+        );
+
+        // Build the wheel
+        let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
+
+        let (_, metadata) = wheel.metadata().unwrap();
+        assert_debug_snapshot!(metadata);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_and_pass_env_variables() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/env_package-0.1.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"env_package".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        
+        let mut mandatory_env = HashMap::new();
+        
+        // In order to build wheel, we need to pass specific ENV that setup.py expect
+        mandatory_env.insert(String::from("MY_ENV_VAR"), String::from("SOME_VALUE"));
+        
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            package_db.1.path(),
+            mandatory_env,
         );
 
         // Build the wheel
