@@ -28,7 +28,7 @@ pub(crate) struct BuildEnvironment<'db> {
     build_requirements: Vec<Requirement>,
     resolved_wheels: Vec<PinnedPackage<'db>>,
     venv: VEnv,
-    envs_variables: HashMap<String, String>,
+    env_variables: HashMap<String, String>,
     clean_env: bool,
     #[allow(dead_code)]
     python_location: PythonLocation,
@@ -108,7 +108,7 @@ impl<'db> BuildEnvironment<'db> {
                 locked_packages,
                 favored_packages,
                 resolve_options,
-                self.envs_variables.clone(),
+                self.env_variables.clone(),
             )
             .await
             .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(all_requirements))?;
@@ -145,7 +145,7 @@ impl<'db> BuildEnvironment<'db> {
         let script_path = self.venv.root().join(self.venv.install_paths().scripts());
 
         // PATH from env variables have higher priority over var_os one
-        let env_path = if let Some(path) = self.envs_variables.get("PATH") {
+        let env_path = if let Some(path) = self.env_variables.get("PATH") {
             Some(OsString::from(path))
         } else {
             std::env::var_os("PATH")
@@ -175,7 +175,7 @@ impl<'db> BuildEnvironment<'db> {
         base_command
             .current_dir(&self.package_dir)
             // pass all env variables defined by user
-            .envs(&self.envs_variables)
+            .envs(&self.env_variables)
             // even if PATH is present in self.env_variables
             // it will overwritten by more actual one
             .env("PATH", path_var)
@@ -281,7 +281,7 @@ impl<'db> BuildEnvironment<'db> {
             entry_point,
             resolved_wheels,
             venv,
-            envs_variables: env_variables,
+            env_variables,
             clean_env: resolve_options.clean_env,
             python_location: resolve_options.python_location.clone(),
         })
