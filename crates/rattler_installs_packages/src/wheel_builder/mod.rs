@@ -150,7 +150,9 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             env_markers,
             wheel_tags,
             resolve_options,
-            locally_built_wheels: WheelCache::new(wheel_cache_dir.to_path_buf()),
+            locally_built_wheels: WheelCache::new(
+                wheel_cache_dir.to_path_buf().join("wheel_cache"),
+            ),
         }
     }
 
