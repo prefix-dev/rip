@@ -4,9 +4,8 @@
 use crate::types::ArtifactHashes;
 use crate::utils::retry_interrupted;
 use fs4::FileExt;
+use fs_err as fs;
 use std::{
-    fs,
-    fs::File,
     io,
     io::{Read, Seek, SeekFrom, Write},
     marker::PhantomData,
@@ -175,7 +174,7 @@ impl<'a> LockedWriter<'a> {
     /// be used to read from the file again.
     pub fn commit(self) -> io::Result<LockedReader<'a>> {
         self.f.as_file().sync_data()?;
-        let mut file = self.f.persist(self.path)?;
+        let mut file = fs::File::from_parts(self.f.persist(self.path)?, self.path);
         file.rewind()?;
         Ok(LockedReader {
             file,
@@ -187,7 +186,7 @@ impl<'a> LockedWriter<'a> {
 /// A [`LockedReader`] is created from a [`FileLock`]. It holds a lifetime to the lock to ensure the
 /// lock is not dropped before the file itself.
 pub struct LockedReader<'a> {
-    file: File,
+    file: fs::File,
     _data: PhantomData<&'a ()>,
 }
 
@@ -205,7 +204,7 @@ impl<'a> Seek for LockedReader<'a> {
 
 impl<'a> LockedReader<'a> {
     /// Returns access to the underlying file ignoring the lock file.
-    pub fn detach_unlocked(self) -> File {
+    pub fn detach_unlocked(self) -> fs::File {
         self.file
     }
 }
@@ -216,7 +215,7 @@ pub struct FileLock {
     tmp: PathBuf,
 
     /// The lock-file. As long as this is kept open this instance has exclusive access to the file.
-    _lock_file: File,
+    _lock_file: fs::File,
 
     /// The path of the file that is actually locked.
     path: PathBuf,
@@ -227,7 +226,7 @@ impl FileLock {
     /// not be opened.
     pub fn reader(&self) -> Option<LockedReader> {
         Some(LockedReader {
-            file: File::open(&self.path).ok()?,
+            file: fs::File::open(&self.path).ok()?,
             _data: Default::default(),
         })
     }
@@ -256,7 +255,7 @@ enum LockMode {
 
 /// Create a `.lock` file for the file at the specified `path`. Only a single process has access to
 /// the lock-file.
-async fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
+async fn lock(path: &Path, mode: LockMode) -> io::Result<fs::File> {
     // Determine the path of the lockfile
     let lock_path = path.with_extension(".lock");
 
@@ -270,7 +269,7 @@ async fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
         let dir = lock_path
             .parent()
             .expect("expected the file to be rooted in some folder");
-        std::fs::create_dir_all(dir)?;
+        fs::create_dir_all(dir)?;
         open_options.create(true);
     }
 
@@ -281,7 +280,7 @@ async fn lock(path: &Path, mode: LockMode) -> io::Result<File> {
     // properly handle EINTR so we keep retrying when that happens.
 
     let lock = task::spawn_blocking(move || {
-        retry_interrupted(|| lock.lock_exclusive()).unwrap();
+        retry_interrupted(|| lock.file().lock_exclusive()).unwrap();
         lock
     })
     .await
