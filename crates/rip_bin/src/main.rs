@@ -1,9 +1,11 @@
 use clap::builder::OsStr;
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::collections::HashMap;
+use std::error::Error;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::hash::Hash;
 
 use clap::Parser;
 use itertools::Itertools;
@@ -42,9 +44,29 @@ struct Args {
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
     
-    // #[clap(num_args=1..)]
-    // enviroment_variables: HashMap<String, String>,
+    #[arg(short = 'e', long, value_parser = parse_key_val::<String>)]
+    /// Enviroment variables that should be used when building wheels.
+    /// Used in KEY=VALUE
+    enviroment_variables: HashMap<String, String>,
 }
+
+
+/// Parse a single key-value pair and store it in a HashMap
+fn parse_key_val<T>(s: &str) -> Result<HashMap<T, T>, Box<dyn Error + Send + Sync + 'static>>
+where
+    T: std::str::FromStr + Hash + Eq,
+    T::Err: Error + Send + Sync + 'static,
+{
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+
+    let mut map = HashMap::new();
+    map.insert(s[..pos].parse()?, s[pos + 1..].parse()?);
+
+    Ok(map)
+}
+
 
 #[derive(Parser)]
 #[group(multiple = false)]
@@ -138,7 +160,7 @@ async fn actual_main() -> miette::Result<()> {
     };
 
     // env variables
-    let mut env_vars:HashMap<String, String> = HashMap::new();
+    // let mut env_vars:HashMap<String, String> = HashMap::new();
     // env_vars.insert(String::from("CFLAGS"), String::from("MY_SET_FLAG"));
     
 
@@ -151,7 +173,7 @@ async fn actual_main() -> miette::Result<()> {
         HashMap::default(),
         HashMap::default(),
         &resolve_opts,
-        env_vars
+        args.enviroment_variables,
         
     )
     .await
