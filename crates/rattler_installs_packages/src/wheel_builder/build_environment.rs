@@ -141,6 +141,8 @@ impl<'db> BuildEnvironment<'db> {
         // so that we can use the scripts directory to run the build frontend
         // e.g maturin depends on an executable in the scripts directory
         let script_path = self.venv.root().join(self.venv.install_paths().scripts());
+
+        // should we use passed PATH variable?
         let path_var = if let Some(path) = std::env::var_os("PATH") {
             let mut paths = std::env::split_paths(&path).collect::<Vec<_>>();
             paths.push(script_path);
@@ -157,10 +159,6 @@ impl<'db> BuildEnvironment<'db> {
             // If we find not PATH variable, we just use the script path
             script_path.as_os_str().to_owned()
         };
-        
-        // overide venv PATH variable
-        // letself.venvs_variables
-
 
         Command::new(self.venv.python_executable())
             .current_dir(&self.package_dir)

@@ -268,6 +268,7 @@ pub fn get_default_env_filter(verbose: bool) -> EnvFilter {
 }
 
 /// Parse a single key-value pair and store it in a HashMap
+/// inspired from: https://github.com/clap-rs/clap/blob/master/examples/typed-derive.rs
 fn parse_key_val<T>(s: &str) -> Result<HashMap<T, T>, Box<dyn Error + Send + Sync + 'static>>
 where
     T: std::str::FromStr + Hash + Eq,

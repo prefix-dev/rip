@@ -278,7 +278,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         // Run the wheel stage
         let output = build_environment.run_command("Wheel")?;
-        println!("OUTPUT from build wheel IS {:?}", output);
 
         // Check for success
         if !output.status.success() {
