@@ -6,6 +6,7 @@ use miette::IntoDiagnostic;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Serialize;
 
+use fs_err as fs;
 use std::ffi::OsStr;
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -57,7 +58,7 @@ impl SDist {
             .ok_or_else(|| miette::miette!("path does not contain a filename"))?;
         let name =
             SDistFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
-        let bytes = std::fs::File::open(path).into_diagnostic()?;
+        let bytes = fs::File::open(path).into_diagnostic()?;
         Self::new(name, Box::new(bytes))
     }
 

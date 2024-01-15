@@ -30,7 +30,7 @@ pub struct RecordEntry {
 impl Record {
     /// Reads the contents of a `RECORD` file from disk.
     pub fn from_path(path: &Path) -> csv::Result<Self> {
-        Self::from_reader(std::fs::File::open(path)?)
+        Self::from_reader(fs_err::File::open(path)?)
     }
 
     /// Reads the contents of a `RECORD` file from a reader.

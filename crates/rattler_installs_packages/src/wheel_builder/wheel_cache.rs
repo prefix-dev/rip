@@ -138,7 +138,7 @@ mod tests {
         // Load the wheel file
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../test-data/wheels/purelib_and_platlib-1.0.0-cp38-cp38-linux_x86_64.whl");
-        let wheel = std::fs::File::open(&path).unwrap();
+        let wheel = fs_err::File::open(&path).unwrap();
         let wheel_filename = WheelFilename::from_filename(
             path.file_name().unwrap().to_str().unwrap(),
             &"purelib_and_platlib".parse().unwrap(),

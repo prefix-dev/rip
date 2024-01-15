@@ -16,11 +16,11 @@ use async_http_range_reader::AsyncHttpRangeReader;
 use async_zip::base::read::seek::ZipFileReader;
 use configparser::ini::Ini;
 use data_encoding::BASE64URL_NOPAD;
+use fs_err as fs;
 use miette::IntoDiagnostic;
 use parking_lot::Mutex;
 use pep440_rs::Version;
 use rattler_digest::Sha256;
-use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader};
 use std::sync::mpsc::channel;
 use std::{
@@ -28,8 +28,6 @@ use std::{
     collections::HashMap,
     collections::HashSet,
     ffi::OsStr,
-    fs,
-    fs::File,
     io::{Read, Write},
     iter::FromIterator,
     path::{Component, Path, PathBuf},
@@ -61,7 +59,7 @@ impl Wheel {
             .ok_or_else(|| miette::miette!("path does not contain a filename"))?;
         let wheel_name =
             WheelFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
-        let file = File::open(path).into_diagnostic()?;
+        let file = fs::File::open(path).into_diagnostic()?;
         Self::new(wheel_name, Box::new(file))
     }
 }
@@ -1128,12 +1126,12 @@ fn write_generated_file(
     content: impl AsRef<[u8]>,
     _executable: bool,
 ) -> Result<RecordEntry, UnpackError> {
-    let mut options = OpenOptions::new();
+    let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
 
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
+        use fs::os::unix::fs::OpenOptionsExt;
         if _executable {
             options.mode(0o777);
         } else {
@@ -1171,7 +1169,7 @@ fn write_wheel_file(
     options.write(true).create(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
+        use fs::os::unix::fs::OpenOptionsExt;
         if _executable {
             options.mode(0o777);
         } else {
@@ -1334,7 +1332,7 @@ mod test {
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = unpacked.dist_info.join("RECORD");
-        let record_content = std::fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
+        let record_content = fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
             .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
 
         insta::assert_snapshot!(filename, record_content);
@@ -1352,7 +1350,7 @@ mod test {
 
         let relative_path = unpacked.dist_info.join("INSTALLER");
         let installer_content =
-            std::fs::read_to_string(unpacked.tmpdir.path().join(relative_path)).unwrap();
+            fs::read_to_string(unpacked.tmpdir.path().join(relative_path)).unwrap();
         assert_eq!(installer_content, format!("{INSTALLER}\n"));
     }
 
@@ -1369,7 +1367,7 @@ mod test {
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = unpacked.dist_info.join("RECORD");
-        let record_content = std::fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
+        let record_content = fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
             .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
 
         // Replace all cpython references with cpython-xxx to ensure that no matter the version of

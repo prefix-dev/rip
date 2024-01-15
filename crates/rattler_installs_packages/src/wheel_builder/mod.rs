@@ -3,6 +3,7 @@
 mod build_environment;
 mod wheel_cache;
 
+use fs_err as fs;
 use std::io::{Read, Seek};
 use std::path::Path;
 use std::sync::Arc;
@@ -242,11 +243,11 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             return Err(WheelBuildError::Error(stdout.to_string()));
         }
 
-        let result = std::fs::read_to_string(build_environment.work_dir().join("metadata_result"))?;
+        let result = fs::read_to_string(build_environment.work_dir().join("metadata_result"))?;
         let folder = PathBuf::from(result.trim());
         let path = folder.join("METADATA");
 
-        let metadata = std::fs::read(path)?;
+        let metadata = fs::read(path)?;
         let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice())?;
         Ok((metadata, wheel_metadata))
     }
@@ -275,7 +276,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         // This is where the wheel file is located
         let wheel_file: PathBuf =
-            std::fs::read_to_string(build_environment.work_dir().join("wheel_result"))?
+            fs::read_to_string(build_environment.work_dir().join("wheel_result"))?
                 .trim()
                 .into();
 
@@ -301,7 +302,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         self.locally_built_wheels.associate_wheel(
             &key,
             wheel_file_name,
-            &mut std::fs::File::open(&wheel_file)?,
+            &mut fs::File::open(&wheel_file)?,
         )?;
 
         // Reconstruct wheel from the path
