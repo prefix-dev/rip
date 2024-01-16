@@ -40,6 +40,10 @@ struct Args {
 
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
+
+    #[arg(short = 'c', long)]
+    /// Disable inheritance of env variables.
+    clean_env: bool,
 }
 
 #[derive(Parser)]
@@ -130,8 +134,10 @@ async fn actual_main() -> miette::Result<()> {
 
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
+        clean_env: args.clean_env,
         ..Default::default()
     };
+
     // Solve the environment
     let blueprint = match resolve(
         &package_db,
@@ -141,6 +147,7 @@ async fn actual_main() -> miette::Result<()> {
         HashMap::default(),
         HashMap::default(),
         &resolve_opts,
+        HashMap::default(),
     )
     .await
     {
@@ -201,6 +208,7 @@ async fn actual_main() -> miette::Result<()> {
             Some(&compatible_tags),
             &resolve_opts,
             package_db.cache_dir(),
+            Default::default(),
         );
 
         for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
