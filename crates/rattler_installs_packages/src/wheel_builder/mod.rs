@@ -5,7 +5,6 @@ mod wheel_cache;
 
 use fs_err as fs;
 use std::io::{Read, Seek};
-use std::path::Path;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
@@ -16,7 +15,7 @@ use crate::python_env::VEnvError;
 use crate::resolve::{ResolveOptions, SDistResolution};
 use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
-use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
+pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
 use crate::{
     artifacts::wheel::UnpackError,
     artifacts::SDist,
@@ -49,10 +48,7 @@ pub struct WheelBuilder<'db, 'i> {
     /// to build a sdist. E.g. `hatchling` requires `hatchling` as build system.
     resolve_options: ResolveOptions,
 
-    /// Cache of locally built wheels on the system
-    locally_built_wheels: WheelCache,
-
-    /// The passed enviroment variables
+    /// The passed environment variables
     env_variables: HashMap<String, String>,
 }
 
@@ -132,7 +128,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
-        wheel_cache_dir: &Path,
         env_variables: HashMap<String, String>,
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
@@ -155,7 +150,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             env_markers,
             wheel_tags,
             resolve_options,
-            locally_built_wheels: WheelCache::new(wheel_cache_dir.to_path_buf()),
             env_variables,
         }
     }
@@ -225,7 +219,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         // See if we have a locally built wheel for this sdist
         // use that metadata instead
         let key = WheelKey::try_from(sdist)?;
-        if let Some(wheel) = self.locally_built_wheels.wheel_for_key(&key)? {
+        if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return wheel.metadata().map_err(|e| {
                 WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
             });
@@ -264,7 +258,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     pub async fn build_wheel(&self, sdist: &SDist) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
         let key = WheelKey::try_from(sdist)?;
-        if let Some(wheel) = self.locally_built_wheels.wheel_for_key(&key)? {
+        if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return Ok(wheel);
         }
 
@@ -305,7 +299,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let wheel_file_name = WheelFilename::from_filename(file_component, &package_name)?;
 
         // Associate the wheel with the key which is the hashed sdist
-        self.locally_built_wheels.associate_wheel(
+        self.package_db.local_wheel_cache().associate_wheel(
             &key,
             wheel_file_name,
             &mut fs::File::open(&wheel_file)?,
@@ -358,7 +352,6 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
             Default::default(),
         );
 
@@ -368,7 +361,8 @@ mod tests {
         // See if we can retrieve it from the cache
         let key = WheelKey::try_from(&sdist).unwrap();
         wheel_builder
-            .locally_built_wheels
+            .package_db
+            .local_wheel_cache()
             .wheel_for_key(&key)
             .unwrap()
             .unwrap();

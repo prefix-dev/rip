@@ -227,7 +227,6 @@ async fn actual_main() -> miette::Result<()> {
             &env_markers,
             Some(&compatible_tags),
             &resolve_opts,
-            package_db.cache_dir(),
             Default::default(),
         );
 

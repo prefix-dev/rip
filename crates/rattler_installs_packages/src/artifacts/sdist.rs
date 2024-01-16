@@ -266,7 +266,6 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
             HashMap::default(),
         );
 
@@ -290,7 +289,6 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
             HashMap::default(),
         );
 
@@ -316,7 +314,6 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
             HashMap::default(),
         );
 
@@ -350,7 +347,6 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
             mandatory_env,
         );
 
@@ -389,7 +385,6 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
             mandatory_env,
         );
 
@@ -424,7 +419,6 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            package_db.1.path(),
             mandatory_env,
         );
 
