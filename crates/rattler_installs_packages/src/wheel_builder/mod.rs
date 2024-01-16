@@ -320,7 +320,7 @@ mod tests {
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::ResolveOptions;
     use crate::wheel_builder::wheel_cache::WheelKey;
-    use crate::wheel_builder::{WheelBuilder, WheelCache};
+    use crate::wheel_builder::WheelBuilder;
     use std::path::Path;
     use tempfile::TempDir;
 
