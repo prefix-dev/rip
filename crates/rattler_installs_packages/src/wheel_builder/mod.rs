@@ -51,6 +51,9 @@ pub struct WheelBuilder<'db, 'i> {
 
     /// Cache of locally built wheels on the system
     locally_built_wheels: WheelCache,
+
+    /// The passed enviroment variables
+    env_variables: HashMap<String, String>,
 }
 
 /// An error that can occur while building a wheel
@@ -130,6 +133,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
         wheel_cache_dir: &Path,
+        env_variables: HashMap<String, String>,
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
@@ -152,6 +156,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             wheel_tags,
             resolve_options,
             locally_built_wheels: WheelCache::new(wheel_cache_dir.to_path_buf()),
+            env_variables,
         }
     }
 
@@ -180,6 +185,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             self.env_markers,
             self.wheel_tags,
             &self.resolve_options,
+            self.env_variables.clone(),
         )
         .await?;
 
@@ -353,6 +359,7 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
+            Default::default(),
         );
 
         // Build the wheel

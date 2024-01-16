@@ -45,6 +45,10 @@ struct Args {
     /// Path to the python interpreter to use for resolving environment markers and creating venvs
     #[clap(long, short)]
     python_interpreter: Option<PathBuf>,
+
+    #[arg(short = 'c', long)]
+    /// Disable inheritance of env variables.
+    clean_env: bool,
 }
 
 #[derive(Parser)]
@@ -151,7 +155,9 @@ async fn actual_main() -> miette::Result<()> {
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
         python_location,
+        clean_env: args.clean_env,
     };
+
     // Solve the environment
     let blueprint = match resolve(
         &package_db,
@@ -161,6 +167,7 @@ async fn actual_main() -> miette::Result<()> {
         HashMap::default(),
         HashMap::default(),
         &resolve_opts,
+        HashMap::default(),
     )
     .await
     {
@@ -221,6 +228,7 @@ async fn actual_main() -> miette::Result<()> {
             Some(&compatible_tags),
             &resolve_opts,
             package_db.cache_dir(),
+            Default::default(),
         );
 
         for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
