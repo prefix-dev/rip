@@ -267,7 +267,7 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            Default::default(),
+            HashMap::default(),
         );
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -291,7 +291,7 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            Default::default(),
+            HashMap::default(),
         );
 
         // Build the wheel
@@ -317,7 +317,7 @@ mod tests {
             None,
             &resolve_options,
             package_db.1.path(),
-            Default::default(),
+            HashMap::default(),
         );
 
         // Build the wheel
@@ -343,7 +343,7 @@ mod tests {
         let mut mandatory_env = HashMap::new();
 
         // In order to build wheel, we need to pass specific ENV that setup.py expect
-        mandatory_env.insert(String::from("MY_ENV_VAR"), String::from("SOME_VALUE"));
+        mandatory_env.insert("MY_ENV_VAR".to_string(), "SOME_VALUE".to_string());
 
         let wheel_builder = WheelBuilder::new(
             &package_db.0,
