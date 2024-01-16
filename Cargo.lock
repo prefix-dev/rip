@@ -2274,6 +2274,7 @@ dependencies = [
  "clap",
  "console",
  "dirs",
+ "fs-err",
  "indexmap 2.0.1",
  "indicatif",
  "itertools 0.11.0",

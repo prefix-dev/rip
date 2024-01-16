@@ -1,3 +1,4 @@
+use fs_err as fs;
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use std::collections::HashMap;
 use std::io::Write;
@@ -22,7 +23,7 @@ use rattler_installs_packages::{
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[clap(num_args=1.., required=true)]
+    #[clap(num_args = 1.., required = true)]
     specs: Vec<Requirement>,
 
     /// Create a venv and install into this environment
@@ -40,6 +41,10 @@ struct Args {
 
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
+
+    /// Path to the python interpreter to use for resolving environment markers and creating venvs
+    #[clap(long, short)]
+    python_interpreter: Option<PathBuf>,
 }
 
 #[derive(Parser)]
@@ -111,12 +116,22 @@ async fn actual_main() -> miette::Result<()> {
     })?;
 
     // Determine the environment markers for the current machine
-    let env_markers = Pep508EnvMakers::from_env()
-        .await
-        .into_diagnostic()
-        .wrap_err_with(|| {
-            "failed to determine environment markers for the current machine (could not run Python)"
-        })?;
+    let env_markers = match args.python_interpreter {
+        Some(ref python) => {
+            let python = fs::canonicalize(python).into_diagnostic()?;
+            Pep508EnvMakers::from_python(&python).await.into_diagnostic()
+                .wrap_err_with(|| {
+                    format!(
+                        "failed to determine environment markers for the current machine (could not run Python in path: {:?})"
+                        , python
+                    )
+                })?
+        }
+        None => Pep508EnvMakers::from_env().await.into_diagnostic()
+            .wrap_err_with(|| {
+                "failed to determine environment markers for the current machine (could not run Python)"
+            })?,
+    };
     tracing::debug!(
         "extracted the following environment markers from the system python interpreter:\n{:#?}",
         env_markers
@@ -128,9 +143,14 @@ async fn actual_main() -> miette::Result<()> {
         compatible_tags.tags().format(", ")
     );
 
+    let python_location = match args.python_interpreter {
+        Some(python_interpreter) => PythonLocation::Custom(python_interpreter),
+        None => PythonLocation::System,
+    };
+
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
-        ..Default::default()
+        python_location,
     };
     // Solve the environment
     let blueprint = match resolve(

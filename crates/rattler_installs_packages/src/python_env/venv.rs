@@ -265,7 +265,7 @@ prompt = {}"#,
 
             for bin_name in python_bins.into_iter() {
                 let venv_python_bin = venv_bin.join(bin_name);
-                if !venv_python_bin.exists() {
+                if !venv_python_bin.exists() && venv_exe_path != venv_python_bin {
                     copy_file(venv_exe_path, &venv_python_bin)?;
                 }
             }
