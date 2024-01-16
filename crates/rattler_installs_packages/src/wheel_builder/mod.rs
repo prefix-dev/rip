@@ -3,6 +3,7 @@
 mod build_environment;
 mod wheel_cache;
 
+use fs_err as fs;
 use std::io::{Read, Seek};
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
@@ -46,6 +47,9 @@ pub struct WheelBuilder<'db, 'i> {
     /// only sdists, because otherwise we run into a chicken & egg problem where a sdist is required
     /// to build a sdist. E.g. `hatchling` requires `hatchling` as build system.
     resolve_options: ResolveOptions,
+
+    /// The passed environment variables
+    env_variables: HashMap<String, String>,
 }
 
 /// An error that can occur while building a wheel
@@ -124,6 +128,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
+        env_variables: HashMap<String, String>,
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
@@ -145,6 +150,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             env_markers,
             wheel_tags,
             resolve_options,
+            env_variables,
         }
     }
 
@@ -173,6 +179,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             self.env_markers,
             self.wheel_tags,
             &self.resolve_options,
+            self.env_variables.clone(),
         )
         .await?;
 
@@ -236,11 +243,11 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             return Err(WheelBuildError::Error(stdout.to_string()));
         }
 
-        let result = std::fs::read_to_string(build_environment.work_dir().join("metadata_result"))?;
+        let result = fs::read_to_string(build_environment.work_dir().join("metadata_result"))?;
         let folder = PathBuf::from(result.trim());
         let path = folder.join("METADATA");
 
-        let metadata = std::fs::read(path)?;
+        let metadata = fs::read(path)?;
         let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice())?;
         Ok((metadata, wheel_metadata))
     }
@@ -269,7 +276,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         // This is where the wheel file is located
         let wheel_file: PathBuf =
-            std::fs::read_to_string(build_environment.work_dir().join("wheel_result"))?
+            fs::read_to_string(build_environment.work_dir().join("wheel_result"))?
                 .trim()
                 .into();
 
@@ -295,7 +302,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         self.package_db.local_wheel_cache().associate_wheel(
             &key,
             wheel_file_name,
-            &mut std::fs::File::open(&wheel_file)?,
+            &mut fs::File::open(&wheel_file)?,
         )?;
 
         // Reconstruct wheel from the path
@@ -340,7 +347,13 @@ mod tests {
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
         let resolve_options = ResolveOptions::default();
-        let wheel_builder = WheelBuilder::new(&package_db.0, &env_markers, None, &resolve_options);
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            Default::default(),
+        );
 
         // Build the wheel
         wheel_builder.build_wheel(&sdist).await.unwrap();

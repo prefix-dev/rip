@@ -6,6 +6,7 @@ use miette::IntoDiagnostic;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Serialize;
 
+use fs_err as fs;
 use std::ffi::OsStr;
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -57,7 +58,7 @@ impl SDist {
             .ok_or_else(|| miette::miette!("path does not contain a filename"))?;
         let name =
             SDistFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
-        let bytes = std::fs::File::open(path).into_diagnostic()?;
+        let bytes = fs::File::open(path).into_diagnostic()?;
         Self::new(name, Box::new(bytes))
     }
 
@@ -199,6 +200,7 @@ mod tests {
     use crate::wheel_builder::{WheelBuilder, WheelCache};
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
+    use std::collections::HashMap;
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -264,7 +266,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            WheelCache::new(package_db.1.path().join("wheels")),
+            HashMap::default(),
         );
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -287,7 +289,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            WheelCache::new(package_db.1.path().join("wheels")),
+            HashMap::default(),
         );
 
         // Build the wheel
@@ -312,7 +314,7 @@ mod tests {
             &env_markers,
             None,
             &resolve_options,
-            WheelCache::new(package_db.1.path().join("wheels")),
+            HashMap::default(),
         );
 
         // Build the wheel
@@ -320,5 +322,111 @@ mod tests {
 
         let (_, metadata) = wheel.metadata().unwrap();
         assert_debug_snapshot!(metadata);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_and_pass_env_variables() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/env_package-0.1.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"env_package".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions {
+            ..Default::default()
+        };
+
+        let mut mandatory_env = HashMap::new();
+
+        // In order to build wheel, we need to pass specific ENV that setup.py expect
+        mandatory_env.insert("MY_ENV_VAR".to_string(), "SOME_VALUE".to_string());
+
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            mandatory_env,
+        );
+
+        // Build the wheel
+        let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
+
+        let (_, metadata) = wheel.metadata().unwrap();
+        assert_debug_snapshot!(metadata);
+    }
+
+    // On windows these tests will fail because python interpreter
+    // should have SYSTEMROOT
+    // https://github.com/pyinstaller/pyinstaller/issues/6878
+    #[cfg(not(target_os = "windows"))]
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_and_with_clean_env_and_pass_env_variables() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/env_package-0.1.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"env_package".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions {
+            clean_env: true,
+            ..Default::default()
+        };
+
+        let mut mandatory_env = HashMap::new();
+
+        // In order to build wheel, we need to pass specific ENV that setup.py expect
+        mandatory_env.insert(String::from("MY_ENV_VAR"), String::from("SOME_VALUE"));
+
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            mandatory_env,
+        );
+
+        // Build the wheel
+        let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
+
+        let (_, metadata) = wheel.metadata().unwrap();
+        assert_debug_snapshot!(metadata);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_and_will_fail_when_clean_env_is_used() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/env_package-0.1.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"env_package".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions {
+            clean_env: true,
+            ..Default::default()
+        };
+
+        // Do not pass any mandatory env for wheel builder, and do not inherit
+        // this should fail
+        let mandatory_env = HashMap::new();
+
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            mandatory_env,
+        );
+
+        // Build the wheel
+        let wheel = wheel_builder.build_wheel(&sdist).await;
+        let err_string = wheel.err().unwrap().to_string();
+
+        assert!(err_string.contains("could not build wheel"));
+        assert!(err_string.contains("MY_ENV_VAR should be set in order to build wheel"));
     }
 }

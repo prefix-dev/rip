@@ -8,9 +8,9 @@ use crate::python_env::{
     system_python_executable, FindPythonError, ParsePythonInterpreterVersionError,
     PythonInterpreterVersion,
 };
+use fs_err as fs;
 use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -18,7 +18,7 @@ use thiserror::Error;
 
 #[cfg(unix)]
 pub fn copy_file<P: AsRef<Path>, U: AsRef<Path>>(from: P, to: U) -> std::io::Result<()> {
-    std::os::unix::fs::symlink(from, to)?;
+    fs::os::unix::fs::symlink(from, to)?;
     Ok(())
 }
 
@@ -237,7 +237,7 @@ prompt = {}"#,
         );
 
         let cfg_path = Path::new(&venv_path).join("pyvenv.cfg");
-        std::fs::write(cfg_path, pyenv_cfg_content)?;
+        fs_err::write(cfg_path, pyenv_cfg_content)?;
         Ok(())
     }
 
@@ -265,7 +265,7 @@ prompt = {}"#,
 
             for bin_name in python_bins.into_iter() {
                 let venv_python_bin = venv_bin.join(bin_name);
-                if !venv_python_bin.exists() {
+                if !venv_python_bin.exists() && venv_exe_path != venv_python_bin {
                     copy_file(venv_exe_path, &venv_python_bin)?;
                 }
             }

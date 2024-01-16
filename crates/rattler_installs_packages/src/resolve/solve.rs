@@ -150,6 +150,9 @@ pub struct ResolveOptions {
     /// Defines what python interpreter to use for resolution. By default the python interpreter
     /// from the system is used. This is only used during resolution and building of wheel files
     pub python_location: PythonLocation,
+
+    /// Defines if we should inherit env variables during build process of wheel files
+    pub clean_env: bool,
 }
 
 /// Resolves an environment that contains the given requirements and all dependencies of those
@@ -172,6 +175,7 @@ pub async fn resolve<'db>(
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     options: &ResolveOptions,
+    env_variables: HashMap<String, String>,
 ) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct a provider
     let provider = PypiDependencyProvider::new(
@@ -181,6 +185,7 @@ pub async fn resolve<'db>(
         locked_packages,
         favored_packages,
         options,
+        env_variables,
     )?;
     let pool = &provider.pool;
 

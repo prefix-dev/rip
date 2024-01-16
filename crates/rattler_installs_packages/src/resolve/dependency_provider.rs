@@ -140,8 +140,10 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         options: &'i ResolveOptions,
+        env_variables: HashMap<String, String>,
     ) -> miette::Result<Self> {
-        let wheel_builder = WheelBuilder::new(package_db, markers, compatible_tags, options);
+        let wheel_builder =
+            WheelBuilder::new(package_db, markers, compatible_tags, options, env_variables);
 
         Ok(Self {
             pool: Pool::new(),

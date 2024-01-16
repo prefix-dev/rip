@@ -37,6 +37,7 @@ url = "2.4.1"
 rand = "0.8.5"
 serde = "1.0.188"
 serde_json = "1.0.107"
+fs-err = "2.11.0"
 
 [package.metadata.release]
 release = false
