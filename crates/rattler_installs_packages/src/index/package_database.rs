@@ -3,7 +3,7 @@ use crate::index::file_store::FileStore;
 use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::types::{ArtifactInfo, ProjectInfo, WheelCoreMetadata};
-use crate::wheel_builder::WheelBuilder;
+use crate::wheel_builder::{WheelBuilder, WheelCache};
 use crate::{
     types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName, types::Version,
     types::WheelFilename,
@@ -33,6 +33,9 @@ pub struct PackageDb {
     /// A cache of package name to version to artifacts.
     artifacts: FrozenMap<NormalizedPackageName, Box<IndexMap<Version, Vec<ArtifactInfo>>>>,
 
+    /// Cache to locally built wheels
+    local_wheel_cache: WheelCache,
+
     /// Reference to the cache directory for all caches
     cache_dir: PathBuf,
 }
@@ -41,14 +44,11 @@ impl PackageDb {
     /// Constructs a new [`PackageDb`] that reads information from the specified URLs.
     pub fn new(client: Client, index_urls: &[Url], cache_dir: &Path) -> std::io::Result<Self> {
         Ok(Self {
-            http: Http::new(
-                client,
-                FileStore::new(&cache_dir.join("http"))?,
-                FileStore::new(&cache_dir.join("by-hash"))?,
-            ),
+            http: Http::new(client, FileStore::new(&cache_dir.join("http"))?),
             index_urls: index_urls.into(),
             metadata_cache: FileStore::new(&cache_dir.join("metadata"))?,
             artifacts: Default::default(),
+            local_wheel_cache: WheelCache::new(cache_dir.join("local_wheels")),
             cache_dir: cache_dir.to_owned(),
         })
     }
@@ -56,6 +56,11 @@ impl PackageDb {
     /// Returns the cache directory
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
+    }
+
+    /// Returns the local wheel cache
+    pub fn local_wheel_cache(&self) -> &WheelCache {
+        &self.local_wheel_cache
     }
 
     /// Downloads and caches information about available artifiacts of a package from the index.

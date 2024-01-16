@@ -43,7 +43,6 @@ pub enum CacheMode {
 pub struct Http {
     pub(crate) client: Client,
     http_cache: Arc<FileStore>,
-    _hash_cache: Arc<FileStore>,
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -61,11 +60,10 @@ pub enum HttpRequestError {
 
 impl Http {
     /// Constructs a new instance.
-    pub fn new(client: Client, http_cache: FileStore, hash_cache: FileStore) -> Self {
+    pub fn new(client: Client, http_cache: FileStore) -> Self {
         Http {
             client,
             http_cache: Arc::new(http_cache),
-            _hash_cache: Arc::new(hash_cache),
         }
     }
 

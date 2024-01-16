@@ -13,7 +13,7 @@ use url::Url;
 
 use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
 use rattler_installs_packages::python_env::{PythonLocation, WheelTags};
-use rattler_installs_packages::wheel_builder::{WheelBuilder, WheelCache};
+use rattler_installs_packages::wheel_builder::WheelBuilder;
 use rattler_installs_packages::{
     normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve,
     resolve::ResolveOptions, types::Requirement,
@@ -200,7 +200,6 @@ async fn actual_main() -> miette::Result<()> {
             &env_markers,
             Some(&compatible_tags),
             &resolve_opts,
-            WheelCache::new(package_db.cache_dir().join("wheels")),
         );
 
         for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {

@@ -46,9 +46,6 @@ pub struct WheelBuilder<'db, 'i> {
     /// only sdists, because otherwise we run into a chicken & egg problem where a sdist is required
     /// to build a sdist. E.g. `hatchling` requires `hatchling` as build system.
     resolve_options: ResolveOptions,
-
-    /// Cache of locally built wheels on the system
-    locally_built_wheels: WheelCache,
 }
 
 /// An error that can occur while building a wheel
@@ -127,7 +124,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
-        wheel_cache: WheelCache,
     ) -> Self {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
@@ -149,7 +145,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             env_markers,
             wheel_tags,
             resolve_options,
-            locally_built_wheels: wheel_cache,
         }
     }
 
@@ -217,7 +212,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         // See if we have a locally built wheel for this sdist
         // use that metadata instead
         let key = WheelKey::try_from(sdist)?;
-        if let Some(wheel) = self.locally_built_wheels.wheel_for_key(&key)? {
+        if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return wheel.metadata().map_err(|e| {
                 WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
             });
@@ -256,7 +251,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     pub async fn build_wheel(&self, sdist: &SDist) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
         let key = WheelKey::try_from(sdist)?;
-        if let Some(wheel) = self.locally_built_wheels.wheel_for_key(&key)? {
+        if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return Ok(wheel);
         }
 
@@ -297,7 +292,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let wheel_file_name = WheelFilename::from_filename(file_component, &package_name)?;
 
         // Associate the wheel with the key which is the hashed sdist
-        self.locally_built_wheels.associate_wheel(
+        self.package_db.local_wheel_cache().associate_wheel(
             &key,
             wheel_file_name,
             &mut std::fs::File::open(&wheel_file)?,
@@ -345,13 +340,7 @@ mod tests {
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
         let resolve_options = ResolveOptions::default();
-        let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
-            None,
-            &resolve_options,
-            WheelCache::new(package_db.1.path().join("wheels")),
-        );
+        let wheel_builder = WheelBuilder::new(&package_db.0, &env_markers, None, &resolve_options);
 
         // Build the wheel
         wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -359,7 +348,8 @@ mod tests {
         // See if we can retrieve it from the cache
         let key = WheelKey::try_from(&sdist).unwrap();
         wheel_builder
-            .locally_built_wheels
+            .package_db
+            .local_wheel_cache()
             .wheel_for_key(&key)
             .unwrap()
             .unwrap();

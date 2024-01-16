@@ -7,7 +7,7 @@ use crate::resolve::{PinnedPackage, ResolveOptions};
 use crate::types::{
     Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
 };
-use crate::wheel_builder::{WheelBuilder, WheelCache};
+use crate::wheel_builder::WheelBuilder;
 use elsa::FrozenMap;
 use itertools::Itertools;
 use pep440_rs::{Operator, Version, VersionSpecifier, VersionSpecifiers};
@@ -141,13 +141,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         options: &'i ResolveOptions,
     ) -> miette::Result<Self> {
-        let wheel_builder = WheelBuilder::new(
-            package_db,
-            markers,
-            compatible_tags,
-            options,
-            WheelCache::new(package_db.cache_dir().join("wheels")),
-        );
+        let wheel_builder = WheelBuilder::new(package_db, markers, compatible_tags, options);
 
         Ok(Self {
             pool: Pool::new(),
