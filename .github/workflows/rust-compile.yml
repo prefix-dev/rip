@@ -121,3 +121,35 @@ jobs:
           ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}
           --
           --nocapture
+      
+
+      # test if venv works properly on windows
+      # using old and newest python version
+      # our implementation will fail on 3.7.4
+      # and we emit warning
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.4.1
+        with:
+          run-install: false
+
+      - name: Run pixi python==3.7.5 test
+        if: contains(matrix.name, 'Windows')
+        shell: bash
+        run: |
+          mkdir pixi_old
+          cd pixi_old
+          pixi init
+          pixi add "python==3.7.5"
+          cd ../
+          cargo run -- boltons --only-sdists -p /d/a/rip/rip/pixi_old/.pixi/env/python.exe
+
+      - name: Run pixi latest python test
+        if: contains(matrix.name, 'Windows')
+        shell: bash
+        run: |
+          mkdir pixi_new
+          cd pixi_new
+          pixi init
+          pixi add python
+          cd ../
+          cargo run -- boltons --only-sdists -p /d/a/rip/rip/pixi_new/.pixi/env/python.exe
