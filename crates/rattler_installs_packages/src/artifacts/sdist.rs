@@ -67,12 +67,13 @@ impl SDist {
     fn find_entry(&self, name: impl AsRef<Path>) -> std::io::Result<Option<Vec<u8>>> {
         let mut lock = self.file.lock();
         let archives = generic_archive_reader(&mut lock, self.name.format)?;
+
+        fn skip_first_component(path: &Path) -> PathBuf {
+            path.components().skip(1).collect()
+        }
+
         match archives {
             Archives::TarArchive(mut archive) => {
-                fn skip_first_component(path: &Path) -> PathBuf {
-                    path.components().skip(1).collect()
-                }
-
                 // Loop over entries
                 for entry in archive.entries()? {
                     let mut entry = entry?;
@@ -87,10 +88,24 @@ impl SDist {
                 Ok(None)
             }
             Archives::Zip(mut archive) => {
-                let mut zip_file = archive.by_name(name.as_ref().to_str().unwrap())?;
-                let mut bytes = Vec::new();
-                zip_file.read_to_end(&mut bytes)?;
-                Ok(Some(bytes))
+                // Loop over zip entries and extract zip file by index
+                // If file's path is not safe, ignore it and record a warning message
+                for i in 0..archive.len() {
+                    let mut file = archive.by_index(i)?;
+                    if let Some(file_path) = file.enclosed_name() {
+                        if skip_first_component(file_path) == name.as_ref() {
+                            let mut bytes = Vec::new();
+                            file.read_to_end(&mut bytes)?;
+                            return Ok(Some(bytes));
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Ignoring {0} as it cannot be converted to a valid path",
+                            file.name()
+                        );
+                    }
+                }
+                Ok(None)
             }
         }
     }
@@ -228,6 +243,7 @@ mod tests {
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use std::collections::HashMap;
+    use std::env;
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -478,5 +494,42 @@ mod tests {
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
 
         assert_debug_snapshot!(result.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn read_zip_archive_for_a_file() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/zip_read_package-1.0.0.zip");
+
+        let sdist = SDist::from_path(&path, &"zip_read_package".parse().unwrap()).unwrap();
+
+        let content = sdist.find_entry("test_file.txt").unwrap().unwrap();
+        let content_text = String::from_utf8(content).unwrap();
+
+        assert!(content_text.contains("hello world"));
+
+        let content = sdist
+            .find_entry("inner_folder/inner_file.txt")
+            .unwrap()
+            .unwrap();
+        let content_text = String::from_utf8(content).unwrap();
+
+        assert!(content_text.contains("hello inner world"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn read_tar_gz_archive_for_a_file() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let pkg_info = sdist.find_entry("PKG-INFO").unwrap().unwrap();
+        let pkg_info_text = String::from_utf8(pkg_info).unwrap();
+        assert_debug_snapshot!(pkg_info_text);
+
+        let init_file = sdist.find_entry("rich/__init__.py").unwrap().unwrap();
+        let init_file_text = String::from_utf8(init_file).unwrap();
+        assert_debug_snapshot!(init_file_text);
     }
 }
