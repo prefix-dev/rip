@@ -5,14 +5,17 @@ mod wheel_cache;
 
 use fs_err as fs;
 use std::io::{Read, Seek};
+
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, path::PathBuf};
 
 use parking_lot::Mutex;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
 use crate::python_env::VEnvError;
-use crate::resolve::{ResolveOptions, SDistResolution};
+use crate::resolve::{OnWheelBuildFailure, ResolveOptions, SDistResolution};
 use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
@@ -50,6 +53,11 @@ pub struct WheelBuilder<'db, 'i> {
 
     /// The passed environment variables
     env_variables: HashMap<String, String>,
+
+    /// Saved build environments
+    /// This is used to save build environments for debugging
+    /// only if the `save_on_failure` option is set in resolve options
+    saved_build_envs: Mutex<HashSet<PathBuf>>,
 }
 
 /// An error that can occur while building a wheel
@@ -151,6 +159,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             wheel_tags,
             resolve_options,
             env_variables,
+            saved_build_envs: Mutex::new(HashSet::new()),
         }
     }
 
@@ -159,7 +168,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     async fn setup_build_venv(
         &self,
         sdist: &SDist,
-    ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
+    ) -> Result<Arc<BuildEnvironment<'db>>, WheelBuildError> {
         if let Some(venv) = self.venv_cache.lock().get(sdist.name()) {
             tracing::debug!(
                 "using cached virtual env for: {:?}",
@@ -209,6 +218,43 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             .ok_or_else(|| WheelBuildError::Error("Could not get venv from cache".to_string()));
     }
 
+    /// Get the paths to the saved build environments
+    pub fn saved_build_envs(&self) -> parking_lot::MutexGuard<HashSet<PathBuf>> {
+        self.saved_build_envs.lock()
+    }
+
+    /// Handle's a build failure by either saving the build environment or deleting it
+    fn handle_build_failure<T>(
+        &self,
+        result: Result<T, WheelBuildError>,
+        build_environment: &BuildEnvironment,
+        sdist_filename: &SDistFilename,
+    ) -> Result<T, WheelBuildError> {
+        if self.resolve_options.on_wheel_build_failure != OnWheelBuildFailure::SaveBuildEnv {
+            return result;
+        }
+        if let Err(e) = result {
+            let start = SystemTime::now();
+            let since_the_epoch = start
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards");
+
+            let tempdir_path = std::env::temp_dir().join(format!(
+                "wheel_build_{}_{}",
+                sdist_filename,
+                since_the_epoch.as_secs()
+            ));
+
+            tracing::info!("saving build environment to {:?}", &tempdir_path);
+
+            build_environment.copy_to(&tempdir_path)?;
+            self.saved_build_envs.lock().insert(tempdir_path);
+            Err(e)
+        } else {
+            result
+        }
+    }
+
     /// Get the metadata for a given sdist by using the build_backend in a virtual env
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
     #[tracing::instrument(skip_all, fields(name = %sdist.name().distribution.as_source_str(), version = %sdist.name().version))]
@@ -227,6 +273,19 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         let build_environment = self.setup_build_venv(sdist).await?;
 
+        // Capture the result of the build
+        // to handle different failure modes
+        let result = self
+            .get_sdist_metadata_internal(&build_environment, sdist)
+            .await;
+        self.handle_build_failure(result, &build_environment, sdist.name())
+    }
+
+    async fn get_sdist_metadata_internal(
+        &self,
+        build_environment: &Arc<BuildEnvironment<'db>>,
+        sdist: &SDist,
+    ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         let output = build_environment.run_command("WheelMetadata")?;
 
         if !output.status.success() {
@@ -263,8 +322,22 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         }
 
         // Setup a new virtualenv for building the wheel or use an existing
+        println!("A");
         let build_environment = self.setup_build_venv(sdist).await?;
+        println!("B");
+        // Capture the result of the build
+        // to handle different failure modes
+        let result = self.build_wheel_internal(&build_environment, sdist).await;
 
+        println!("C");
+        self.handle_build_failure(result, &build_environment, sdist.name())
+    }
+
+    async fn build_wheel_internal(
+        &self,
+        build_environment: &Arc<BuildEnvironment<'db>>,
+        sdist: &SDist,
+    ) -> Result<Wheel, WheelBuildError> {
         // Run the wheel stage
         let output = build_environment.run_command("Wheel")?;
 
@@ -366,5 +439,42 @@ mod tests {
             .wheel_for_key(&key)
             .unwrap()
             .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_and_save_env() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/tampered-rich-13.6.0.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"tampered-rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions {
+            on_wheel_build_failure: crate::resolve::OnWheelBuildFailure::SaveBuildEnv,
+            ..Default::default()
+        };
+
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            Default::default(),
+        );
+
+        // Build the wheel
+        // this should fail because we don't have the right environment
+        let result = wheel_builder.build_wheel(&sdist).await;
+        result.unwrap();
+        // assert!(result.is_err());
+
+        let saved_build_envs = wheel_builder.saved_build_envs();
+        assert_eq!(saved_build_envs.len(), 1);
+
+        let path = saved_build_envs.iter().next().unwrap();
+
+        // Check if the build env is there
+        assert!(path.exists());
     }
 }

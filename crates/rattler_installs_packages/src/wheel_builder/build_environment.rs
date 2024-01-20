@@ -73,6 +73,12 @@ impl<'db> BuildEnvironment<'db> {
         ))
     }
 
+    /// Copy the build environment to destination
+    pub fn copy_to(&self, destination: &Path) -> std::io::Result<()> {
+        fs::copy(self.work_dir.path(), destination)?;
+        Ok(())
+    }
+
     /// Install extra requirements into the venv, if any extra were found
     /// If the extra requirements are already installed, this will do nothing
     /// for that requirement.
@@ -196,8 +202,8 @@ impl<'db> BuildEnvironment<'db> {
     pub(crate) async fn setup<'i>(
         sdist: &SDist,
         wheel_builder: &WheelBuilder<'db, 'i>,
-        env_markers: &MarkerEnvironment,
-        wheel_tags: Option<&WheelTags>,
+        env_markers: &'i MarkerEnvironment,
+        wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
         env_variables: HashMap<String, String>,
     ) -> Result<BuildEnvironment<'db>, WheelBuildError> {

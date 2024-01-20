@@ -138,6 +138,16 @@ impl SDistResolution {
     }
 }
 
+/// Specifies what to do with failed build environments
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OnWheelBuildFailure {
+    /// Save failed build environments to temporary directory
+    SaveBuildEnv,
+    /// Delete failed build environments
+    #[default]
+    DeleteBuildEnv,
+}
+
 /// Additional options that may influence the solver. In general passing [`Default::default`] to
 /// the [`resolve`] function should provide sane defaults, however if you want to fine tune the
 /// resolver you can do so via this struct.
@@ -153,6 +163,10 @@ pub struct ResolveOptions {
 
     /// Defines if we should inherit env variables during build process of wheel files
     pub clean_env: bool,
+
+    /// Defines what to do with failed build environments
+    /// by default these are deleted but can also be saved for debugging purposes
+    pub on_wheel_build_failure: OnWheelBuildFailure,
 }
 
 /// Resolves an environment that contains the given requirements and all dependencies of those
