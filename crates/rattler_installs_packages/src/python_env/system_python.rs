@@ -50,16 +50,26 @@ pub fn system_python_executable() -> Result<PathBuf, FindPythonError> {
 /// Errors that can occur while trying to parse the python version
 #[derive(Debug, Error)]
 pub enum ParsePythonInterpreterVersionError {
+    /// The version string is invalid.
     #[error("failed to parse version string, found '{0}' expect something like 'Python x.x.x'")]
     InvalidVersion(String),
+
+    /// The Python interpreter could not be found when attempting to determine its version.
     #[error(transparent)]
     FindPythonError(#[from] FindPythonError),
 }
 
+/// Represents a Python interpreters version parts.
 #[derive(Clone)]
 pub struct PythonInterpreterVersion {
+    /// The major version of the interpreter.
     pub major: u32,
+
+    /// The minor version of the interpreter.
     pub minor: u32,
+
+    /// The patch version of the interpreter.
+    /// Also known as the "micro" version from Python's `sys.version_info`.
     pub patch: u32,
 }
 
@@ -104,6 +114,7 @@ impl PythonInterpreterVersion {
         Ok(Self::new(major, minor, patch))
     }
 
+    /// Creates a PythonInterpreterVersion from its constituent parts.
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
         Self {
             major,
