@@ -180,14 +180,7 @@ impl Display for SDistFilename {
             "{dist}-{ver}{format}",
             dist = self.distribution.as_source_str(),
             ver = self.version,
-            format = match self.format {
-                SDistFormat::Zip => ".zip",
-                SDistFormat::TarGz => ".tar.gz",
-                SDistFormat::TarBz2 => ".tar.bz2",
-                SDistFormat::TarXz => ".tar.xz",
-                SDistFormat::TarZ => ".tar.Z",
-                SDistFormat::Tar => ".tar",
-            }
+            format = self.format,
         )
     }
 }
@@ -207,7 +200,24 @@ pub enum SDistFormat {
 impl SDistFormat {
     /// In RIP we currently only support TarGz and Tar
     pub fn is_supported(&self) -> bool {
-        matches!(self, Self::TarGz | Self::Tar)
+        matches!(self, Self::TarGz | Self::Tar | Self::Zip)
+    }
+}
+
+impl Display for SDistFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{format}",
+            format = match self {
+                SDistFormat::Zip => ".zip",
+                SDistFormat::TarGz => ".tar.gz",
+                SDistFormat::TarBz2 => ".tar.bz2",
+                SDistFormat::TarXz => ".tar.xz",
+                SDistFormat::TarZ => ".tar.Z",
+                SDistFormat::Tar => ".tar",
+            }
+        )
     }
 }
 
