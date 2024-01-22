@@ -69,8 +69,8 @@ pub enum WheelBuildError {
     #[error("could not run command {0} to build wheel: {1}")]
     CouldNotRunCommand(String, std::io::Error),
 
-    #[error("could not resolve environment for wheel building")]
-    CouldNotResolveEnvironment(Vec<Requirement>),
+    #[error("could not resolve environment for wheel building: {1:?}")]
+    CouldNotResolveEnvironment(Vec<Requirement>, miette::Report),
 
     #[error("error parsing JSON from extra_requirements.json: {0}")]
     JSONError(#[from] serde_json::Error),

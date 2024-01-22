@@ -108,7 +108,7 @@ impl<'db> BuildEnvironment<'db> {
                 resolve_options,
             )
             .await
-            .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(all_requirements))?;
+            .map_err(|e| WheelBuildError::CouldNotResolveEnvironment(all_requirements, e))?;
 
             // install extra wheels
             for package_info in extra_resolved_wheels {
@@ -218,7 +218,13 @@ impl<'db> BuildEnvironment<'db> {
             resolve_options,
         )
         .await
-        .map_err(|_| WheelBuildError::CouldNotResolveEnvironment(build_requirements.to_vec()))?;
+        .map_err(|e| {
+            tracing::error!(
+                "could not resolve build requirements when trying to build a wheel for : {}",
+                sdist.name()
+            );
+            WheelBuildError::CouldNotResolveEnvironment(build_requirements.to_vec(), e)
+        })?;
 
         // Install into venv
         for package_info in resolved_wheels.iter() {
