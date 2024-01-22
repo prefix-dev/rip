@@ -10,6 +10,7 @@ use crate::types::{
 use crate::wheel_builder::WheelBuilder;
 use elsa::FrozenMap;
 use itertools::Itertools;
+use miette::IntoDiagnostic;
 use pep440_rs::{Operator, Version, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
 use resolvo::{
@@ -143,7 +144,8 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         env_variables: HashMap<String, String>,
     ) -> miette::Result<Self> {
         let wheel_builder =
-            WheelBuilder::new(package_db, markers, compatible_tags, options, env_variables);
+            WheelBuilder::new(package_db, markers, compatible_tags, options, env_variables)
+                .into_diagnostic()?;
 
         Ok(Self {
             pool: Pool::new(),

@@ -14,7 +14,7 @@ pub enum FindPythonError {
 }
 
 /// Try to find the python executable in the current environment.
-/// Using sys.executable aproach will return original interpretator path
+/// Using sys.executable approach will return original interpretation path
 /// and not the shim in case of using which
 pub fn system_python_executable() -> Result<PathBuf, FindPythonError> {
     // When installed with homebrew on macOS, the python3 executable is called `python3` instead
@@ -56,7 +56,7 @@ pub enum ParsePythonInterpreterVersionError {
     FindPythonError(#[from] FindPythonError),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PythonInterpreterVersion {
     pub major: u32,
     pub minor: u32,

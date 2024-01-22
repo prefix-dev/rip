@@ -36,6 +36,9 @@ pub enum PythonLocation {
     System,
     /// Use custom interpreter
     Custom(PathBuf),
+
+    /// Use custom interpreter with version
+    CustomWithVersion(PathBuf, PythonInterpreterVersion),
 }
 
 impl PythonLocation {
@@ -44,6 +47,16 @@ impl PythonLocation {
         match self {
             PythonLocation::System => system_python_executable(),
             PythonLocation::Custom(path) => Ok(path.clone()),
+            PythonLocation::CustomWithVersion(path, _) => Ok(path.clone()),
+        }
+    }
+
+    /// Get python version from executable
+    pub fn version(&self) -> Result<PythonInterpreterVersion, ParsePythonInterpreterVersionError> {
+        match self {
+            PythonLocation::System => PythonInterpreterVersion::from_system(),
+            PythonLocation::CustomWithVersion(_, version) => Ok(version.clone()),
+            PythonLocation::Custom(path) => PythonInterpreterVersion::from_path(path),
         }
     }
 }

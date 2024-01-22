@@ -267,7 +267,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
 
@@ -290,7 +291,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -315,7 +317,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -348,7 +351,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -386,7 +390,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -420,7 +425,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await;

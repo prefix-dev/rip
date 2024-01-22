@@ -4,18 +4,18 @@ mod build_environment;
 mod wheel_cache;
 
 use fs_err as fs;
-use std::io::{Read, Seek};
+
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
 use parking_lot::Mutex;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
-use crate::python_env::VEnvError;
+use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion, VEnvError};
 use crate::resolve::{ResolveOptions, SDistResolution};
 use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
-pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
+pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelCacheKey};
 use crate::{
     artifacts::wheel::UnpackError,
     artifacts::SDist,
@@ -50,6 +50,9 @@ pub struct WheelBuilder<'db, 'i> {
 
     /// The passed environment variables
     env_variables: HashMap<String, String>,
+
+    /// Python interpreter version
+    python_version: PythonInterpreterVersion,
 }
 
 /// An error that can occur while building a wheel
@@ -90,17 +93,6 @@ pub enum WheelBuildError {
     VEnvError(#[from] VEnvError),
 }
 
-impl TryFrom<&SDist> for WheelKey {
-    type Error = std::io::Error;
-    fn try_from(value: &SDist) -> Result<WheelKey, Self::Error> {
-        let mut vec = vec![];
-        let mut inner = value.lock_data();
-        inner.rewind()?;
-        inner.read_to_end(&mut vec)?;
-        Ok(WheelKey::from_bytes("sdist", &vec))
-    }
-}
-
 /// Get the requirements for the build system from the pyproject.toml
 /// will use a default if there are no requirements specified
 fn build_requirements(build_system: &pyproject_toml::BuildSystem) -> Vec<Requirement> {
@@ -122,14 +114,13 @@ fn build_requirements(build_system: &pyproject_toml::BuildSystem) -> Vec<Require
 
 impl<'db, 'i> WheelBuilder<'db, 'i> {
     /// Create a new wheel builder
-    #[must_use]
     pub fn new(
         package_db: &'db PackageDb,
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
         env_variables: HashMap<String, String>,
-    ) -> Self {
+    ) -> Result<Self, ParsePythonInterpreterVersionError> {
         // We are running into a chicken & egg problem if we want to build wheels for packages that
         // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
         // build system. Hypothetically we'd have to look through all the hatchling sdists to find the one
@@ -144,14 +135,22 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             resolve_options.clone()
         };
 
-        Self {
+        let python_version = resolve_options.python_location.version()?;
+
+        Ok(Self {
             venv_cache: Mutex::new(HashMap::new()),
             package_db,
             env_markers,
             wheel_tags,
             resolve_options,
             env_variables,
-        }
+            python_version,
+        })
+    }
+
+    /// Get the python interpreter version
+    pub fn python_version(&self) -> &PythonInterpreterVersion {
+        &self.python_version
     }
 
     /// Get a prepared virtualenv for building a wheel (or extracting metadata) from an `[SDist]`
@@ -218,7 +217,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         // See if we have a locally built wheel for this sdist
         // use that metadata instead
-        let key = WheelKey::try_from(sdist)?;
+        let key = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return wheel.metadata().map_err(|e| {
                 WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
@@ -257,7 +256,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     #[tracing::instrument(skip_all, fields(name = %sdist.name().distribution.as_source_str(), version = %sdist.name().version))]
     pub async fn build_wheel(&self, sdist: &SDist) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
-        let key = WheelKey::try_from(sdist)?;
+        let key = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return Ok(wheel);
         }
@@ -284,7 +283,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let package_name: NormalizedPackageName = sdist.name().distribution.clone().into();
 
         // Save the wheel into the cache
-        let key = WheelKey::try_from(sdist)?;
+        let key = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
 
         // Reconstruction of the wheel filename
         let file_component = wheel_file
@@ -317,9 +316,9 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 mod tests {
     use crate::artifacts::SDist;
     use crate::index::PackageDb;
-    use crate::python_env::Pep508EnvMakers;
+    use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
     use crate::resolve::ResolveOptions;
-    use crate::wheel_builder::wheel_cache::WheelKey;
+    use crate::wheel_builder::wheel_cache::WheelCacheKey;
     use crate::wheel_builder::WheelBuilder;
     use std::path::Path;
     use tempfile::TempDir;
@@ -353,18 +352,29 @@ mod tests {
             None,
             &resolve_options,
             Default::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         wheel_builder.build_wheel(&sdist).await.unwrap();
 
         // See if we can retrieve it from the cache
-        let key = WheelKey::try_from(&sdist).unwrap();
+        let key = WheelCacheKey::from_sdist(&sdist, wheel_builder.python_version()).unwrap();
         wheel_builder
             .package_db
             .local_wheel_cache()
             .wheel_for_key(&key)
             .unwrap()
             .unwrap();
+
+        // No one will be using 1.0.0, I reckon
+        let older_python = PythonInterpreterVersion::new(1, 0, 0);
+        let key = WheelCacheKey::from_sdist(&sdist, &older_python).unwrap();
+        assert!(wheel_builder
+            .package_db
+            .local_wheel_cache()
+            .wheel_for_key(&key)
+            .unwrap()
+            .is_none());
     }
 }
