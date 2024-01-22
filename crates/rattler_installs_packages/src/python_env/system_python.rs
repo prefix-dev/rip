@@ -63,8 +63,8 @@ pub enum ParsePythonInterpreterVersionError {
     FindPythonError(#[from] FindPythonError),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 /// Represents a Python interpreters version parts.
-#[derive(Clone)]
 pub struct PythonInterpreterVersion {
     /// The major version of the interpreter.
     pub major: u32,
