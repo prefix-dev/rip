@@ -1,0 +1,57 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+expression: result.1
+---
+WheelCoreMetadata {
+    name: PackageName {
+        source: "filterpy",
+        normalized: "filterpy",
+    },
+    version: Version {
+        epoch: 0,
+        release: [
+            1,
+            4,
+            5,
+        ],
+        pre: None,
+        post: None,
+        dev: None,
+        local: None,
+    },
+    metadata_version: MetadataVersion(
+        Version {
+            epoch: 0,
+            release: [
+                2,
+                1,
+            ],
+            pre: None,
+            post: None,
+            dev: None,
+            local: None,
+        },
+    ),
+    requires_dist: [
+        Requirement {
+            name: "numpy",
+            extras: None,
+            version_or_url: None,
+            marker: None,
+        },
+        Requirement {
+            name: "scipy",
+            extras: None,
+            version_or_url: None,
+            marker: None,
+        },
+        Requirement {
+            name: "matplotlib",
+            extras: None,
+            version_or_url: None,
+            marker: None,
+        },
+    ],
+    requires_python: None,
+    extras: {},
+}

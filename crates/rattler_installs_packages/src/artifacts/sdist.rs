@@ -11,6 +11,7 @@ use std::ffi::OsStr;
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
 use tar::Archive;
+use zip::ZipArchive;
 
 /// Represents a source distribution artifact.
 pub struct SDist {
@@ -65,24 +66,48 @@ impl SDist {
     /// Find entry in tar archive
     fn find_entry(&self, name: impl AsRef<Path>) -> std::io::Result<Option<Vec<u8>>> {
         let mut lock = self.file.lock();
-        let mut archive = generic_archive_reader(&mut lock, self.name.format)?;
+        let archives = generic_archive_reader(&mut lock, self.name.format)?;
 
         fn skip_first_component(path: &Path) -> PathBuf {
             path.components().skip(1).collect()
         }
 
-        // Loop over entries
-        for entry in archive.entries()? {
-            let mut entry = entry?;
+        match archives {
+            Archives::TarArchive(mut archive) => {
+                // Loop over entries
+                for entry in archive.entries()? {
+                    let mut entry = entry?;
 
-            // Find name in archive and return this
-            if skip_first_component(entry.path()?.as_ref()) == name.as_ref() {
-                let mut bytes = Vec::new();
-                entry.read_to_end(&mut bytes)?;
-                return Ok(Some(bytes));
+                    // Find name in archive and return this
+                    if skip_first_component(entry.path()?.as_ref()) == name.as_ref() {
+                        let mut bytes = Vec::new();
+                        entry.read_to_end(&mut bytes)?;
+                        return Ok(Some(bytes));
+                    }
+                }
+                Ok(None)
+            }
+            Archives::Zip(mut archive) => {
+                // Loop over zip entries and extract zip file by index
+                // If file's path is not safe, ignore it and record a warning message
+                for i in 0..archive.len() {
+                    let mut file = archive.by_index(i)?;
+                    if let Some(file_path) = file.enclosed_name() {
+                        if skip_first_component(file_path) == name.as_ref() {
+                            let mut bytes = Vec::new();
+                            file.read_to_end(&mut bytes)?;
+                            return Ok(Some(bytes));
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Ignoring {0} as it cannot be converted to a valid path",
+                            file.name()
+                        );
+                    }
+                }
+                Ok(None)
             }
         }
-        Ok(None)
     }
 
     /// Read .PKG-INFO from the archive
@@ -122,9 +147,17 @@ impl SDist {
     /// Extract the contents of the sdist archive to the given directory
     pub fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
         let mut lock = self.file.lock();
-        let mut archive = generic_archive_reader(&mut lock, self.name.format)?;
-        archive.unpack(work_dir)?;
-        Ok(())
+        let archives = generic_archive_reader(&mut lock, self.name.format)?;
+        match archives {
+            Archives::TarArchive(mut archive) => {
+                archive.unpack(work_dir)?;
+                Ok(())
+            }
+            Archives::Zip(mut archive) => {
+                archive.extract(work_dir)?;
+                Ok(())
+            }
+        }
     }
 
     /// Checks if this artifact implements PEP 643
@@ -174,21 +207,30 @@ impl<'a> Read for RawAndGzReader<'a> {
     }
 }
 
+enum Archives<'a> {
+    TarArchive(Box<Archive<RawAndGzReader<'a>>>),
+    Zip(Box<ZipArchive<&'a mut Box<dyn ReadAndSeek + Send>>>),
+}
+
 fn generic_archive_reader(
     file: &mut Box<dyn ReadAndSeek + Send>,
     format: SDistFormat,
-) -> std::io::Result<Archive<RawAndGzReader>> {
+) -> std::io::Result<Archives> {
     file.rewind()?;
 
     match format {
         SDistFormat::TarGz => {
             let bytes = GzDecoder::new(file);
-            Ok(Archive::new(RawAndGzReader::Gz(bytes)))
+            Ok(Archives::TarArchive(Box::new(Archive::new(RawAndGzReader::Gz(bytes)))))
         }
-        SDistFormat::Tar => Ok(Archive::new(RawAndGzReader::Raw(file))),
-        _ => Err(std::io::Error::new(
+        SDistFormat::Tar => Ok(Archives::TarArchive(Box::new(Archive::new(RawAndGzReader::Raw(file))))),
+        SDistFormat::Zip => {
+            let zip = ZipArchive::new(file)?;
+            Ok(Archives::Zip(Box::new(zip)))
+        },
+        unsupported_format => Err(std::io::Error::new(
             ErrorKind::InvalidData,
-            "sdist archive format currently unsupported (only tar and tar.gz are supported)",
+            format!("sdist archive format currently {unsupported_format} unsupported (only tar | tar.gz | zip are supported)"),
         )),
     }
 }
@@ -201,6 +243,7 @@ mod tests {
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use std::collections::HashMap;
+    use std::env;
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -267,7 +310,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
 
@@ -290,7 +334,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -315,7 +360,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -348,7 +394,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -386,7 +433,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -420,7 +468,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await;
@@ -428,5 +477,69 @@ mod tests {
 
         assert!(err_string.contains("could not build wheel"));
         assert!(err_string.contains("MY_ENV_VAR should be set in order to build wheel"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn read_zip_metadata() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/filterpy-1.4.5.zip");
+
+        let sdist = SDist::from_path(&path, &"filterpy".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        );
+
+        let result = wheel_builder
+            .unwrap()
+            .get_sdist_metadata(&sdist)
+            .await
+            .unwrap();
+
+        assert_debug_snapshot!(result.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn read_zip_archive_for_a_file() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/zip_read_package-1.0.0.zip");
+
+        let sdist = SDist::from_path(&path, &"zip_read_package".parse().unwrap()).unwrap();
+
+        let content = sdist.find_entry("test_file.txt").unwrap().unwrap();
+        let content_text = String::from_utf8(content).unwrap();
+
+        assert!(content_text.contains("hello world"));
+
+        let content = sdist
+            .find_entry("inner_folder/inner_file.txt")
+            .unwrap()
+            .unwrap();
+        let content_text = String::from_utf8(content).unwrap();
+
+        assert!(content_text.contains("hello inner world"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn read_tar_gz_archive_for_a_file() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let pkg_info = sdist.find_entry("PKG-INFO").unwrap().unwrap();
+        let pkg_info_text = String::from_utf8(pkg_info).unwrap();
+        assert_debug_snapshot!(pkg_info_text);
+
+        let init_file = sdist.find_entry("rich/__init__.py").unwrap().unwrap();
+        let init_file_text = String::from_utf8(init_file).unwrap();
+        assert_debug_snapshot!(init_file_text);
     }
 }

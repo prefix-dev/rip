@@ -241,7 +241,8 @@ async fn actual_main() -> miette::Result<()> {
             Some(&compatible_tags),
             &resolve_opts,
             Default::default(),
-        );
+        )
+        .into_diagnostic()?;
 
         for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
             println!(
