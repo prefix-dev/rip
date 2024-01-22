@@ -154,14 +154,8 @@ impl VEnv {
         let exe_path = install_paths.scripts().join(base_python_name);
         let abs_exe_path = venv_abs_dir.join(exe_path);
 
-        #[cfg(not(windows))]
         {
             Self::setup_python(&abs_exe_path, &base_python_path, base_python_version)?;
-        }
-
-        #[cfg(windows)]
-        {
-            Self::setup_python(&abs_exe_path, &base_python_path)?;
         }
 
         Ok(VEnv::new(venv_abs_dir.to_path_buf(), install_paths))
@@ -245,18 +239,18 @@ prompt = {}"#,
     pub fn setup_python(
         venv_exe_path: &Path,
         original_python_exe: &Path,
-        #[cfg(not(windows))] python_version: PythonInterpreterVersion,
+        python_version: PythonInterpreterVersion,
     ) -> std::io::Result<()> {
-        if !venv_exe_path.exists() {
-            copy_file(original_python_exe, venv_exe_path)?;
-        }
-
         let venv_bin = venv_exe_path
             .parent()
             .expect("venv exe binary should have parent folder");
 
         #[cfg(not(windows))]
         {
+            if !venv_exe_path.exists() {
+                copy_file(original_python_exe, venv_exe_path)?;
+            }
+
             let python_bins = [
                 "python",
                 "python3",
@@ -273,6 +267,11 @@ prompt = {}"#,
 
         #[cfg(windows)]
         {
+            if python_version.major <= 3 && python_version.minor <= 7 && python_version.patch <= 4 {
+                tracing::warn!(
+                    "Creation of venv for <=3.7.4 on windows may fail. Please use newer version"
+                );
+            }
             let base_exe_name = venv_exe_path
                 .file_name()
                 .expect("cannot get windows venv exe name");
@@ -291,11 +290,32 @@ prompt = {}"#,
                 .expect("cannot get system python parent folder");
             for bin_name in python_bins.into_iter() {
                 let original_python_bin = original_python_bin_dir.join(bin_name);
+                let original_python_scripts = original_python_bin_dir
+                    .join("Lib/venv/scripts/nt")
+                    .join(bin_name);
+                let venv_python_bin = venv_bin.join(bin_name);
 
-                if original_python_bin.exists() {
-                    let venv_python_bin = venv_bin.join(bin_name);
-                    if !venv_python_bin.exists() {
-                        copy_file(venv_exe_path, &venv_python_bin)?;
+                if original_python_bin.exists() && !venv_python_bin.exists() {
+                    if original_python_scripts.is_file() {
+                        copy_file(original_python_scripts, &venv_python_bin)?;
+                    } else {
+                        // If used python is built from source code
+                        // or we are using a python from venv which
+                        // was created using python from source code
+                        // we need to move venvlauncher
+                        // and venvwlauncher as python.exe and pythonw.exe
+                        // instead of using the python.exe shipped with /venv/scripts/nt
+                        let launcher_bin_name = if bin_name.contains("python") {
+                            bin_name.replace("python", "venvlauncher")
+                        } else if bin_name.contains("pythonw") {
+                            bin_name.replace("pythonw", "venvwlauncher")
+                        } else {
+                            bin_name.to_owned()
+                        };
+                        let original_launcher_bin = original_python_bin_dir.join(launcher_bin_name);
+                        if original_launcher_bin.exists() {
+                            copy_file(original_launcher_bin, &venv_python_bin)?;
+                        }
                     }
                 }
             }

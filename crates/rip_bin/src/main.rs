@@ -154,7 +154,7 @@ async fn actual_main() -> miette::Result<()> {
 
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
-        python_location,
+        python_location: python_location.clone(),
         clean_env: args.clean_env,
     };
 
@@ -219,9 +219,8 @@ async fn actual_main() -> miette::Result<()> {
             std::fs::create_dir_all(&install).into_diagnostic()?;
         }
 
-        let venv =
-            rattler_installs_packages::python_env::VEnv::create(&install, PythonLocation::System)
-                .into_diagnostic()?;
+        let venv = rattler_installs_packages::python_env::VEnv::create(&install, python_location)
+            .into_diagnostic()?;
         let wheel_builder = WheelBuilder::new(
             &package_db,
             &env_markers,
