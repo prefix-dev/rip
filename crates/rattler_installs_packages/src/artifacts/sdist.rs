@@ -497,7 +497,11 @@ mod tests {
             HashMap::default(),
         );
 
-        let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
+        let result = wheel_builder
+            .unwrap()
+            .get_sdist_metadata(&sdist)
+            .await
+            .unwrap();
 
         assert_debug_snapshot!(result.1);
     }
