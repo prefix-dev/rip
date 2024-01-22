@@ -84,11 +84,8 @@ impl WheelCacheKey {
         Ok(WheelCacheKey::new(
             "sdist",
             format!(
-                "{:x}:v{}.{}.{}",
-                hash,
-                python_interpreter_version.major,
-                python_interpreter_version.minor,
-                python_interpreter_version.patch
+                "{:x}:v{}.{}",
+                hash, python_interpreter_version.major, python_interpreter_version.minor,
             ),
         ))
     }
