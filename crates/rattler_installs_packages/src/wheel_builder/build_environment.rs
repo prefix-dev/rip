@@ -4,7 +4,7 @@ use crate::artifacts::SDist;
 use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
 use crate::types::Artifact;
-use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
+use crate::wheel_builder::{WheelBuildError, WheelBuilder};
 use fs_err as fs;
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
@@ -213,13 +213,40 @@ impl<'db> BuildEnvironment<'db> {
             sdist
                 .read_build_info()
                 .unwrap_or_else(|_| pyproject_toml::BuildSystem {
-                    requires: Vec::new(),
+                    requires: vec![
+                        Requirement {
+                            name: "setuptools".into(),
+                            extras: None,
+                            marker: None,
+                            version_or_url: None,
+                        },
+                        Requirement {
+                            name: "wheel".into(),
+                            extras: None,
+                            marker: None,
+                            version_or_url: None,
+                        },
+                    ],
                     build_backend: None,
                     backend_path: None,
                 });
 
+        let env_variables = if let Some(build_path) = &build_system.backend_path {
+            let mut env_variables = env_variables;
+            env_variables.insert(
+                "PYTHONPATH".into(),
+                std::env::join_paths(build_path)
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string(),
+            );
+            env_variables
+        } else {
+            env_variables
+        };
+
         // Find the build requirements
-        let build_requirements = build_requirements(&build_system);
+        let build_requirements = build_system.requires.clone();
         tracing::info!(
             "build requirements: {:?}",
             build_requirements

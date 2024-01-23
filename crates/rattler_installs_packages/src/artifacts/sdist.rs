@@ -239,12 +239,15 @@ fn generic_archive_reader(
 mod tests {
     use crate::artifacts::SDist;
     use crate::python_env::Pep508EnvMakers;
+    use crate::resolve::SDistResolution;
+    use crate::types::Extra;
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::env;
     use std::path::Path;
+    use std::str::FromStr;
     use tempfile::TempDir;
 
     fn get_package_db() -> (PackageDb, TempDir) {
@@ -541,5 +544,49 @@ mod tests {
         let init_file = sdist.find_entry("rich/__init__.py").unwrap().unwrap();
         let init_file_text = String::from_utf8(init_file).unwrap();
         assert_debug_snapshot!(init_file_text);
+    }
+
+    use tracing_test::traced_test;
+    #[traced_test]
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_with_backend_path() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/setuptools-69.0.2.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"setuptools".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions {
+            sdist_resolution: SDistResolution::OnlySDists,
+            ..Default::default()
+        };
+
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        // Build the wheel
+        let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
+
+        let (_, metadata) = wheel.metadata().unwrap();
+        let mut metadata = metadata.clone();
+        let extras: HashSet<Extra> = HashSet::from_iter(vec![
+            Extra::from_str("certs").unwrap(),
+            Extra::from_str("ssl").unwrap(),
+            Extra::from_str("testing-integration").unwrap(),
+            Extra::from_str("docs").unwrap(),
+            Extra::from_str("testing").unwrap(),
+        ]);
+        assert_eq!(metadata.extras, extras);
+
+        // hashset does not have a deterministic order
+        metadata.extras = Default::default();
+        assert_debug_snapshot!(metadata);
     }
 }
