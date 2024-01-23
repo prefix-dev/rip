@@ -78,6 +78,7 @@ rstest = "0.18.2"
 test-utils = { path = "../test-utils" }
 tokio = { version = "1.32.0", features = ["rt", "macros", "rt-multi-thread"] }
 tokio-test = "0.4.3"
+tracing-test = "0.2.4"
 
 [[bench]]
 name = "html"

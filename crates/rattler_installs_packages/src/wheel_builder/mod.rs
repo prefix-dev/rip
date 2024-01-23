@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
 use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion, VEnvError};
-use crate::resolve::{OnWheelBuildFailure, ResolveOptions, SDistResolution};
+use crate::resolve::{OnWheelBuildFailure, ResolveOptions};
 use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelCacheKey};
@@ -98,25 +98,17 @@ pub enum WheelBuildError {
 
     #[error("error creating venv: {0}")]
     VEnvError(#[from] VEnvError),
-}
 
-/// Get the requirements for the build system from the pyproject.toml
-/// will use a default if there are no requirements specified
-fn build_requirements(build_system: &pyproject_toml::BuildSystem) -> Vec<Requirement> {
-    const DEFAULT_REQUIREMENTS: &[&str; 2] = &["setuptools", "wheel"];
-    if build_system.requires.is_empty() {
-        DEFAULT_REQUIREMENTS
-            .iter()
-            .map(|r| Requirement {
-                name: r.to_string(),
-                extras: None,
-                version_or_url: None,
-                marker: None,
-            })
-            .collect()
-    } else {
-        build_system.requires.clone()
-    }
+    #[error("backend path in pyproject.toml not relative: {0}")]
+    BackendPathNotRelative(PathBuf),
+
+    #[error(
+        "backend path in pyproject.toml not resolving to a path in the package directory: {0}"
+    )]
+    BackendPathNotInPackageDir(PathBuf),
+
+    #[error("could not join path: {0}")]
+    CouldNotJoinPath(#[from] std::env::JoinPathsError),
 }
 
 impl<'db, 'i> WheelBuilder<'db, 'i> {
@@ -128,19 +120,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         resolve_options: &ResolveOptions,
         env_variables: HashMap<String, String>,
     ) -> Result<Self, ParsePythonInterpreterVersionError> {
-        // We are running into a chicken & egg problem if we want to build wheels for packages that
-        // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
-        // build system. Hypothetically we'd have to look through all the hatchling sdists to find the one
-        // that doesn't depend on itself.
-        // Instead, we use wheels to build wheels.
-        let resolve_options = if resolve_options.sdist_resolution == SDistResolution::OnlySDists {
-            ResolveOptions {
-                sdist_resolution: SDistResolution::PreferWheels,
-                ..resolve_options.clone()
-            }
-        } else {
-            resolve_options.clone()
-        };
+        let resolve_options = resolve_options.clone();
 
         let python_version = resolve_options.python_location.version()?;
 

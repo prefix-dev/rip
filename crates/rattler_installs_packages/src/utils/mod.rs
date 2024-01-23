@@ -3,6 +3,8 @@ mod streaming_or_local;
 
 mod seek_slice;
 
+use std::path::{Component, Path, PathBuf};
+
 use include_dir::{include_dir, Dir};
 use url::Url;
 
@@ -41,3 +43,20 @@ pub fn normalize_index_url(mut url: Url) -> Url {
 
 pub(crate) static VENDORED_PACKAGING_DIR: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/vendor/packaging/");
+
+/// Normalize path (remove .. and . components)
+pub(crate) fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::CurDir => {} // Do nothing for current directory (.)
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+
+    normalized
+}

@@ -1,4 +1,5 @@
 import sys
+import os
 from sys import exit
 from pathlib import Path
 from importlib import import_module
@@ -43,6 +44,7 @@ def get_backend_from_entry_point(entrypoint: str) -> ModuleType:
                 raise AttributeError(f"Attribute '{attr}' not found in '{modname}'")
 
     return backend
+
 
 def get_requires_for_build_wheel(backend: ModuleType, work_dir: Path) -> [str]:
     """
@@ -107,6 +109,13 @@ def build_wheel(backend: ModuleType, work_dir: Path):
 
 if __name__ == "__main__":
     work_dir, entry_point, goal = sys.argv[1:]
+
+    backend_path = os.environ.get("PEP517_BACKEND_PATH")
+    if backend_path:
+        # split the path into a list of paths
+        extra_pathitems = backend_path.split(os.pathsep)
+        sys.path[:0] = extra_pathitems
+
     backend = get_backend_from_entry_point(entry_point)
 
     work_dir = Path(work_dir)
