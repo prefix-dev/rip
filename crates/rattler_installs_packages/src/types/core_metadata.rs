@@ -95,7 +95,7 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
         for req_str in parsed.take_all("Requires-Dist").into_iter() {
             match req_str.parse() {
                 Err(e) => {
-                    tracing::error!("ignoring Requires-Dist: {req_str}, failed to parse: {e}")
+                    tracing::warn!("ignoring Requires-Dist: {req_str}, failed to parse: {e}")
                 }
                 Ok(req) => requires_dist.push(req),
             }
