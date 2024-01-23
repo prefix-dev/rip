@@ -91,6 +91,17 @@ pub enum WheelBuildError {
 
     #[error("error creating venv: {0}")]
     VEnvError(#[from] VEnvError),
+
+    #[error("backend path in pyproject.toml not relative: {0}")]
+    BackendPathNotRelative(PathBuf),
+
+    #[error(
+        "backend path in pyproject.toml not resolving to a path in the package directory: {0}"
+    )]
+    BackendPathNotInPackageDir(PathBuf),
+
+    #[error("could not join path: {0}")]
+    CouldNotJoinPath(#[from] std::env::JoinPathsError),
 }
 
 impl<'db, 'i> WheelBuilder<'db, 'i> {

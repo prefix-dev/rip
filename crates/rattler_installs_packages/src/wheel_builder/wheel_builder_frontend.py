@@ -1,4 +1,5 @@
 import sys
+import os
 from sys import exit
 from pathlib import Path
 from importlib import import_module
@@ -43,6 +44,30 @@ def get_backend_from_entry_point(entrypoint: str) -> ModuleType:
                 raise AttributeError(f"Attribute '{attr}' not found in '{modname}'")
 
     return backend
+
+def norm_and_check(source_tree, requested):
+    """Normalise and check a backend path.
+
+    Ensure that the requested backend path is specified as a relative path,
+    and resolves to a location under the given source tree.
+
+    Return an absolute version of the requested path.
+    """
+    if os.path.isabs(requested):
+        raise ValueError("paths must be relative")
+
+    abs_source = os.path.abspath(source_tree)
+    abs_requested = os.path.normpath(os.path.join(abs_source, requested))
+    # We have to use commonprefix for Python 2.7 compatibility. So we
+    # normalise case to avoid problems because commonprefix is a character
+    # based comparison :-(
+    norm_source = os.path.normcase(abs_source)
+    norm_requested = os.path.normcase(abs_requested)
+    if os.path.commonprefix([norm_source, norm_requested]) != norm_source:
+        raise ValueError("paths must be inside source tree")
+
+    return abs_requested
+
 
 def get_requires_for_build_wheel(backend: ModuleType, work_dir: Path) -> [str]:
     """
@@ -107,6 +132,13 @@ def build_wheel(backend: ModuleType, work_dir: Path):
 
 if __name__ == "__main__":
     work_dir, entry_point, goal = sys.argv[1:]
+
+    backend_path = os.environ.get("PEP517_BACKEND_PATH")
+    if backend_path:
+        # split the path into a list of paths
+        extra_pathitems = backend_path.split(os.pathsep)
+        sys.path[:0] = extra_pathitems
+
     backend = get_backend_from_entry_point(entry_point)
 
     work_dir = Path(work_dir)

@@ -546,8 +546,7 @@ mod tests {
         assert_debug_snapshot!(init_file_text);
     }
 
-    use tracing_test::traced_test;
-    #[traced_test]
+    #[tracing_test::traced_test]
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_wheel_with_backend_path() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))

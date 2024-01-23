@@ -4,6 +4,7 @@ use crate::artifacts::SDist;
 use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
 use crate::types::Artifact;
+use crate::utils::normalize_path;
 use crate::wheel_builder::{WheelBuildError, WheelBuilder};
 use fs_err as fs;
 use pep508_rs::{MarkerEnvironment, Requirement};
@@ -32,6 +33,32 @@ pub(crate) struct BuildEnvironment<'db> {
     clean_env: bool,
     #[allow(dead_code)]
     python_location: PythonLocation,
+}
+
+fn norm_backend_path(
+    backend_path: &Vec<String>,
+    package_dir: &Path,
+) -> Result<Vec<PathBuf>, WheelBuildError> {
+    let normed = backend_path
+        .iter()
+        .map(|s| PathBuf::from_str(s).unwrap())
+        .map(|p| {
+            if p.is_absolute() {
+                return Err(WheelBuildError::BackendPathNotRelative(p));
+            } else {
+                Ok(normalize_path(&package_dir.join(p)))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // for each normed path, make sure that it shares the package_dir as prefix
+    for path in normed.iter() {
+        if !path.starts_with(&package_dir) {
+            return Err(WheelBuildError::BackendPathNotInPackageDir(path.clone()));
+        }
+    }
+
+    Ok(normed)
 }
 
 impl<'db> BuildEnvironment<'db> {
@@ -231,20 +258,6 @@ impl<'db> BuildEnvironment<'db> {
                     backend_path: None,
                 });
 
-        let env_variables = if let Some(build_path) = &build_system.backend_path {
-            let mut env_variables = env_variables;
-            env_variables.insert(
-                "PYTHONPATH".into(),
-                std::env::join_paths(build_path)
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_string(),
-            );
-            env_variables
-        } else {
-            env_variables
-        };
-
         // Find the build requirements
         let build_requirements = build_system.requires.clone();
         tracing::info!(
@@ -306,6 +319,19 @@ impl<'db> BuildEnvironment<'db> {
             sdist.name().version
         ));
 
+        let env_variables = if let Some(backend_path) = &build_system.backend_path {
+            let mut env_variables = env_variables;
+            env_variables.insert(
+                "PEP517_BACKEND_PATH".into(),
+                std::env::join_paths(&norm_backend_path(backend_path, &package_dir)?)?
+                    .to_string_lossy()
+                    .to_string(),
+            );
+            env_variables
+        } else {
+            env_variables
+        };
+
         Ok(BuildEnvironment {
             work_dir,
             package_dir,
@@ -318,5 +344,39 @@ impl<'db> BuildEnvironment<'db> {
             clean_env: resolve_options.clean_env,
             python_location: resolve_options.python_location.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_norm_backend_path() {
+        let package_dir = PathBuf::from("/home/user/project");
+        let backend_path = vec![
+            ".".to_string(),
+            "./src".to_string(),
+            "./backend".to_string(),
+            "./build".to_string(),
+        ];
+
+        let normed = super::norm_backend_path(&backend_path, &package_dir).unwrap();
+
+        assert_eq!(
+            normed,
+            vec![
+                PathBuf::from("/home/user/project"),
+                PathBuf::from("/home/user/project/src"),
+                PathBuf::from("/home/user/project/backend"),
+                PathBuf::from("/home/user/project/build"),
+            ]
+        );
+
+        let backend_path = vec!["../outside_pkg_dir".to_string()];
+        super::norm_backend_path(&backend_path, &package_dir).unwrap_err();
+
+        let backend_path = vec!["/no_absolute_allowed".to_string()];
+        super::norm_backend_path(&backend_path, &package_dir).unwrap_err();
     }
 }
