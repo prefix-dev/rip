@@ -223,8 +223,6 @@ pub async fn resolve<'db>(
     }
 
     // Construct the provider
-
-    // Construct a provider
     let provider = PypiDependencyProvider::new(
         pool,
         package_db,

@@ -604,8 +604,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_rich_as_folder_as_source_dependency() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test-data/stree/dev_folder");
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/stree/dev_folder");
 
         let url =
             Url::parse(format!("file:///{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();

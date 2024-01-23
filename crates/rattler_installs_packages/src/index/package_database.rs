@@ -115,7 +115,7 @@ impl PackageDb {
     }
 
     /// compress an sdist to dir
-    /// TODO: refactor into a better place
+    /// TODO: refactor into a better place ( utils )
     /// TODO: x2 should it even exists?
     pub fn compress_source_tree_to_tar(
         &self,
@@ -217,6 +217,7 @@ impl PackageDb {
             reason: None,
         };
 
+        // TODO: extract hash from url if it's present
         let project_hash = ArtifactHashes {
             sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
         };
@@ -268,13 +269,13 @@ impl PackageDb {
             )
             .await?;
 
-        // Turn the response into a seekable response.
         let bytes = artifact_bytes
             .into_body()
             .into_local()
             .await
             .into_diagnostic()?;
 
+        // Make it work for wheel
         let distribution = PackageName::from(normalized_package_name.clone());
         let version = Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
         let format = SDistFormat::get_extension(str_name).into_diagnostic()?;
@@ -319,7 +320,6 @@ impl PackageDb {
             sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
         };
 
-        // let's try to build an artifact info :)
         let artifact_info = ArtifactInfo {
             filename,
             url: url.clone(),
@@ -330,7 +330,6 @@ impl PackageDb {
         };
 
         let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
-        // let url_entry =
         result
             .entry(PypiVersion::Url(url))
             .or_default()
@@ -357,7 +356,6 @@ impl PackageDb {
         if let Some(cached) = self.artifacts.get(&p) {
             Ok(cached)
         } else if url.scheme() == "file" {
-            println!("GETTING ARTIFACT BY FILE");
             self.get_file_artifact(p, url, wheel_builder).await
         } else if url.scheme().contains("http") {
             self.get_http_artifact(p, url, wheel_builder).await
