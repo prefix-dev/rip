@@ -217,8 +217,8 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     }
 
     /// Get the paths to the saved build environments
-    pub fn saved_build_envs(&self) -> parking_lot::MutexGuard<HashSet<PathBuf>> {
-        self.saved_build_envs.lock()
+    pub fn saved_build_envs(&self) -> HashSet<PathBuf> {
+        self.saved_build_envs.lock().clone()
     }
 
     /// Handle's a build failure by either saving the build environment or deleting it
@@ -236,7 +236,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
             // Save the information for later usage
             let path = build_environment.work_dir();
-            tracing::info!("saving build environment to {:?}", &path);
+            tracing::info!("saved build environment is available at: {:?}", &path);
             self.saved_build_envs
                 .lock()
                 .insert(build_environment.work_dir());
