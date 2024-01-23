@@ -44,6 +44,8 @@ fn into_artifact_info(
     let requires_python = attributes
         .get("data-requires-python")
         .flatten()
+        // filter empty strings
+        .filter(|a| !a.as_utf8_str().is_empty())
         .map(|a| {
             VersionSpecifiers::from_str(
                 html_escape::decode_html_entities(a.as_utf8_str().as_ref()).as_ref(),
