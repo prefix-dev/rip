@@ -474,7 +474,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         }) else {
             panic!(
                 "could not find metadata for any sdist or wheel for {} {}. The following artifacts are available:\n{}",
-                package_name, package_version, artifacts.iter().format_with("\n", |a, f| f(&format_args!("- {}", a.filename)))
+                package_name, package_version, artifacts.iter().format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))
             );
         };
 
