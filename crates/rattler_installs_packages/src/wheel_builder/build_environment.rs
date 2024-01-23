@@ -36,7 +36,7 @@ pub(crate) struct BuildEnvironment<'db> {
 }
 
 fn norm_backend_path(
-    backend_path: &Vec<String>,
+    backend_path: &[String],
     package_dir: &Path,
 ) -> Result<Vec<PathBuf>, WheelBuildError> {
     let normed = backend_path
@@ -44,7 +44,7 @@ fn norm_backend_path(
         .map(|s| PathBuf::from_str(s).unwrap())
         .map(|p| {
             if p.is_absolute() {
-                return Err(WheelBuildError::BackendPathNotRelative(p));
+                Err(WheelBuildError::BackendPathNotRelative(p))
             } else {
                 Ok(normalize_path(&package_dir.join(p)))
             }
@@ -53,7 +53,7 @@ fn norm_backend_path(
 
     // for each normed path, make sure that it shares the package_dir as prefix
     for path in normed.iter() {
-        if !path.starts_with(&package_dir) {
+        if !path.starts_with(package_dir) {
             return Err(WheelBuildError::BackendPathNotInPackageDir(path.clone()));
         }
     }
@@ -219,6 +219,27 @@ impl<'db> BuildEnvironment<'db> {
             .map_err(|e| WheelBuildError::CouldNotRunCommand(stage.into(), e))
     }
 
+    fn default_build_system() -> pyproject_toml::BuildSystem {
+        pyproject_toml::BuildSystem {
+            requires: vec![
+                Requirement {
+                    name: "setuptools".into(),
+                    extras: None,
+                    marker: None,
+                    version_or_url: None,
+                },
+                Requirement {
+                    name: "wheel".into(),
+                    extras: None,
+                    marker: None,
+                    version_or_url: None,
+                },
+            ],
+            build_backend: Some("setuptools.build_meta:__legacy__".into()),
+            backend_path: None,
+        }
+    }
+
     /// Setup the build environment so that we can build a wheel from an sdist
     pub(crate) async fn setup<'i>(
         sdist: &SDist,
@@ -236,27 +257,20 @@ impl<'db> BuildEnvironment<'db> {
         )?;
 
         // Find the build system
-        let build_system =
-            sdist
-                .read_build_info()
-                .unwrap_or_else(|_| pyproject_toml::BuildSystem {
-                    requires: vec![
-                        Requirement {
-                            name: "setuptools".into(),
-                            extras: None,
-                            marker: None,
-                            version_or_url: None,
-                        },
-                        Requirement {
-                            name: "wheel".into(),
-                            extras: None,
-                            marker: None,
-                            version_or_url: None,
-                        },
-                    ],
-                    build_backend: None,
-                    backend_path: None,
-                });
+        let build_system = sdist
+            .read_build_info()
+            .unwrap_or_else(|_| Self::default_build_system());
+
+        let build_system = if build_system.build_backend.is_none() {
+            Self::default_build_system()
+        } else {
+            build_system
+        };
+
+        let entry_point = build_system
+            .build_backend
+            .clone()
+            .expect("we tested this value earlier");
 
         // Find the build requirements
         let build_requirements = build_system.requires.clone();
@@ -306,12 +320,6 @@ impl<'db> BuildEnvironment<'db> {
             )?;
         }
 
-        const DEFAULT_BUILD_BACKEND: &str = "setuptools.build_meta:__legacy__";
-        let entry_point = build_system
-            .build_backend
-            .clone()
-            .unwrap_or_else(|| DEFAULT_BUILD_BACKEND.to_string());
-
         // Package dir for the package we need to build
         let package_dir = work_dir.path().join(format!(
             "{}-{}",
@@ -323,7 +331,7 @@ impl<'db> BuildEnvironment<'db> {
             let mut env_variables = env_variables;
             env_variables.insert(
                 "PEP517_BACKEND_PATH".into(),
-                std::env::join_paths(&norm_backend_path(backend_path, &package_dir)?)?
+                std::env::join_paths(norm_backend_path(backend_path, &package_dir)?)?
                     .to_string_lossy()
                     .to_string(),
             );
