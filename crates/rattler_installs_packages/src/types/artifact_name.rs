@@ -202,6 +202,27 @@ impl SDistFormat {
     pub fn is_supported(&self) -> bool {
         matches!(self, Self::TarGz | Self::Tar | Self::Zip)
     }
+
+    /// Get extension of SDist
+    pub fn get_extension(path: &str) -> Result<SDistFormat, ParseArtifactNameError> {
+        let format = if path.strip_suffix(".zip").is_some() {
+            SDistFormat::Zip
+        } else if path.strip_suffix(".tar.gz").is_some() {
+            SDistFormat::TarGz
+        } else if path.strip_suffix(".tar.bz2").is_some() {
+            SDistFormat::TarBz2
+        } else if path.strip_suffix(".tar.xz").is_some() {
+            SDistFormat::TarXz
+        } else if path.strip_suffix(".tar.Z").is_some() {
+            SDistFormat::TarZ
+        } else if path.strip_suffix(".tar").is_some() {
+            SDistFormat::Tar
+        } else {
+            return Err(ParseArtifactNameError::InvalidExtension(path.to_string()));
+        };
+
+        Ok(format)
+    }
 }
 
 impl Display for SDistFormat {

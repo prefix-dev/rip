@@ -2,7 +2,11 @@ use crate::artifacts::{SDist, Wheel};
 use crate::index::file_store::FileStore;
 use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
-use crate::types::{ArtifactInfo, ProjectInfo, WheelCoreMetadata};
+use crate::resolve::PypiVersion;
+use crate::types::{
+    ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, PackageName, ProjectInfo,
+    SDistFilename, SDistFormat, WheelCoreMetadata, Yanked,
+};
 use crate::wheel_builder::{WheelBuilder, WheelCache};
 use crate::{
     types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName, types::Version,
@@ -15,9 +19,13 @@ use futures::{pin_mut, stream, StreamExt};
 use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
+use rattler_digest::{compute_bytes_digest, Sha256};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
+use std::fs::{self, File};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::{fmt::Display, io::Read, path::Path};
+use tempfile::tempdir;
 use url::Url;
 
 /// Cache of the available packages, artifacts and their metadata.
@@ -31,7 +39,7 @@ pub struct PackageDb {
     metadata_cache: FileStore,
 
     /// A cache of package name to version to artifacts.
-    artifacts: FrozenMap<NormalizedPackageName, Box<IndexMap<Version, Vec<ArtifactInfo>>>>,
+    artifacts: FrozenMap<NormalizedPackageName, Box<IndexMap<PypiVersion, Vec<ArtifactInfo>>>>,
 
     /// Cache to locally built wheels
     local_wheel_cache: WheelCache,
@@ -67,7 +75,7 @@ impl PackageDb {
     pub async fn available_artifacts<P: Into<NormalizedPackageName>>(
         &self,
         p: P,
-    ) -> miette::Result<&IndexMap<Version, Vec<ArtifactInfo>>> {
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
         let p = p.into();
         if let Some(cached) = self.artifacts.get(&p) {
             Ok(cached)
@@ -83,11 +91,11 @@ impl PackageDb {
             pin_mut!(request_iter);
 
             // Add all the incoming results to the set of results
-            let mut result: IndexMap<Version, Vec<ArtifactInfo>> = Default::default();
+            let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
             while let Some(response) = request_iter.next().await {
                 for artifact in response?.files {
                     result
-                        .entry(artifact.filename.version().clone())
+                        .entry(PypiVersion::Version(artifact.filename.version().clone()))
                         .or_default()
                         .push(artifact);
                 }
@@ -103,6 +111,258 @@ impl PackageDb {
             result.sort_unstable_by(|v1, _, v2, _| v2.cmp(v1));
 
             Ok(self.artifacts.insert(p.clone(), Box::new(result)))
+        }
+    }
+
+    /// compress an sdist to dir
+    /// TODO: refactor into a better place
+    /// TODO: x2 should it even exists?
+    pub fn compress_source_tree_to_tar(
+        &self,
+        sdist_path: &Path,
+        into_archive_path: &Path,
+    ) -> PathBuf {
+        // compress dir into .tar
+        let full_path = into_archive_path.join("archive_sdist.tar");
+        let full_path_str = full_path.as_path();
+        let tar_file = File::create(full_path_str).unwrap();
+        let mut tar = tar::Builder::new(tar_file);
+        tar.append_dir_all("archive", sdist_path).unwrap();
+
+        full_path_str.to_path_buf()
+    }
+
+    /// Get artifact by file URL
+    pub async fn get_file_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
+        &self,
+        p: P,
+        url: Url,
+        wheel_builder: &WheelBuilder<'a, 'i>,
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
+        let str_name = url.path();
+        let path = Path::new(str_name);
+
+        let normalized_package_name = p.into();
+
+        let dummy_version =
+            Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
+
+        let (data_bytes, metadata, format) = match path.is_file() {
+            true => {
+                // let sdist = SDist::from_path(&path, &normalized_package_name.clone());
+                let distribution = PackageName::from(normalized_package_name.clone());
+
+                let format = SDistFormat::get_extension(str_name).into_diagnostic()?;
+
+                let dummy_sdist_file_name = SDistFilename {
+                    distribution,
+                    version: dummy_version,
+                    format,
+                };
+                let bytes = fs::File::open(path).into_diagnostic()?;
+
+                let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
+
+                let (data_bytes, metadata) = wheel_builder
+                    .get_sdist_metadata(&dummy_sdist)
+                    .await
+                    .into_diagnostic()?;
+
+                (data_bytes, metadata, format)
+            }
+            false => {
+                // compress dir into .tar, and work with it as it is a simple sdist
+                // should it even be done?
+                // maybe we can work with dir directly
+                let tmpdir = tempdir().expect("unable to make tempdir");
+                let tar_path = self.compress_source_tree_to_tar(path, tmpdir.path());
+
+                let distribution = PackageName::from(normalized_package_name.clone());
+                let format = SDistFormat::Tar;
+                let dummy_sdist_file_name = SDistFilename {
+                    distribution,
+                    version: dummy_version,
+                    format,
+                };
+                let bytes = fs::File::open(tar_path).into_diagnostic()?;
+
+                let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
+
+                let (data_bytes, metadata) = wheel_builder
+                    .get_sdist_metadata(&dummy_sdist)
+                    .await
+                    .into_diagnostic()?;
+                (data_bytes, metadata, format)
+            }
+        };
+
+        // construct a real sdist filename
+        let sdist_filename = SDistFilename {
+            distribution: metadata.name,
+            version: metadata.version,
+            format,
+        };
+
+        let filename = ArtifactName::SDist(sdist_filename.clone());
+
+        let requires_python = metadata.requires_python;
+
+        let dist_info_metadata = DistInfoMetadata {
+            available: false,
+            hashes: ArtifactHashes::default(),
+        };
+
+        let yanked = Yanked {
+            yanked: false,
+            reason: None,
+        };
+
+        let project_hash = ArtifactHashes {
+            sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
+        };
+
+        // let's try to build an artifact info :)
+        let artifact_info = ArtifactInfo {
+            filename,
+            url: url.clone(),
+            hashes: Some(project_hash),
+            requires_python,
+            dist_info_metadata,
+            yanked,
+        };
+
+        let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
+        // let url_entry =
+        result
+            .entry(PypiVersion::Url(url))
+            .or_default()
+            .push(artifact_info.clone());
+
+        self.put_metadata_in_cache(&artifact_info, &data_bytes)
+            .await?;
+
+        Ok(self
+            .artifacts
+            .insert(normalized_package_name.clone(), Box::new(result)))
+    }
+
+    /// Get artifact by file URL
+    pub async fn get_http_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
+        &self,
+        p: P,
+        url: Url,
+        wheel_builder: &WheelBuilder<'a, 'i>,
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
+        let str_name = url.path();
+
+        let normalized_package_name = p.into();
+
+        // Get the contents of the artifact
+        let artifact_bytes = self
+            .http
+            .request(
+                url.clone(),
+                Method::GET,
+                HeaderMap::default(),
+                CacheMode::Default,
+            )
+            .await?;
+
+        // Turn the response into a seekable response.
+        let bytes = artifact_bytes
+            .into_body()
+            .into_local()
+            .await
+            .into_diagnostic()?;
+
+        let distribution = PackageName::from(normalized_package_name.clone());
+        let version = Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
+        let format = SDistFormat::get_extension(str_name).into_diagnostic()?;
+
+        let dummy_sdist_file_name = SDistFilename {
+            distribution,
+            version,
+            format,
+        };
+
+        let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
+
+        let (data_bytes, metadata) = wheel_builder
+            .get_sdist_metadata(&dummy_sdist)
+            .await
+            .into_diagnostic()?;
+
+        println!("BUILDED METADATA IS {:?}", metadata);
+
+        // construct a real sdist filename
+        let sdist_filename = SDistFilename {
+            distribution: metadata.name,
+            version: metadata.version,
+            format,
+        };
+
+        let filename = ArtifactName::SDist(sdist_filename.clone());
+
+        let requires_python = metadata.requires_python;
+
+        let dist_info_metadata = DistInfoMetadata {
+            available: false,
+            hashes: ArtifactHashes::default(),
+        };
+
+        let yanked = Yanked {
+            yanked: false,
+            reason: None,
+        };
+
+        let project_hash = ArtifactHashes {
+            sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
+        };
+
+        // let's try to build an artifact info :)
+        let artifact_info = ArtifactInfo {
+            filename,
+            url: url.clone(),
+            hashes: Some(project_hash),
+            requires_python,
+            dist_info_metadata,
+            yanked,
+        };
+
+        let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
+        // let url_entry =
+        result
+            .entry(PypiVersion::Url(url))
+            .or_default()
+            .push(artifact_info.clone());
+
+        self.put_metadata_in_cache(&artifact_info, &data_bytes)
+            .await?;
+
+        Ok(self
+            .artifacts
+            .insert(normalized_package_name.clone(), Box::new(result)))
+    }
+
+    /// Get artifact directly from file, vcs, or url
+    pub async fn get_artifact_by_url<'a, 'i, P: Into<NormalizedPackageName>>(
+        &self,
+        p: P,
+        url: Url,
+        wheel_builder: &WheelBuilder<'a, 'i>,
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
+        //conver to str
+        let p = p.into();
+
+        if let Some(cached) = self.artifacts.get(&p) {
+            Ok(cached)
+        } else if url.scheme() == "file" {
+            println!("GETTING ARTIFACT BY FILE");
+            self.get_file_artifact(p, url, wheel_builder).await
+        } else if url.scheme().contains("http") {
+            self.get_http_artifact(p, url, wheel_builder).await
+        } else {
+            unimplemented!("it's not implemented yet");
         }
     }
 
@@ -279,6 +539,7 @@ impl PackageDb {
         // Return if we do
         for artifact_info in artifacts.iter().copied() {
             if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info).await {
+                println!("I HAVE IN CACHE");
                 return Ok(Some((
                     artifact_info,
                     WheelCoreMetadata::try_from(metadata_bytes.as_slice()).into_diagnostic()?,

@@ -6,6 +6,7 @@ use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
 use crate::types::Artifact;
 use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
 use fs_err as fs;
+// use std::fs;
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -36,9 +37,27 @@ pub(crate) struct BuildEnvironment<'db> {
 
 impl<'db> BuildEnvironment<'db> {
     /// Extract the wheel and write the build_frontend.py to the work folder
-    pub(crate) fn install_build_files(&self, sdist: &SDist) -> std::io::Result<()> {
+    pub(crate) fn install_build_files(&mut self, sdist: &SDist) -> std::io::Result<()> {
         // Extract the sdist to the work folder
-        sdist.extract_to(self.work_dir.path())?;
+
+        // extract to a specific package dir
+        let package_dir = self
+            .work_dir
+            .path()
+            .join(sdist.name().distribution.as_str());
+        sdist.extract_to(package_dir.as_path())?;
+
+        let paths = fs::read_dir(package_dir.as_path())?;
+
+        // Get the parent directory where archive was extracted
+        // and set it as a package dir
+        // this is needed because when we work with some local sdists
+        // we may not have name-version
+        // so we point it to a real one
+        if let Some(parent) = paths.last() {
+            let dir = parent?.path();
+            self.package_dir = dir;
+        }
         // Write the python frontend to the work folder
         fs::write(
             self.work_dir.path().join("build_frontend.py"),
@@ -172,6 +191,7 @@ impl<'db> BuildEnvironment<'db> {
         if self.clean_env {
             base_command.env_clear();
         }
+        println!("PACKAGE DIR IS {:?}", &self.package_dir);
         base_command
             .current_dir(&self.package_dir)
             // pass all env variables defined by user

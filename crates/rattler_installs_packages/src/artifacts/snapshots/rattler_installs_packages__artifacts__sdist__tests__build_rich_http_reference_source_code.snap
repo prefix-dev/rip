@@ -1,0 +1,25 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+expression: "artifact_info[0].filename"
+---
+SDist(
+    SDistFilename {
+        distribution: PackageName {
+            source: "rich",
+            normalized: "rich",
+        },
+        version: Version {
+            epoch: 0,
+            release: [
+                13,
+                7,
+                0,
+            ],
+            pre: None,
+            post: None,
+            dev: None,
+            local: None,
+        },
+        format: Zip,
+    },
+)

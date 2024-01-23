@@ -147,6 +147,7 @@ impl SDist {
     /// Extract the contents of the sdist archive to the given directory
     pub fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
         let mut lock = self.file.lock();
+        println!("EXTRACTING INTO");
         let archives = generic_archive_reader(&mut lock, self.name.format)?;
         match archives {
             Archives::TarArchive(mut archive) => {
@@ -239,13 +240,17 @@ fn generic_archive_reader(
 mod tests {
     use crate::artifacts::SDist;
     use crate::python_env::Pep508EnvMakers;
+    use crate::resolve::PypiVersion;
+    use crate::types::{NormalizedPackageName, PackageName};
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use std::collections::HashMap;
     use std::env;
     use std::path::Path;
+    use std::str::FromStr;
     use tempfile::TempDir;
+    use url::Url;
 
     fn get_package_db() -> (PackageDb, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
@@ -531,5 +536,128 @@ mod tests {
         let init_file = sdist.find_entry("rich/__init__.py").unwrap().unwrap();
         let init_file_text = String::from_utf8(init_file).unwrap();
         assert_debug_snapshot!(init_file_text);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_sdist_as_source_dependency() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let url =
+            Url::parse(format!("file:///{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
+
+        // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        );
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_sdist_but_without_metadata_in_path_as_source_dependency() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/rich_without_metadata_in_path.tar.gz");
+
+        let url =
+            Url::parse(format!("file:///{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
+
+        // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        );
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_as_folder_as_source_dependency() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/stree/dev_folder_with_rich");
+
+        let url =
+            Url::parse(format!("file:///{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
+
+        // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        );
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_http_reference_source_code() {
+        let url =
+            Url::parse("https://github.com/Textualize/rich/archive/refs/tags/v13.7.0.zip").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        );
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0].filename);
     }
 }

@@ -173,7 +173,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             sdist.name().distribution.as_source_str()
         );
 
-        let build_environment = BuildEnvironment::setup(
+        let mut build_environment = BuildEnvironment::setup(
             sdist,
             self,
             self.env_markers,
@@ -228,13 +228,11 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let build_environment = self.setup_build_venv(sdist).await?;
 
         let output = build_environment.run_command("WheelMetadata")?;
-
         if !output.status.success() {
             if output.status.code() == Some(50) {
                 tracing::warn!("SDist build backend does not support metadata generation");
                 // build wheel instead
                 let wheel = self.build_wheel(sdist).await?;
-
                 return wheel.metadata().map_err(|e| {
                     WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
                 });
@@ -257,7 +255,9 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     #[tracing::instrument(skip_all, fields(name = %sdist.name().distribution.as_source_str(), version = %sdist.name().version))]
     pub async fn build_wheel(&self, sdist: &SDist) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
+        println!("BUIDLING WHEEL");
         let key = WheelKey::try_from(sdist)?;
+        println!("I NOT FAILED");
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return Ok(wheel);
         }
@@ -305,6 +305,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             &mut fs::File::open(&wheel_file)?,
         )?;
 
+        println!("TRYIGN TO RECONSTRUCT WHEEL");
         // Reconstruct wheel from the path
         let wheel = Wheel::from_path(&wheel_file, &package_name)
             .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))?;
