@@ -4,7 +4,6 @@ use crate::utils::ReadAndSeek;
 use flate2::read::GzDecoder;
 use miette::IntoDiagnostic;
 use parking_lot::{Mutex, MutexGuard};
-use serde::Serialize;
 
 use fs_err as fs;
 use std::ffi::OsStr;
@@ -20,12 +19,6 @@ pub struct SDist {
 
     /// Source dist archive
     file: Mutex<Box<dyn ReadAndSeek + Send>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct BuildSystem {
-    backend_path: Vec<PathBuf>,
-    build_backend: String,
 }
 
 #[derive(thiserror::Error, Debug)]

@@ -329,6 +329,7 @@ impl<'db> BuildEnvironment<'db> {
 
         let env_variables = if let Some(backend_path) = &build_system.backend_path {
             let mut env_variables = env_variables;
+            // insert env var for the backend path that will be used by the build frontend
             env_variables.insert(
                 "PEP517_BACKEND_PATH".into(),
                 std::env::join_paths(normalize_backend_path(backend_path, &package_dir)?)?
