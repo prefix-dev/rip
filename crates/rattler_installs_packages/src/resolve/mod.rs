@@ -11,4 +11,4 @@
 mod dependency_provider;
 mod solve;
 
-pub use solve::{resolve, PinnedPackage, ResolveOptions, SDistResolution};
+pub use solve::{resolve, OnWheelBuildFailure, PinnedPackage, ResolveOptions, SDistResolution};

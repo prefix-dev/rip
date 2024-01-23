@@ -14,6 +14,7 @@ use url::Url;
 
 use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
 use rattler_installs_packages::python_env::{PythonLocation, WheelTags};
+use rattler_installs_packages::resolve::OnWheelBuildFailure;
 use rattler_installs_packages::wheel_builder::WheelBuilder;
 use rattler_installs_packages::{
     normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve,
@@ -36,9 +37,11 @@ struct Args {
     #[clap(default_value = "https://pypi.org/simple/", long)]
     index_url: Url,
 
+    /// Verbose logging from resolvo
     #[clap(short)]
     verbose: bool,
 
+    /// How to handle sidsts
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
 
@@ -49,6 +52,10 @@ struct Args {
     #[arg(short = 'c', long)]
     /// Disable inheritance of env variables.
     clean_env: bool,
+
+    #[arg(long)]
+    /// Save failed wheel build environments
+    save_on_failure: bool,
 }
 
 #[derive(Parser)]
@@ -152,10 +159,17 @@ async fn actual_main() -> miette::Result<()> {
         None => PythonLocation::System,
     };
 
+    let on_wheel_build_failure = if args.save_on_failure {
+        OnWheelBuildFailure::SaveBuildEnv
+    } else {
+        OnWheelBuildFailure::DeleteBuildEnv
+    };
+
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
         python_location: python_location.clone(),
         clean_env: args.clean_env,
+        on_wheel_build_failure,
     };
 
     // Solve the environment
