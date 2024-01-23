@@ -245,6 +245,9 @@ impl PackageDb {
             .copied()
             .filter(|artifact_info| artifact_info.is::<SDist>());
 
+        // Keep track of errors
+        // only print these if we have not been able to find any metadata
+        let mut errors = Vec::new();
         for artifact_info in sdists {
             let artifact = self
                 .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
@@ -256,15 +259,20 @@ impl PackageDb {
                     return Ok(Some((artifact_info, metadata)));
                 }
                 Err(err) => {
-                    tracing::warn!(
-                        "Error reading metadata from artifact '{}' skipping ({})",
-                        artifact_info.filename,
-                        err
-                    );
+                    errors.push(format!(
+                        "Error from source distributions '{}' skipped: \n {}",
+                        artifact_info.filename, err
+                    ));
                     continue;
                 }
             }
         }
+
+        // Could not find any metadata, so print the errors
+        for error in errors {
+            tracing::error!("{}", error);
+        }
+
         Ok(None)
     }
 
