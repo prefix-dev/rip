@@ -35,7 +35,7 @@ pub(crate) struct BuildEnvironment<'db> {
     python_location: PythonLocation,
 }
 
-fn norm_backend_path(
+fn normalize_backend_path(
     backend_path: &[String],
     package_dir: &Path,
 ) -> Result<Vec<PathBuf>, WheelBuildError> {
@@ -331,7 +331,7 @@ impl<'db> BuildEnvironment<'db> {
             let mut env_variables = env_variables;
             env_variables.insert(
                 "PEP517_BACKEND_PATH".into(),
-                std::env::join_paths(norm_backend_path(backend_path, &package_dir)?)?
+                std::env::join_paths(normalize_backend_path(backend_path, &package_dir)?)?
                     .to_string_lossy()
                     .to_string(),
             );
@@ -369,7 +369,7 @@ mod tests {
             "./build".to_string(),
         ];
 
-        let normed = super::norm_backend_path(&backend_path, &package_dir).unwrap();
+        let normed = super::normalize_backend_path(&backend_path, &package_dir).unwrap();
 
         assert_eq!(
             normed,
@@ -382,9 +382,9 @@ mod tests {
         );
 
         let backend_path = vec!["../outside_pkg_dir".to_string()];
-        super::norm_backend_path(&backend_path, &package_dir).unwrap_err();
+        super::normalize_backend_path(&backend_path, &package_dir).unwrap_err();
 
         let backend_path = vec!["/no_absolute_allowed".to_string()];
-        super::norm_backend_path(&backend_path, &package_dir).unwrap_err();
+        super::normalize_backend_path(&backend_path, &package_dir).unwrap_err();
     }
 }
