@@ -8,7 +8,6 @@ use fs_err as fs;
 use std::collections::HashSet;
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, path::PathBuf};
 
 use parking_lot::Mutex;
@@ -227,27 +226,20 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         &self,
         result: Result<T, WheelBuildError>,
         build_environment: &BuildEnvironment,
-        sdist_filename: &SDistFilename,
     ) -> Result<T, WheelBuildError> {
         if self.resolve_options.on_wheel_build_failure != OnWheelBuildFailure::SaveBuildEnv {
             return result;
         }
         if let Err(e) = result {
-            let start = SystemTime::now();
-            let since_the_epoch = start
-                .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards");
+            // Persist the build environment
+            build_environment.persist();
 
-            let tempdir_path = std::env::temp_dir().join(format!(
-                "wheel_build_{}_{}",
-                sdist_filename,
-                since_the_epoch.as_secs()
-            ));
-
-            tracing::info!("saving build environment to {:?}", &tempdir_path);
-
-            build_environment.copy_to(&tempdir_path)?;
-            self.saved_build_envs.lock().insert(tempdir_path);
+            // Save the information for later usage
+            let path = build_environment.work_dir();
+            tracing::info!("saving build environment to {:?}", &path);
+            self.saved_build_envs
+                .lock()
+                .insert(build_environment.work_dir());
             Err(e)
         } else {
             result
@@ -277,7 +269,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let result = self
             .get_sdist_metadata_internal(&build_environment, sdist)
             .await;
-        self.handle_build_failure(result, &build_environment, sdist.name())
+        self.handle_build_failure(result, &build_environment)
     }
 
     async fn get_sdist_metadata_internal(
@@ -326,7 +318,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         // to handle different failure modes
         let result = self.build_wheel_internal(&build_environment, sdist).await;
 
-        self.handle_build_failure(result, &build_environment, sdist.name())
+        self.handle_build_failure(result, &build_environment)
     }
 
     async fn build_wheel_internal(
@@ -468,13 +460,13 @@ mod tests {
             None,
             &resolve_options,
             Default::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         // this should fail because we don't have the right environment
         let result = wheel_builder.build_wheel(&sdist).await;
-        result.unwrap();
-        // assert!(result.is_err());
+        assert!(result.is_err());
 
         let saved_build_envs = wheel_builder.saved_build_envs();
         assert_eq!(saved_build_envs.len(), 1);

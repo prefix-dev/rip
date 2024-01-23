@@ -6,12 +6,50 @@ use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
 use crate::types::Artifact;
 use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
 use fs_err as fs;
+use parking_lot::RwLock;
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
+use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::str::FromStr;
+
+#[derive(Debug)]
+enum DeleteOrPersist {
+    /// Delete the temp dir when the BuildEnvironment is dropped
+    Delete(Option<tempfile::TempDir>),
+    /// Persist the temp dir
+    Persist(PathBuf),
+}
+
+impl DeleteOrPersist {
+    /// Persist the temp dir
+    fn persist(&mut self) {
+        if let Self::Delete(dir) = self {
+            let path = dir.take();
+            if let Some(path) = path {
+                // This operation makes sure that the tempdir is not deleted
+                // when the BuildEnvironment is dropped
+                *self = Self::Persist(path.into_path());
+            }
+        }
+    }
+
+    /// Get the path of the temp dir
+    fn path(&self) -> &Path {
+        match self {
+            Self::Delete(dir) => {
+                if let Some(dir) = dir {
+                    dir.path()
+                } else {
+                    panic!("error code handling tempdir, tempdir is empty and this should never happen")
+                }
+            }
+            Self::Persist(path) => path,
+        }
+    }
+}
 
 // include static build_frontend.py string
 const BUILD_FRONTEND_PY: &str = include_str!("./wheel_builder_frontend.py");
@@ -20,7 +58,7 @@ const BUILD_FRONTEND_PY: &str = include_str!("./wheel_builder_frontend.py");
 /// to execute the PEP517 build backend hools
 #[derive(Debug)]
 pub(crate) struct BuildEnvironment<'db> {
-    work_dir: tempfile::TempDir,
+    work_dir: RwLock<DeleteOrPersist>,
     package_dir: PathBuf,
     #[allow(dead_code)]
     build_system: pyproject_toml::BuildSystem,
@@ -37,17 +75,18 @@ pub(crate) struct BuildEnvironment<'db> {
 impl<'db> BuildEnvironment<'db> {
     /// Extract the wheel and write the build_frontend.py to the work folder
     pub(crate) fn install_build_files(&self, sdist: &SDist) -> std::io::Result<()> {
+        let work_dir = self.work_dir.read();
         // Extract the sdist to the work folder
-        sdist.extract_to(self.work_dir.path())?;
+        sdist.extract_to(work_dir.path())?;
         // Write the python frontend to the work folder
-        fs::write(
-            self.work_dir.path().join("build_frontend.py"),
-            BUILD_FRONTEND_PY,
-        )
+        fs::write(work_dir.path().join("build_frontend.py"), BUILD_FRONTEND_PY)
     }
 
-    pub(crate) fn work_dir(&self) -> &Path {
-        self.work_dir.path()
+    /// Get the path to the work directory
+    /// The work directory is the location of the SDist source code
+    /// and python build_frontend.py
+    pub(crate) fn work_dir(&self) -> PathBuf {
+        self.work_dir.read().path().to_owned()
     }
 
     /// Get the extra requirements and combine these to the existing requirements
@@ -63,7 +102,7 @@ impl<'db> BuildEnvironment<'db> {
 
         // The extra requirements are stored in a file called extra_requirements.json
         let extra_requirements_json =
-            fs::read_to_string(self.work_dir.path().join("extra_requirements.json"))?;
+            fs::read_to_string(self.work_dir.read().path().join("extra_requirements.json"))?;
         let extra_requirements: Vec<String> = serde_json::from_str(&extra_requirements_json)?;
 
         Ok(HashSet::<Requirement>::from_iter(
@@ -73,10 +112,11 @@ impl<'db> BuildEnvironment<'db> {
         ))
     }
 
-    /// Copy the build environment to destination
-    pub fn copy_to(&self, destination: &Path) -> std::io::Result<()> {
-        fs::copy(self.work_dir.path(), destination)?;
-        Ok(())
+    /// Persist the build environment
+    /// Don't delete the work directory if the BuildEnvironment is dropped
+    pub fn persist(&self) {
+        let mut locked = self.work_dir.write();
+        locked.deref_mut().persist();
     }
 
     /// Install extra requirements into the venv, if any extra were found
@@ -178,6 +218,7 @@ impl<'db> BuildEnvironment<'db> {
         if self.clean_env {
             base_command.env_clear();
         }
+        let work_dir = self.work_dir.read();
         base_command
             .current_dir(&self.package_dir)
             // pass all env variables defined by user
@@ -186,10 +227,10 @@ impl<'db> BuildEnvironment<'db> {
             // it will overwritten by more actual one
             .env("PATH", path_var)
             // Script to run
-            .arg(self.work_dir.path().join("build_frontend.py"))
+            .arg(work_dir.path().join("build_frontend.py"))
             // The working directory to use
             // will contain the output of the build
-            .arg(self.work_dir.path())
+            .arg(work_dir.path())
             // Build system entry point
             .arg(&self.entry_point)
             // Building Wheel or Metadata
@@ -286,7 +327,7 @@ impl<'db> BuildEnvironment<'db> {
         ));
 
         Ok(BuildEnvironment {
-            work_dir,
+            work_dir: RwLock::new(DeleteOrPersist::Delete(Some(work_dir))),
             package_dir,
             build_system,
             build_requirements,
