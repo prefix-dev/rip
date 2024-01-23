@@ -473,7 +473,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 .unwrap()
         }) else {
             panic!(
-                "could not find metadata for any sdist or wheel for {} {}. The following artifacts are available:\n{}",
+                "could not find metadata for any sdist or wheel for {} {}. No metadata could be extracted for the following available artifacts:\n{}",
                 package_name, package_version, artifacts.iter().format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))
             );
         };
