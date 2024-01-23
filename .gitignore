@@ -3,3 +3,6 @@
 *.sqlite3
 **/__pycache__/**
 .DS_STORE
+# pixi environments
+.pixi
+

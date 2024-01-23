@@ -1,0 +1,19 @@
+[project]
+name = "rip"
+version = "0.1.0"
+description = "Add a short description here"
+authors = ["Wolf Vollprecht <w.vollprecht@gmail.com>"]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[tasks]
+install_packse = "poetry install -C ./test-data/packse"
+fmt = "ruff format ./end_to_end_tests"
+end_to_end_tests = "pytest ./end_to_end_tests"
+
+[dependencies]
+pytest = ">=7.4.4,<7.5"
+pytest-xprocess = ">=0.23.0,<0.24"
+poetry = ">=1.7.1,<1.8"
+ruff = ">=0.1.13,<0.2"
+

@@ -4,7 +4,7 @@ use crate::python_env::{PythonLocation, WheelTags};
 use crate::resolve::dependency_provider::{PypiDependencyProvider, PypiVersion};
 use crate::types::PackageName;
 use crate::{types::ArtifactInfo, types::Extra, types::NormalizedPackageName, types::Version};
-use pep508_rs::{MarkerEnvironment, Requirement};
+use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
 use resolvo::{DefaultSolvableDisplay, Solver, UnsolvableOrCancelled};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -127,7 +127,7 @@ pub enum SDistResolution {
 }
 
 /// Defines how to pre-releases are handled during package resolution.
-#[derive(Default, Debug, Clone, Copy, Eq, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialOrd, PartialEq)]
 pub enum PreReleaseResolution {
     /// Don't allow pre-releases to be selected during resolution
     Disallow,
@@ -147,11 +147,44 @@ pub enum PreReleaseResolution {
     ///   the package `supernew` only contains `supernew-1.0.0b0` and
     ///   `supernew-1.0.0b1` then we allow `supernew==1.0.0` to select
     ///   `supernew-1.0.0b1` during resolution.
-    #[default]
-    AllowIfNoOtherVersions,
+    /// - Any name that is mentioned in the `allow` list will allow pre-releases (this
+    ///   is usually derived from the specs given by the user). For example, if the user
+    ///   asks for `foo>0.0.0b0`, pre-releases are globally enabled for package foo (also as
+    ///   transitive dependency).
+    AllowIfNoOtherVersionsOrEnabled {
+        /// A list of package names that will allow pre-releases to be selected
+        allow_names: Vec<String>,
+    },
 
     /// Allow any pre-releases to be selected during resolution
     Allow,
+}
+
+impl Default for PreReleaseResolution {
+    fn default() -> Self {
+        PreReleaseResolution::AllowIfNoOtherVersionsOrEnabled {
+            allow_names: Vec::new(),
+        }
+    }
+}
+
+impl PreReleaseResolution {
+    /// Return a AllowIfNoOtherVersionsOrEnabled variant from a list of requirements
+    pub fn from_specs(specs: &[Requirement]) -> Self {
+        let mut allow_names = Vec::new();
+        for spec in specs {
+            match &spec.version_or_url {
+                Some(VersionOrUrl::VersionSpecifier(v)) => {
+                    if v.iter().any(|s| s.version().any_prerelease()) {
+                        let name = PackageName::from_str(&spec.name).expect("invalid package name");
+                        allow_names.push(name.as_str().to_string());
+                    }
+                }
+                _ => continue,
+            };
+        }
+        PreReleaseResolution::AllowIfNoOtherVersionsOrEnabled { allow_names }
+    }
 }
 
 impl SDistResolution {

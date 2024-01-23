@@ -29,7 +29,14 @@ use url::Url;
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 /// This is a wrapper around [`Specifiers`] that implements [`VersionSet`]
 pub(crate) struct PypiVersionSet {
+    /// The spec to match against
     spec: Option<VersionOrUrl>,
+    /// If the VersionOrUrl is a Version specifier and any of the specifiers contains a
+    /// prerelease, then pre-releases are allowed. For example,
+    /// `jupyterlab==3.0.0a1` allows pre-releases, but `jupyterlab==3.0.0` does not.
+    ///
+    /// We pre-compute if any of the items in the specifiers contains a pre-release and store
+    /// this as a boolean which is later used during matching.
     allows_prerelease: bool,
 }
 
@@ -37,7 +44,7 @@ impl PypiVersionSet {
     pub fn from_spec(spec: Option<VersionOrUrl>, prerelease_option: &PreReleaseResolution) -> Self {
         let allows_prerelease = match prerelease_option {
             PreReleaseResolution::Disallow => false,
-            PreReleaseResolution::AllowIfNoOtherVersions => match spec.as_ref() {
+            PreReleaseResolution::AllowIfNoOtherVersionsOrEnabled { .. } => match spec.as_ref() {
                 Some(VersionOrUrl::VersionSpecifier(v)) => {
                     v.iter().any(|s| s.version().any_prerelease())
                 }
@@ -70,11 +77,17 @@ pub(crate) enum PypiVersion {
     Version {
         version: Version,
 
-        /// This is true if there are only pre-releases available for this package
-        /// For example, if the package `foo` has only versions `foo-1.0.0a1` and `foo-1.0.0a2`
-        /// then this will be true. This allows us later to match against this version and
-        /// allow the selection of pre-releases.
-        only_prerelease: bool,
+        /// Given that the [`PreReleaseResolution`] is
+        /// AllowIfNoOtherVersionsOrEnabled, this field is true if there are
+        /// only pre-releases available for this package or if a spec explicitly
+        /// enabled pre-releases for this package. For example, if the package
+        /// `foo` has only versions `foo-1.0.0a1` and `foo-1.0.0a2` then this
+        /// will be true. This allows us later to match against this version and
+        /// allow the selection of pre-releases. Additionally, this is also true
+        /// if any of the explicitly mentioned specs (by the user) contains a
+        /// prerelease (for example c>0.0.0b0) contains the `b0` which signifies
+        /// a pre-release.
+        package_allows_prerelease: bool,
     },
     #[allow(dead_code)]
     Url(Url),
@@ -90,22 +103,22 @@ impl VersionSet for PypiVersionSet {
                 Some(VersionOrUrl::VersionSpecifier(spec)),
                 PypiVersion::Version {
                     version,
-                    only_prerelease,
+                    package_allows_prerelease,
                 },
             ) => {
                 spec.contains(version)
                     // pre-releases are allowed only when the versionset allows them (jupyterlab==3.0.0a1)
                     // or there are no other versions available (foo-1.0.0a1, foo-1.0.0a2)
-                    // or alternatively if the user has enabled all pre-releases (this is encoded in the allows_prerelease field)
-                    && (self.allows_prerelease || *only_prerelease || !version.any_prerelease())
+                    // or alternatively if the user has enabled all pre-releases or this specific (this is encoded in the allows_prerelease field)
+                    && (self.allows_prerelease || *package_allows_prerelease || !version.any_prerelease())
             }
             (
                 None,
                 PypiVersion::Version {
                     version,
-                    only_prerelease,
+                    package_allows_prerelease,
                 },
-            ) => self.allows_prerelease || *only_prerelease || !version.any_prerelease(),
+            ) => self.allows_prerelease || *package_allows_prerelease || !version.any_prerelease(),
             (None, PypiVersion::Url(_)) => true,
             _ => false,
         }
@@ -403,15 +416,20 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         let locked_package = self.locked_packages.get(package_name.base());
         let favored_package = self.favored_packages.get(package_name.base());
 
-        let all_pre_release = artifacts
-            .iter()
-            .all(|(version, _)| version.any_prerelease());
-
-        let allow_prerelease = all_pre_release
-            && !matches!(
-                self.options.pre_release_resolution,
-                PreReleaseResolution::Disallow
-            );
+        let package_allows_prerelease = match &self.options.pre_release_resolution {
+            PreReleaseResolution::Disallow => false,
+            PreReleaseResolution::AllowIfNoOtherVersionsOrEnabled { allow_names } => {
+                if allow_names.contains(&package_name.base().to_string()) {
+                    true
+                } else {
+                    // check if we _only_ have prereleases for this name (if yes, also allow them)
+                    artifacts
+                        .iter()
+                        .all(|(version, _)| version.any_prerelease())
+                }
+            }
+            PreReleaseResolution::Allow => true,
+        };
 
         for (version, artifacts) in artifacts.iter() {
             // Skip this version if a locked or favored version exists for this version. It will be
@@ -427,7 +445,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 name,
                 PypiVersion::Version {
                     version: version.clone(),
-                    only_prerelease: allow_prerelease,
+                    package_allows_prerelease,
                 },
             );
             candidates.candidates.push(solvable_id);
@@ -451,7 +469,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 name,
                 PypiVersion::Version {
                     version: locked.version.clone(),
-                    only_prerelease: locked.version.any_prerelease(),
+                    package_allows_prerelease: locked.version.any_prerelease(),
                 },
             );
             candidates.candidates.push(solvable_id);
@@ -466,7 +484,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 name,
                 PypiVersion::Version {
                     version: favored.version.clone(),
-                    only_prerelease: favored.version.any_prerelease(),
+                    package_allows_prerelease: favored.version.any_prerelease(),
                 },
             );
             candidates.candidates.push(solvable_id);

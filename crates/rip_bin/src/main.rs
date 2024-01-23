@@ -1,6 +1,7 @@
 use fs_err as fs;
 use rattler_installs_packages::resolve::PreReleaseResolution;
 use rip_bin::{global_multi_progress, IndicatifWriter};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -21,6 +22,13 @@ use rattler_installs_packages::{
     normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve,
     resolve::ResolveOptions, types::Requirement,
 };
+
+#[derive(Serialize, Debug)]
+struct Solution {
+    resolved: bool,
+    packages: HashMap<String, String>,
+    error: Option<String>,
+}
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -61,6 +69,9 @@ struct Args {
     /// Prefer pre-releases over normal releases
     #[clap(long)]
     pre: bool,
+
+    #[clap(long)]
+    json: bool,
 }
 
 #[derive(Parser)]
@@ -177,7 +188,7 @@ async fn actual_main() -> miette::Result<()> {
     let pre_release_resolution = if args.pre {
         PreReleaseResolution::Allow
     } else {
-        PreReleaseResolution::AllowIfNoOtherVersions
+        PreReleaseResolution::from_specs(&args.specs)
     };
 
     let resolve_opts = ResolveOptions {
@@ -202,7 +213,19 @@ async fn actual_main() -> miette::Result<()> {
     .await
     {
         Ok(blueprint) => blueprint,
-        Err(err) => miette::bail!("Could not solve for the requested requirements:\n{err}"),
+        Err(err) => {
+            if args.json {
+                let solution = Solution {
+                    resolved: false,
+                    packages: HashMap::default(),
+                    error: Some(format!("{}", err)),
+                };
+                println!("{}", serde_json::to_string_pretty(&solution).unwrap());
+                return Ok(());
+            } else {
+                miette::bail!("Could not solve for the requested requirements:\n{err}")
+            }
+        }
     };
 
     // Output the selected versions
@@ -260,7 +283,11 @@ async fn actual_main() -> miette::Result<()> {
         )
         .into_diagnostic()?;
 
-        for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
+        for pinned_package in blueprint
+            .clone()
+            .into_iter()
+            .sorted_by(|a, b| a.name.cmp(&b.name))
+        {
             println!(
                 "\ninstalling: {} - {}",
                 console::style(pinned_package.name).bold().green(),
@@ -280,6 +307,18 @@ async fn actual_main() -> miette::Result<()> {
         "\n{}",
         console::style("Successfully installed environment!").bold()
     );
+
+    if args.json {
+        let solution = Solution {
+            resolved: true,
+            packages: blueprint
+                .into_iter()
+                .map(|p| (p.name.to_string(), p.version.to_string()))
+                .collect(),
+            error: None,
+        };
+        println!("{}", serde_json::to_string_pretty(&solution).unwrap());
+    }
 
     Ok(())
 }
