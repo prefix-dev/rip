@@ -270,7 +270,7 @@ impl<'db> BuildEnvironment<'db> {
         let entry_point = build_system
             .build_backend
             .clone()
-            .expect("we tested this value earlier");
+            .expect("build_backend, cannot be None, this should never happen");
 
         // Find the build requirements
         let build_requirements = build_system.requires.clone();
