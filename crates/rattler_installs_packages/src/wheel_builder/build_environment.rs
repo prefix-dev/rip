@@ -26,9 +26,8 @@ enum DeleteOrPersist {
 impl DeleteOrPersist {
     /// Persist the temp dir
     fn persist(&mut self) {
-        if let Self::Delete(dir) = self {
-            let path = dir.take();
-            if let Some(path) = path {
+        if let Self::Delete(temp_dir) = self {
+            if let Some(path) = temp_dir.take() {
                 // This operation makes sure that the tempdir is not deleted
                 // when the BuildEnvironment is dropped
                 *self = Self::Persist(path.into_path());
