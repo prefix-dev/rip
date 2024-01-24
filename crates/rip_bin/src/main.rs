@@ -95,6 +95,9 @@ impl From<SDistResolution> for resolve::SDistResolution {
 }
 
 async fn actual_main() -> miette::Result<()> {
+    use reqwest::Client;
+    use reqwest_middleware::ClientWithMiddleware;
+
     let args = Args::parse();
 
     // Setup tracing subscriber
@@ -113,8 +116,9 @@ async fn actual_main() -> miette::Result<()> {
     tracing::info!("cache directory: {}", cache_dir.display());
 
     // Construct a package database
+    let client = ClientWithMiddleware::from(Client::new());
     let package_db = rattler_installs_packages::index::PackageDb::new(
-        Default::default(),
+        client,
         &[normalize_index_url(args.index_url.clone())],
         &cache_dir,
     )

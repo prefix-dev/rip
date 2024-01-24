@@ -362,14 +362,18 @@ mod tests {
     use crate::resolve::ResolveOptions;
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
     use crate::wheel_builder::WheelBuilder;
+    use reqwest::Client;
+    use reqwest_middleware::ClientWithMiddleware;
     use std::path::Path;
     use tempfile::TempDir;
 
     fn get_package_db() -> (PackageDb, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
+        let client = ClientWithMiddleware::from(Client::new());
+
         (
             PackageDb::new(
-                Default::default(),
+                client,
                 &[url::Url::parse("https://pypi.org/simple/").unwrap()],
                 tempdir.path(),
             )
