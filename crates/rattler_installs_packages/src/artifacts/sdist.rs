@@ -237,6 +237,8 @@ mod tests {
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
+    use reqwest::Client;
+    use reqwest_middleware::ClientWithMiddleware;
     use std::collections::{HashMap, HashSet};
     use std::env;
     use std::path::Path;
@@ -245,9 +247,11 @@ mod tests {
 
     fn get_package_db() -> (PackageDb, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
+        let client = ClientWithMiddleware::from(Client::new());
+
         (
             PackageDb::new(
-                Default::default(),
+                client,
                 &[url::Url::parse("https://pypi.org/simple/").unwrap()],
                 tempdir.path(),
             )

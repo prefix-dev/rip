@@ -15,7 +15,8 @@ use futures::{pin_mut, stream, StreamExt};
 use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
-use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
+use reqwest::{header::CACHE_CONTROL, StatusCode};
+use reqwest_middleware::ClientWithMiddleware;
 use std::path::PathBuf;
 use std::{fmt::Display, io::Read, path::Path};
 use url::Url;
@@ -42,7 +43,11 @@ pub struct PackageDb {
 
 impl PackageDb {
     /// Constructs a new [`PackageDb`] that reads information from the specified URLs.
-    pub fn new(client: Client, index_urls: &[Url], cache_dir: &Path) -> std::io::Result<Self> {
+    pub fn new(
+        client: ClientWithMiddleware,
+        index_urls: &[Url],
+        cache_dir: &Path,
+    ) -> std::io::Result<Self> {
         Ok(Self {
             http: Http::new(client, FileStore::new(&cache_dir.join("http"))?),
             index_urls: index_urls.into(),
@@ -134,7 +139,7 @@ impl PackageDb {
         &self,
         artifacts: &[&'a ArtifactInfo],
     ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
-        for artifact_info in artifacts.iter() {
+        for &artifact_info in artifacts.iter() {
             if artifact_info.is::<Wheel>() {
                 let result = self
                     .get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::OnlyIfCached)
@@ -334,7 +339,7 @@ impl PackageDb {
         let name = WheelFilename::try_as(&artifact_info.filename)
             .expect("the specified artifact does not refer to type requested to read");
 
-        if let Ok(mut reader) = AsyncHttpRangeReader::new(
+        if let Ok((mut reader, _)) = AsyncHttpRangeReader::new(
             self.http.client.clone(),
             artifact_info.url.clone(),
             CheckSupportMethod::Head,
@@ -518,13 +523,14 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
 mod test {
     use super::*;
     use crate::types::PackageName;
+    use reqwest::Client;
     use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_available_packages() {
         let cache_dir = TempDir::new().unwrap();
         let package_db = PackageDb::new(
-            Client::new(),
+            ClientWithMiddleware::from(Client::new()),
             &[Url::parse("https://pypi.org/simple/").unwrap()],
             cache_dir.path(),
         )
@@ -553,7 +559,7 @@ mod test {
     async fn test_pep658() {
         let cache_dir = TempDir::new().unwrap();
         let package_db = PackageDb::new(
-            Client::new(),
+            ClientWithMiddleware::from(Client::new()),
             &[Url::parse("https://pypi.org/simple/").unwrap()],
             cache_dir.path(),
         )
