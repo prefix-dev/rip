@@ -523,6 +523,7 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
 mod test {
     use super::*;
     use crate::types::PackageName;
+    use reqwest::Client;
     use tempfile::TempDir;
 
     #[tokio::test]
