@@ -29,7 +29,7 @@ indicatif = "0.17.7"
 itertools = "0.11.0"
 miette = { version = "5.10.0", features = ["fancy"] }
 rattler_installs_packages = { path = "../rattler_installs_packages", default-features = false }
-reqwest = "0.11.20"
+reqwest = { version = "0.11.20", default-features = false }
 reqwest-middleware = "0.2.4"
 tabwriter = { version = "1.3.0", features = ["ansi_formatting"] }
 tokio = { version = "1.32.0", features = ["rt", "macros", "rt-multi-thread"] }
