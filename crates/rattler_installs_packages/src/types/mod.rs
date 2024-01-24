@@ -21,7 +21,7 @@ pub use artifact::Artifact;
 
 pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFilename,
-    SDistFormat, WheelFilename,
+    SDistFormat, STreeFilename, SourceArtifact, SourceArtifactName, WheelFilename,
 };
 
 pub use core_metadata::{MetadataVersion, WheelCoreMetaDataError, WheelCoreMetadata};

@@ -3,7 +3,7 @@
 //! That uses cacache as a backend to actually store wheels.
 
 use crate::artifacts::Wheel;
-use crate::types::{Artifact, WheelFilename};
+use crate::types::{Artifact, SourceArtifact, WheelFilename};
 use cacache::{Integrity, WriteOpts};
 use rattler_digest::Sha256;
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,15 @@ impl WheelKey {
     /// Create a wheel key from a prefix and a string, will become '{prefix}:{string}'
     pub fn new(prefix: impl AsRef<str>, key: impl AsRef<str>) -> Self {
         Self(format!("{}:{}", prefix.as_ref(), key.as_ref()))
+    }
+}
+
+impl<'a> TryFrom<&'a dyn SourceArtifact> for WheelKey {
+    type Error = std::io::Error;
+
+    fn try_from(value: &'a dyn SourceArtifact) -> Result<Self, Self::Error> {
+        let vec = value.get_bytes()?;
+        Ok(WheelKey::from_bytes("sdist", vec))
     }
 }
 

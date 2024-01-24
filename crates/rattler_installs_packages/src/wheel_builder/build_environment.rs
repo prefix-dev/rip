@@ -3,13 +3,13 @@ use crate::artifacts::SDist;
 
 use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
-use crate::types::Artifact;
+use crate::types::{Artifact, SourceArtifact};
 use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
-use fs_err as fs;
-// use std::fs;
+// use fs_err as fs;
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::str::FromStr;
@@ -37,27 +37,33 @@ pub(crate) struct BuildEnvironment<'db> {
 
 impl<'db> BuildEnvironment<'db> {
     /// Extract the wheel and write the build_frontend.py to the work folder
-    pub(crate) fn install_build_files(&mut self, sdist: &SDist) -> std::io::Result<()> {
+    pub(crate) fn install_build_files(
+        &mut self,
+        sdist: &(impl SourceArtifact + ?Sized),
+    ) -> std::io::Result<()> {
         // Extract the sdist to the work folder
-
         // extract to a specific package dir
-        let package_dir = self
-            .work_dir
-            .path()
-            .join(sdist.name().distribution.as_str());
-        sdist.extract_to(package_dir.as_path())?;
+        println!("EXTRACTIGN TO {:?}", &self.package_dir);
+        sdist.extract_to(&self.package_dir)?;
 
-        let paths = fs::read_dir(package_dir.as_path())?;
+        // when sdists are downloaded from pypi - they have correct name
+        // name - version
+        // when we are using direct versions, we don't know the actual version
+        // so we create package-dir as name-file://version which is not actually true
+        // after unpacking
+        // we use correct package dir version
 
-        // Get the parent directory where archive was extracted
-        // and set it as a package dir
-        // this is needed because when we work with some local sdists
-        // we may not have name-version
-        // so we point it to a real one
-        if let Some(parent) = paths.last() {
-            let dir = parent?.path();
-            self.package_dir = dir;
+        let paths = fs::read_dir(&self.package_dir)?;
+        let count = paths.count();
+
+        if count == 1 {
+            if let Some(parent) = fs::read_dir(&self.package_dir)?.last() {
+                let dir = parent?.path();
+                self.package_dir = dir;
+                println!("NEW PACKAGE DIR IS {:?}", &self.package_dir);
+            }
         }
+
         // Write the python frontend to the work folder
         fs::write(
             self.work_dir.path().join("build_frontend.py"),
@@ -214,7 +220,7 @@ impl<'db> BuildEnvironment<'db> {
 
     /// Setup the build environment so that we can build a wheel from an sdist
     pub(crate) async fn setup<'i>(
-        sdist: &SDist,
+        sdist: &(impl SourceArtifact + ?Sized),
         wheel_builder: &WheelBuilder<'db, 'i>,
         env_markers: &MarkerEnvironment,
         wheel_tags: Option<&WheelTags>,
@@ -287,11 +293,10 @@ impl<'db> BuildEnvironment<'db> {
             .unwrap_or_else(|| DEFAULT_BUILD_BACKEND.to_string());
 
         // Package dir for the package we need to build
-        let package_dir = work_dir.path().join(format!(
-            "{}-{}",
-            sdist.name().distribution.as_source_str(),
-            sdist.name().version
-        ));
+        let package_dir =
+            work_dir
+                .path()
+                .join(format!("{}-{}", sdist.distribution_name(), sdist.version(),));
 
         Ok(BuildEnvironment {
             work_dir,

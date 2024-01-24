@@ -1,11 +1,11 @@
-use crate::artifacts::{SDist, Wheel};
+use crate::artifacts::{SDist, STree, Wheel};
 use crate::index::file_store::FileStore;
 use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::resolve::PypiVersion;
 use crate::types::{
     ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, PackageName, ProjectInfo,
-    SDistFilename, SDistFormat, WheelCoreMetadata, Yanked,
+    SDistFilename, SDistFormat, STreeFilename, WheelCoreMetadata, Yanked,
 };
 use crate::wheel_builder::{WheelBuilder, WheelCache};
 use crate::{
@@ -19,6 +19,7 @@ use futures::{pin_mut, stream, StreamExt};
 use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
+use parking_lot::Mutex;
 use rattler_digest::{compute_bytes_digest, Sha256};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
 use std::fs::{self, File};
@@ -114,23 +115,6 @@ impl PackageDb {
         }
     }
 
-    /// compress an sdist to dir
-    /// TODO: refactor into a better place ( utils )
-    /// TODO: x2 should it even exists?
-    pub fn compress_source_tree_to_tar(
-        &self,
-        sdist_path: &Path,
-        into_archive_path: &Path,
-    ) -> PathBuf {
-        // compress dir into .tar
-        let full_path = into_archive_path.join("archive_sdist.tar");
-        let full_path_str = full_path.as_path();
-        let tar_file = File::create(full_path_str).unwrap();
-        let mut tar = tar::Builder::new(tar_file);
-        tar.append_dir_all("archive", sdist_path).unwrap();
-
-        full_path_str.to_path_buf()
-    }
 
     /// Get artifact by file URL
     pub async fn get_file_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
@@ -171,25 +155,22 @@ impl PackageDb {
                 (data_bytes, metadata, format)
             }
             false => {
-                // compress dir into .tar, and work with it as it is a simple sdist
-                // should it even be done?
-                // maybe we can work with dir directly
-                let tmpdir = tempdir().expect("unable to make tempdir");
-                let tar_path = self.compress_source_tree_to_tar(path, tmpdir.path());
 
                 let distribution = PackageName::from(normalized_package_name.clone());
                 let format = SDistFormat::Tar;
-                let dummy_sdist_file_name = SDistFilename {
-                    distribution,
-                    version: dummy_version,
-                    format,
-                };
-                let bytes = fs::File::open(tar_path).into_diagnostic()?;
 
-                let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
+                let stree_file_name = STreeFilename {
+                    distribution,
+                    version: url.clone(),
+                };
+
+                let stree = STree {
+                    name: stree_file_name,
+                    location: Mutex::new(path.to_path_buf()),
+                };
 
                 let (data_bytes, metadata) = wheel_builder
-                    .get_sdist_metadata(&dummy_sdist)
+                    .get_sdist_metadata(&stree)
                     .await
                     .into_diagnostic()?;
                 (data_bytes, metadata, format)
@@ -205,18 +186,6 @@ impl PackageDb {
 
         let filename = ArtifactName::SDist(sdist_filename.clone());
 
-        let requires_python = metadata.requires_python;
-
-        let dist_info_metadata = DistInfoMetadata {
-            available: false,
-            hashes: ArtifactHashes::default(),
-        };
-
-        let yanked = Yanked {
-            yanked: false,
-            reason: None,
-        };
-
         // TODO: extract hash from url if it's present
         let project_hash = ArtifactHashes {
             sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
@@ -227,9 +196,9 @@ impl PackageDb {
             filename,
             url: url.clone(),
             hashes: Some(project_hash),
-            requires_python,
-            dist_info_metadata,
-            yanked,
+            requires_python: metadata.requires_python,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
         };
 
         let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
@@ -537,7 +506,6 @@ impl PackageDb {
         // Return if we do
         for artifact_info in artifacts.iter().copied() {
             if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info).await {
-                println!("I HAVE IN CACHE");
                 return Ok(Some((
                     artifact_info,
                     WheelCoreMetadata::try_from(metadata_bytes.as_slice()).into_diagnostic()?,

@@ -67,15 +67,15 @@ impl Wheel {
 impl Artifact for Wheel {
     type Name = WheelFilename;
 
+    fn name(&self) -> &Self::Name {
+        &self.name
+    }
+
     fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
             name,
             archive: Mutex::new(ZipArchive::new(bytes).into_diagnostic()?),
         })
-    }
-
-    fn name(&self) -> &Self::Name {
-        &self.name
     }
 }
 

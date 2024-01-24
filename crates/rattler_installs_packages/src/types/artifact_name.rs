@@ -1,13 +1,17 @@
 use super::{NormalizedPackageName, PackageName, ParsePackageNameError};
+use crate::artifacts::SDistError;
 use crate::python_env::WheelTag;
+use crate::resolve::PypiVersion;
 use crate::types::Version;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
+use std::path::Path;
 use std::str::FromStr;
 use thiserror::Error;
+use url::Url;
 
 /// The [`ArtifactName`] enum represents a package artifact name and the properties that can be
 /// derived simply from the name.
@@ -162,6 +166,16 @@ impl Display for BuildTag {
 
 /// Structure that contains the information that is contained in a source distribution name
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
+pub struct STreeFilename {
+    /// Distribution name, e.g. ‘django’, ‘pyramid’.
+    pub distribution: PackageName,
+
+    /// Distribution version, as URL
+    pub version: Url,
+}
+
+/// Structure that contains the information that is contained in a source distribution name
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
 pub struct SDistFilename {
     /// Distribution name, e.g. ‘django’, ‘pyramid’.
     pub distribution: PackageName,
@@ -171,6 +185,36 @@ pub struct SDistFilename {
 
     /// The format of the file
     pub format: SDistFormat,
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
+/// SourceArtifactName
+pub enum SourceArtifactName {
+    /// SDIST
+    SDist(SDistFilename),
+    /// STREE
+    STree(STreeFilename),
+}
+
+/// SourceArtifact Trait
+pub trait SourceArtifact: Sync {
+    /// getbytes
+    fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
+
+    /// distribution name
+    fn distribution_name(&self) -> &str;
+
+    /// version
+    fn version(&self) -> PypiVersion;
+
+    /// artifactname
+    fn artifact_name(&self) -> SourceArtifactName;
+
+    /// Read the build system info from the pyproject.toml
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError>;
+
+    /// extract to
+    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
 }
 
 impl Display for SDistFilename {

@@ -5,6 +5,7 @@ mod wheel_cache;
 
 use fs_err as fs;
 use std::io::{Read, Seek};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
@@ -13,12 +14,16 @@ use pep508_rs::{MarkerEnvironment, Requirement};
 
 use crate::python_env::VEnvError;
 use crate::resolve::{ResolveOptions, SDistResolution};
-use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
+use crate::types::{
+    NormalizedPackageName, PackageName, ParseArtifactNameError, SourceArtifact, SourceArtifactName,
+    WheelFilename,
+};
 use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
 use crate::{
     artifacts::wheel::UnpackError,
     artifacts::SDist,
+    artifacts::STree,
     artifacts::Wheel,
     index::PackageDb,
     python_env::WheelTags,
@@ -27,7 +32,7 @@ use crate::{
     types::{WheelCoreMetaDataError, WheelCoreMetadata},
 };
 
-type BuildCache<'db> = Mutex<HashMap<SDistFilename, Arc<BuildEnvironment<'db>>>>;
+type BuildCache<'db> = Mutex<HashMap<SourceArtifactName, Arc<BuildEnvironment<'db>>>>;
 
 /// A builder for wheels
 pub struct WheelBuilder<'db, 'i> {
@@ -101,6 +106,26 @@ impl TryFrom<&SDist> for WheelKey {
     }
 }
 
+// impl TryFrom<&SourceArtifact> for WheelKey {
+//     type Error = std::io::Error;
+//     fn try_from(value: &STree) -> Result<WheelKey, Self::Error> {
+//         let mut vec = vec![];
+//         let mut inner = value.lock_data();
+//         let dir_entry = read_dir(inner.as_path())?;
+
+//         for entry in dir_entry{
+//             let entry = entry?;
+//             let modified = entry.metadata()?.modified()?;
+//             let mut hasher = DefaultHasher::new();
+//             modified.hash(& mut hasher);
+//             let hash = hasher.finish().to_ne_bytes().as_slice();
+//             vec.push(hash);
+//         }
+
+//         Ok(WheelKey::from_bytes("sdist", vec[0]))
+//     }
+// }
+
 /// Get the requirements for the build system from the pyproject.toml
 /// will use a default if there are no requirements specified
 fn build_requirements(build_system: &pyproject_toml::BuildSystem) -> Vec<Requirement> {
@@ -158,20 +183,17 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     /// This function also caches the virtualenvs, so that they can be reused later.
     async fn setup_build_venv(
         &self,
-        sdist: &SDist,
+        sdist: &(impl SourceArtifact + ?Sized),
     ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
-        if let Some(venv) = self.venv_cache.lock().get(sdist.name()) {
+        if let Some(venv) = self.venv_cache.lock().get(&sdist.artifact_name()) {
             tracing::debug!(
                 "using cached virtual env for: {:?}",
-                sdist.name().distribution.as_source_str()
+                sdist.distribution_name()
             );
             return Ok(venv.clone());
         }
 
-        tracing::debug!(
-            "creating virtual env for: {:?}",
-            sdist.name().distribution.as_source_str()
-        );
+        tracing::debug!("creating virtual env for: {:?}", sdist.distribution_name());
 
         let mut build_environment = BuildEnvironment::setup(
             sdist,
@@ -198,27 +220,29 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         // Insert into the venv cache
         self.venv_cache
             .lock()
-            .insert(sdist.name().clone(), Arc::new(build_environment));
+            .insert(sdist.artifact_name().clone(), Arc::new(build_environment));
 
         // Return the cached values
         return self
             .venv_cache
             .lock()
-            .get(sdist.name())
+            .get(&sdist.artifact_name())
             .cloned()
             .ok_or_else(|| WheelBuildError::Error("Could not get venv from cache".to_string()));
     }
 
     /// Get the metadata for a given sdist by using the build_backend in a virtual env
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
-    #[tracing::instrument(skip_all, fields(name = %sdist.name().distribution.as_source_str(), version = %sdist.name().version))]
+
+    #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
     pub async fn get_sdist_metadata(
         &self,
-        sdist: &SDist,
+        sdist: &dyn SourceArtifact,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         // See if we have a locally built wheel for this sdist
         // use that metadata instead
-        let key = WheelKey::try_from(sdist)?;
+
+        let key: WheelKey = WheelKey::try_from(sdist)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return wheel.metadata().map_err(|e| {
                 WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
@@ -228,6 +252,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         let build_environment = self.setup_build_venv(sdist).await?;
 
         let output = build_environment.run_command("WheelMetadata")?;
+        println!("OUTPUT IS {:?}", output);
         if !output.status.success() {
             if output.status.code() == Some(50) {
                 tracing::warn!("SDist build backend does not support metadata generation");
@@ -252,8 +277,8 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
     /// Build a wheel from an sdist by using the build_backend in a virtual env.
     /// This function uses the `build_wheel` entry point of the build backend.
-    #[tracing::instrument(skip_all, fields(name = %sdist.name().distribution.as_source_str(), version = %sdist.name().version))]
-    pub async fn build_wheel(&self, sdist: &SDist) -> Result<Wheel, WheelBuildError> {
+    #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
+    pub async fn build_wheel(&self, sdist: &dyn SourceArtifact) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
         println!("BUIDLING WHEEL");
         let key = WheelKey::try_from(sdist)?;
@@ -281,7 +306,9 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
                 .into();
 
         // Get the name of the package
-        let package_name: NormalizedPackageName = sdist.name().distribution.clone().into();
+        let package_name: NormalizedPackageName = PackageName::from_str(sdist.distribution_name())
+            .unwrap()
+            .into();
 
         // Save the wheel into the cache
         let key = WheelKey::try_from(sdist)?;

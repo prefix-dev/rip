@@ -1,17 +1,54 @@
-use crate::types::{Artifact, NormalizedPackageName, SDistFilename, SDistFormat};
+use crate::resolve::PypiVersion;
+use crate::types::{
+    Artifact, NormalizedPackageName, SDistFilename, SDistFormat, STreeFilename, SourceArtifact,
+    SourceArtifactName,
+};
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
+use crate::wheel_builder::WheelKey;
 use flate2::read::GzDecoder;
+// use fs_err as fs;
 use miette::IntoDiagnostic;
 use parking_lot::{Mutex, MutexGuard};
 use serde::Serialize;
-
-use fs_err as fs;
+use std::collections::hash_map::DefaultHasher;
 use std::ffi::OsStr;
+use std::fs::{self, read_dir};
+use std::hash::{Hash, Hasher};
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 use zip::ZipArchive;
+
+/// Represents a source tree which will be transformed into SDist/Wheel.
+pub struct STree {
+    /// Name of the source distribution
+    pub name: STreeFilename,
+
+    /// STree location
+    pub location: Mutex<PathBuf>,
+}
+
+impl STree {
+    /// Get a lock on the inner data
+    pub fn lock_data(&self) -> MutexGuard<PathBuf> {
+        self.location.lock()
+    }
+
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+        fs::create_dir_all(&dst)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            if ty.is_dir() {
+                Self::copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            } else {
+                fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Represents a source distribution artifact.
 pub struct SDist {
@@ -29,20 +66,26 @@ pub struct BuildSystem {
 }
 
 #[derive(thiserror::Error, Debug)]
+/// SDistErrors
 pub enum SDistError {
     #[error("IO error: {0}")]
+    /// SDistErrors
     Io(#[from] std::io::Error),
 
     #[error("No PKG-INFO found in archive")]
+    /// SDistErrors
     NoPkgInfoFound,
 
     #[error("No pyproject.toml found in archive")]
+    /// SDistErrors
     NoPyProjectTomlFound,
 
     #[error("Could not parse pyproject.toml")]
+    /// SDistErrors
     PyProjectTomlParseError(String),
 
     #[error("Could not parse metadata")]
+    /// SDistErrors
     WheelCoreMetaDataError(#[from] WheelCoreMetaDataError),
 }
 
@@ -121,8 +164,59 @@ impl SDist {
         }
     }
 
-    /// Read the build system info from the pyproject.toml
-    pub fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
+    /// Checks if this artifact implements PEP 643
+    /// and returns the metadata if it does
+    pub fn pep643_metadata(&self) -> Result<Option<(Vec<u8>, WheelCoreMetadata)>, SDistError> {
+        // Assume we have a PKG-INFO
+        let (bytes, metadata) = self.read_package_info()?;
+        if metadata.metadata_version.implements_pep643() {
+            Ok(Some((bytes, metadata)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get a lock on the inner data
+    pub fn lock_data(&self) -> MutexGuard<Box<dyn ReadAndSeek + Send>> {
+        self.file.lock()
+    }
+}
+
+impl Artifact for SDist {
+    type Name = SDistFilename;
+    fn name(&self) -> &Self::Name {
+        &self.name
+    }
+    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
+        Ok(Self {
+            name,
+            file: Mutex::new(bytes),
+        })
+    }
+}
+
+impl SourceArtifact for SDist {
+    fn distribution_name(&self) -> &str {
+        self.name().distribution.as_source_str()
+    }
+    fn version(&self) -> PypiVersion {
+        PypiVersion::Version(self.name().version.clone())
+    }
+
+    fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+        let mut vec = vec![];
+        let mut inner = self.lock_data();
+        inner.rewind()?;
+        inner.read_to_end(&mut vec)?;
+        Ok(vec)
+    }
+
+    fn artifact_name(&self) -> SourceArtifactName {
+        SourceArtifactName::SDist(self.name().to_owned())
+    }
+
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
+        // Read the build system info from the pyproject.toml
         if let Some(bytes) = self.find_entry("pyproject.toml")? {
             let source = String::from_utf8(bytes).map_err(|e| {
                 SDistError::PyProjectTomlParseError(format!(
@@ -145,9 +239,8 @@ impl SDist {
     }
 
     /// Extract the contents of the sdist archive to the given directory
-    pub fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
+    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
         let mut lock = self.file.lock();
-        println!("EXTRACTING INTO");
         let archives = generic_archive_reader(&mut lock, self.name.format)?;
         match archives {
             Archives::TarArchive(mut archive) => {
@@ -160,39 +253,104 @@ impl SDist {
             }
         }
     }
+}
 
-    /// Checks if this artifact implements PEP 643
-    /// and returns the metadata if it does
-    pub fn pep643_metadata(&self) -> Result<Option<(Vec<u8>, WheelCoreMetadata)>, SDistError> {
-        // Assume we have a PKG-INFO
-        let (bytes, metadata) = self.read_package_info()?;
-        if metadata.metadata_version.implements_pep643() {
-            Ok(Some((bytes, metadata)))
+impl SourceArtifact for STree {
+    /// getbytes
+    fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+        let mut vec = vec![];
+        let mut inner = self.lock_data();
+        let mut dir_entry = read_dir(inner.as_path())?;
+
+        let next_entry = dir_entry.next();
+        if let Some(Ok(root_folder)) = next_entry {
+            let modified = root_folder.metadata()?.modified()?;
+            let mut hasher = DefaultHasher::new();
+            modified.hash(&mut hasher);
+            let hash = hasher.finish().to_be_bytes().as_slice().to_owned();
+            // vec.push(hash);
+            return Ok(hash);
+        }
+
+        Ok(vec)
+    }
+
+    /// distribution name
+    fn distribution_name(&self) -> &str {
+        self.name.distribution.as_source_str()
+    }
+
+    /// version
+    fn version(&self) -> PypiVersion {
+        PypiVersion::Url(self.name.version.clone())
+    }
+
+    /// artifactname
+    fn artifact_name(&self) -> SourceArtifactName {
+        SourceArtifactName::STree(self.name.clone())
+    }
+
+    /// Read the build system info from the pyproject.toml
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
+        let location = self.lock_data().join("pyproject.toml");
+
+        if let Ok(bytes) = fs::read(location) {
+            let source = String::from_utf8(bytes).map_err(|e| {
+                SDistError::PyProjectTomlParseError(format!(
+                    "could not parse pyproject.toml (bad encoding): {}",
+                    e
+                ))
+            })?;
+            let project = pyproject_toml::PyProjectToml::new(&source).map_err(|e| {
+                SDistError::PyProjectTomlParseError(format!(
+                    "could not parse pyproject.toml (bad toml): {}",
+                    e
+                ))
+            })?;
+            Ok(project
+                .build_system
+                .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
         } else {
-            Ok(None)
+            Err(SDistError::NoPyProjectTomlFound)
         }
     }
-
-    /// Get a lock on the inner data
-    pub fn lock_data(&self) -> MutexGuard<Box<dyn ReadAndSeek + Send>> {
-        self.file.lock()
+    /// extract to
+    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
+        let src = self.lock_data();
+        Self::copy_dir_all(src.as_path(), work_dir)
     }
 }
 
-impl Artifact for SDist {
-    type Name = SDistFilename;
-
-    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
-        Ok(Self {
-            name,
-            file: Mutex::new(bytes),
-        })
-    }
-
-    fn name(&self) -> &Self::Name {
-        &self.name
+impl TryInto<WheelKey> for SDist {
+    type Error = std::io::Error;
+    fn try_into(self) -> Result<WheelKey, Self::Error> {
+        let mut vec = vec![];
+        let mut inner = self.lock_data();
+        inner.rewind()?;
+        inner.read_to_end(&mut vec)?;
+        Ok(WheelKey::from_bytes("sdist", &vec))
     }
 }
+
+// impl TryInto<WheelKey> for STree {
+//     type Error = std::io::Error;
+//     fn try_into(self) -> Result<WheelKey, Self::Error> {
+//         let mut vec = vec![];
+//         let mut inner = self.lock_data();
+//         let dir_entry = read_dir(inner.as_path())?;
+
+//         for entry in dir_entry{
+//             let entry = entry?;
+//             let modified = entry.metadata()?.modified()?;
+//             let mut hasher = DefaultHasher::new();
+//             modified.hash(& mut hasher);
+//             let hash = hasher.finish().to_ne_bytes().as_slice();
+//             vec.push(hash);
+//         }
+
+//         Ok(WheelKey::from_bytes("sdist", vec[0]))
+//     }
+// }
 
 enum RawAndGzReader<'a> {
     Raw(&'a mut Box<dyn ReadAndSeek + Send>),
@@ -241,7 +399,7 @@ mod tests {
     use crate::artifacts::SDist;
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
-    use crate::types::{NormalizedPackageName, PackageName};
+    use crate::types::{NormalizedPackageName, PackageName, SourceArtifact};
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
@@ -604,7 +762,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_rich_as_folder_as_source_dependency() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/stree/dev_folder");
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/stree/dev_folder_with_rich");
 
         let url =
             Url::parse(format!("file:///{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
