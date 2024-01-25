@@ -5,7 +5,7 @@ use crate::resolve::dependency_provider::{PypiDependencyProvider, PypiVersion};
 use crate::types::PackageName;
 use crate::{types::ArtifactInfo, types::Extra, types::NormalizedPackageName, types::Version};
 use pep508_rs::{MarkerEnvironment, Requirement};
-use resolvo::{DefaultSolvableDisplay, Solver};
+use resolvo::{DefaultSolvableDisplay, Solver, UnsolvableOrCancelled};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -238,12 +238,18 @@ pub async fn resolve<'db>(
     let solvables = match solver.solve(root_requirements) {
         Ok(solvables) => solvables,
         Err(e) => {
-            return Err(miette::miette!(
-                "{}",
-                e.display_user_friendly(&solver, &DefaultSolvableDisplay)
-                    .to_string()
-                    .trim()
-            ))
+            return match e {
+                UnsolvableOrCancelled::Unsolvable(problem) => Err(miette::miette!(
+                    "{}",
+                    problem
+                        .display_user_friendly(&solver, &DefaultSolvableDisplay)
+                        .to_string()
+                        .trim()
+                )),
+                UnsolvableOrCancelled::Cancelled(_) => {
+                    Err(miette::miette!("The resolution was cancelled"))
+                }
+            }
         }
     };
 
