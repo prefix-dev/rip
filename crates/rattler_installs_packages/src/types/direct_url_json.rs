@@ -7,9 +7,11 @@ use url::Url;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde_with::skip_serializing_none]
 pub struct DirectUrlJson {
-    url: Url,
+    /// Url to the source.
+    pub url: Url,
+    /// Information about the source.
     #[serde(flatten)]
-    source: DirectUrlSource,
+    pub source: DirectUrlSource,
 }
 
 /// Specifies the source of a direct url.
@@ -18,26 +20,41 @@ pub struct DirectUrlJson {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DirectUrlSource {
     #[serde(rename = "archive_info")]
-    Archive { hashes: DirectUrlHashes },
+    /// Information about the archive file.
+    Archive {
+        /// Hashes of the archive file.
+        hashes: DirectUrlHashes,
+    },
+    /// Information about a source from a VCS directly
     #[serde(rename = "vcs_info")]
     Vcs {
+        /// The VCS used
         vcs: DirectUrlVcs,
+        /// Revision of the source
         requested_revision: Option<String>,
+        /// Actual commit
         commit_id: String,
     },
+    /// Information about a local directory source
     #[serde(rename = "dir_info")]
-    Dir { editable: Option<bool> },
+    Dir {
+        /// Is this a editable source
+        /// See: https://pip.pypa.io/en/stable/topics/local-project-installs/
+        editable: Option<bool>,
+    },
 }
 
 /// Hashes for internal archive files.
 /// multiple hashes can be included but per recommendation only sha256 should be used.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DirectUrlHashes {
-    sha256: String,
+    /// Sha256 hash of the archive file.
+    pub sha256: String,
 }
 
 /// Name of the VCS in a DirectUrlSource
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(missing_docs)]
 pub enum DirectUrlVcs {
     #[serde(rename = "git")]
     Git,

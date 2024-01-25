@@ -26,7 +26,7 @@ pub use artifact_name::{
     SDistFormat, WheelFilename,
 };
 
-pub use direct_url_json::DirectUrlJson;
+pub use direct_url_json::{DirectUrlHashes, DirectUrlJson, DirectUrlSource, DirectUrlVcs};
 
 pub use core_metadata::{MetadataVersion, WheelCoreMetaDataError, WheelCoreMetadata};
 
