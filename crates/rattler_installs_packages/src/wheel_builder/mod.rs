@@ -90,37 +90,6 @@ pub enum WheelBuildError {
     VEnvError(#[from] VEnvError),
 }
 
-// impl TryFrom<&SDist> for WheelKey {
-//     type Error = std::io::Error;
-//     fn try_from(value: &SDist) -> Result<WheelKey, Self::Error> {
-//         let mut vec = vec![];
-//         let mut inner = value.lock_data();
-//         inner.rewind()?;
-//         inner.read_to_end(&mut vec)?;
-//         Ok(WheelKey::from_bytes("sdist", &vec))
-//     }
-// }
-
-// impl TryFrom<&SourceArtifact> for WheelKey {
-//     type Error = std::io::Error;
-//     fn try_from(value: &STree) -> Result<WheelKey, Self::Error> {
-//         let mut vec = vec![];
-//         let mut inner = value.lock_data();
-//         let dir_entry = read_dir(inner.as_path())?;
-
-//         for entry in dir_entry{
-//             let entry = entry?;
-//             let modified = entry.metadata()?.modified()?;
-//             let mut hasher = DefaultHasher::new();
-//             modified.hash(& mut hasher);
-//             let hash = hasher.finish().to_ne_bytes().as_slice();
-//             vec.push(hash);
-//         }
-
-//         Ok(WheelKey::from_bytes("sdist", vec[0]))
-//     }
-// }
-
 /// Get the requirements for the build system from the pyproject.toml
 /// will use a default if there are no requirements specified
 fn build_requirements(build_system: &pyproject_toml::BuildSystem) -> Vec<Requirement> {
