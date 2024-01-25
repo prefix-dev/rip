@@ -110,6 +110,16 @@ impl WheelCache {
         Self { path }
     }
 
+    /// List wheels in the cache
+    pub fn wheels(&self) -> impl Iterator<Item = serde_json::Result<WheelFilename>> {
+        cacache::index::ls(&self.path)
+            .filter_map(|index| index.ok())
+            .map(|index| {
+                serde_json::from_value::<WheelKeyMetadata>(index.metadata)
+                    .map(|metadata| metadata.wheel_filename)
+            })
+    }
+
     /// Save wheel into cache
     fn save_wheel(&self, wheel_contents: &mut dyn Read) -> Result<Integrity, WheelCacheError> {
         // Write the wheel to the cache
