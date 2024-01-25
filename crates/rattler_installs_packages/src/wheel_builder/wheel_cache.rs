@@ -226,5 +226,7 @@ mod tests {
         // Get back the wheel
         // See if we have a value
         cache.wheel_for_key(&key).unwrap().unwrap();
+
+        assert_eq!(cache.wheels().count(), 1);
     }
 }
