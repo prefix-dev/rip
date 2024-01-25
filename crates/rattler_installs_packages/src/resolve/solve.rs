@@ -256,9 +256,6 @@ pub async fn resolve<'db>(
         let solvable = pool.resolve_solvable(solvable_id);
         let name = pool.resolve_package_name(solvable.name_id());
         let version = solvable.inner();
-        // let PypiVersion::Version(version) = solvable.inner() else {
-        //     unreachable!("urls are not yet supported")
-        // };
 
         // Get the entry in the result
         let entry = result

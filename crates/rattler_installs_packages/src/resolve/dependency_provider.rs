@@ -442,10 +442,6 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
     fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
         let solvable = self.pool.resolve_solvable(solvable_id);
         let package_name = self.pool.resolve_package_name(solvable.name_id());
-        // let PypiVersion::Version(package_version) = solvable.inner() else {
-        //     unimplemented!("cannot get dependencies of wheels by url yet")
-        // };
-
         let package_version = solvable.inner();
 
         tracing::info!(

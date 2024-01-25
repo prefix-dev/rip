@@ -19,37 +19,45 @@ use std::path::{Path, PathBuf};
 use tar::Archive;
 use zip::ZipArchive;
 
-/// SourceArtifact Trait
-/// that can be SDist or STree
+
+/// SDist or STree act as a SourceArtifact
+/// so we can use it in methods where we expect sdist
+/// to extract metadata
 pub trait SourceArtifact: Sync {
-    /// getbytes
+    /// get bytes of an artifact
+    /// that will we be used for hashing
     fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
 
-    /// distribution name
+    /// Distributuion Name
     fn distribution_name(&self) -> &str;
 
-    /// version
+    /// Version
+    /// Can be URL or Version
     fn version(&self) -> PypiVersion;
 
-    /// artifactname
+    /// source artifact name
     fn artifact_name(&self) -> SourceArtifactName;
 
     /// Read the build system info from the pyproject.toml
     fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError>;
 
-    /// extract to
+    /// extract to a specific location
+    /// for sdist we unpack it
+    /// for stree we move it
+    /// as example this method is used by install_build_files
     fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
 
-    /// get wheel key
+    /// calculate wheelkey for this artifact
     fn get_wheel_key(&self) -> Result<WheelKey, std::io::Error>;
 }
 
-/// Represents a source tree which will be transformed into SDist/Wheel.
+/// Represents a source tree which can be a simple directory on filesystem
+/// or something cloned from git
 pub struct STree {
-    /// Name of the source distribution
+    /// Name of the source tree
     pub name: STreeFilename,
 
-    /// STree location
+    /// Source tree location
     pub location: Mutex<PathBuf>,
 }
 
@@ -58,7 +66,7 @@ impl STree {
     pub fn lock_data(&self) -> MutexGuard<PathBuf> {
         self.location.lock()
     }
-
+    /// Copy source tree directory in specific location
     fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
         fs::create_dir_all(&dst)?;
         for entry in fs::read_dir(src)? {
@@ -90,26 +98,20 @@ pub struct BuildSystem {
 }
 
 #[derive(thiserror::Error, Debug)]
-/// SDistErrors
 pub enum SDistError {
     #[error("IO error: {0}")]
-    /// SDistErrors
     Io(#[from] std::io::Error),
 
-    #[error("No PKG-INFO found in archive")]
-    /// SDistErrors
+    #[error("No PKG-INFO found in archive")]    
     NoPkgInfoFound,
 
     #[error("No pyproject.toml found in archive")]
-    /// SDistErrors
     NoPyProjectTomlFound,
 
-    #[error("Could not parse pyproject.toml")]
-    /// SDistErrors
+    #[error("Could not parse pyproject.toml")]    
     PyProjectTomlParseError(String),
 
     #[error("Could not parse metadata")]
-    /// SDistErrors
     WheelCoreMetaDataError(#[from] WheelCoreMetaDataError),
 }
 
@@ -208,6 +210,7 @@ impl SDist {
 
 impl Artifact for SDist {
     type Name = SDistFilename;
+    
     fn name(&self) -> &Self::Name {
         &self.name
     }
@@ -220,9 +223,11 @@ impl Artifact for SDist {
 }
 
 impl SourceArtifact for SDist {
+
     fn distribution_name(&self) -> &str {
         self.name().distribution.as_source_str()
     }
+
     fn version(&self) -> PypiVersion {
         PypiVersion::Version(self.name().version.clone())
     }
@@ -240,7 +245,6 @@ impl SourceArtifact for SDist {
     }
 
     fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
-        // Read the build system info from the pyproject.toml
         if let Some(bytes) = self.find_entry("pyproject.toml")? {
             let source = String::from_utf8(bytes).map_err(|e| {
                 SDistError::PyProjectTomlParseError(format!(
@@ -285,7 +289,8 @@ impl SourceArtifact for SDist {
 }
 
 impl SourceArtifact for STree {
-    /// getbytes
+    
+    /// read hash for last modified files
     fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
         let vec = vec![];
         let inner = self.lock_data();
@@ -304,22 +309,18 @@ impl SourceArtifact for STree {
         Ok(vec)
     }
 
-    /// distribution name
     fn distribution_name(&self) -> &str {
         self.name.distribution.as_source_str()
     }
 
-    /// version
     fn version(&self) -> PypiVersion {
         PypiVersion::Url(self.name.version.clone())
     }
 
-    /// artifactname
     fn artifact_name(&self) -> SourceArtifactName {
         SourceArtifactName::STree(self.name.clone())
     }
 
-    /// Read the build system info from the pyproject.toml
     fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
         let location = self.lock_data().join("pyproject.toml");
 
@@ -343,7 +344,7 @@ impl SourceArtifact for STree {
             Err(SDistError::NoPyProjectTomlFound)
         }
     }
-    /// extract to
+    /// move all files to a specific directory
     fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
         let src = self.lock_data();
         Self::copy_dir_all(src.as_path(), work_dir)
