@@ -1,4 +1,5 @@
 use crate::python_env::{ByteCodeCompiler, CompilationError};
+use crate::types::DirectUrlJson;
 use crate::{
     python_env::PythonInterpreterVersion,
     types::Artifact,
@@ -560,6 +561,9 @@ pub enum UnpackError {
 
     #[error("bytecode compilation failed, {0}")]
     ByteCodeCompilationFailed(String, #[source] CompilationError),
+
+    #[error("failed to write `direct_url.json` to .dist-info")]
+    FailedToWriteDirectUrlJson(#[from] serde_json::Error),
 }
 
 impl UnpackError {
@@ -594,6 +598,11 @@ pub struct UnpackWheelOptions<'i> {
     /// A reference to a bytecode compiler that can be used to compile the bytecode of the wheel. If
     /// this field is `None` bytecode compilation will be skipped.
     pub byte_code_compiler: Option<&'i ByteCodeCompiler>,
+
+    /// The `direct_url.json` file that should be written to the dist-info folder of the package.
+    /// because when using `unpack` on the wheel we do not know where it came from.
+    /// This needs to be supplied manually.
+    pub direct_url_json: Option<DirectUrlJson>,
 }
 
 #[derive(Debug)]
@@ -858,6 +867,16 @@ impl Wheel {
                 Path::new(&format!("{}/INSTALLER", &vitals.dist_info)),
                 &site_packages,
                 format!("{}\n", installer.trim()),
+                false,
+            )?);
+        }
+
+        // Write `direct_url.json` if requested
+        if let Some(direct_url_json) = options.direct_url_json.as_ref() {
+            resulting_records.push(write_generated_file(
+                Path::new(&format!("{}/direct_url.json", &vitals.dist_info)),
+                &site_packages,
+                serde_json::to_string(direct_url_json)?,
                 false,
             )?);
         }
@@ -1247,6 +1266,7 @@ impl<'a> WheelPathTransformer<'a> {
 mod test {
     use super::*;
     use crate::python_env::{system_python_executable, PythonLocation, VEnv, WheelTags};
+    use crate::types::{DirectUrlHashes, DirectUrlJson, DirectUrlSource};
     use rstest::rstest;
     use tempfile::{tempdir, TempDir};
     use test_utils::download_and_cache_file_async;
@@ -1393,6 +1413,39 @@ mod test {
 
         // Check to make sure that the headers directory was created
         assert!(venv.root().join("include/greenlet/greenlet.h").is_file());
+    }
+
+    #[test]
+    fn test_direct_url() {
+        let tmpdir = tempdir().unwrap();
+        let venv = VEnv::create(tmpdir.path(), PythonLocation::System).unwrap();
+
+        // Download our wheel file and install it in the virtual environment we just created
+        let package_path = test_utils::download_and_cache_file(
+            "https://files.pythonhosted.org/packages/02/72/36fb2c35547fdf473629579fc35d9a2034592ea3f01710702d81ef596e16/greenlet-3.0.1-cp310-cp310-win_amd64.whl".parse().unwrap(),
+            "52e93b28db27ae7d208748f45d2db8a7b6a380e0d703f099c949d0f0d80b70e9").unwrap();
+        let wheel = Wheel::from_path(&package_path, &"greenlet".parse().unwrap()).unwrap();
+
+        let direct_url = DirectUrlJson {
+            url: Url::from_directory_path(&package_path).unwrap(),
+            source: DirectUrlSource::Archive {
+                hashes: DirectUrlHashes {
+                    sha256: "95a7e86f46de9b5da6ec9365e1e96d1644c67328".to_string(),
+                },
+            },
+        };
+        let wheel = venv
+            .install_wheel(
+                &wheel,
+                &UnpackWheelOptions {
+                    direct_url_json: Some(direct_url),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        // Test if the direct_url.json file was written correctly
+        assert!(wheel.dist_info.join("direct_url.json").exists());
     }
 
     #[test]
