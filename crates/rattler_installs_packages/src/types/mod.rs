@@ -16,13 +16,17 @@ mod entry_points;
 
 mod project_info;
 
+mod direct_url_json;
 mod rfc822ish;
+
 pub use artifact::Artifact;
 
 pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFilename,
     SDistFormat, WheelFilename,
 };
+
+pub use direct_url_json::DirectUrlJson;
 
 pub use core_metadata::{MetadataVersion, WheelCoreMetaDataError, WheelCoreMetadata};
 
