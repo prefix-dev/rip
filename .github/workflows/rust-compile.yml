@@ -71,6 +71,8 @@ jobs:
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
+        with:
+          submodules: ${{ contains(matrix.name, 'Linux' ) }}
 
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -121,7 +123,6 @@ jobs:
           ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}
           --
           --nocapture
-      
 
       # test if venv works properly on windows
       # using old and newest python version
@@ -130,7 +131,14 @@ jobs:
       - name: Install pixi
         uses: prefix-dev/setup-pixi@v0.4.3
         with:
-          run-install: false
+          run-install: ${{ contains(matrix.name, 'Linux') }}
+
+      - name: Run end-to-end tests
+        if: contains(matrix.name, 'Linux')
+        shell: bash
+        run: |
+          pixi run install_packse
+          pixi run end_to_end_tests -v -s
 
       - name: Run pixi python==3.7.5 test
         if: contains(matrix.name, 'Windows')
