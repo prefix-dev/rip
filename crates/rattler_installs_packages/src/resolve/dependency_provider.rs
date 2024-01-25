@@ -129,7 +129,7 @@ pub(crate) struct PypiDependencyProvider<'db, 'i> {
 
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
-    name_to_url: HashMap<NormalizedPackageName, Url>,
+    pub name_to_url: FrozenMap<NormalizedPackageName, String>,
 
     options: &'i ResolveOptions,
 }
@@ -145,7 +145,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         compatible_tags: Option<&'i WheelTags>,
         locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
-        name_to_url: HashMap<NormalizedPackageName, Url>,
+        name_to_url: FrozenMap<NormalizedPackageName, String>,
         options: &'i ResolveOptions,
         env_variables: HashMap<String, String>,
     ) -> miette::Result<Self> {
@@ -178,7 +178,10 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
 
         let mut artifacts = artifacts
             .iter()
-            .filter(|a| a.filename.version().pre.is_none() && a.filename.version().dev.is_none())
+            .filter(|a| match a.filename.version() {
+                PypiVersion::Url(_) => true,
+                PypiVersion::Version(version) => version.pre.is_none() && version.dev.is_none(),
+            })
             .collect::<Vec<_>>();
 
         if artifacts.is_empty() {
@@ -213,7 +216,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         let mut sdists = if self.options.sdist_resolution.allow_sdists() {
             let mut sdists = artifacts
                 .iter()
-                .filter(|a| a.is::<SDist>())
+                .filter(|a| a.is::<SDist>() || a.filename.as_stree().is_some())
                 .cloned()
                 .collect::<Vec<_>>();
 
@@ -229,6 +232,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
                 a.filename
                     .as_sdist()
                     .is_some_and(|f| f.format.is_supported())
+                    || a.filename.as_stree().is_some()
             });
 
             if wheels.is_empty() && sdists.is_empty() {
@@ -248,6 +252,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
                         .all_tags_iter()
                         .any(|t| compatible_tags.is_compatible(&t)),
                     ArtifactName::SDist(_) => false,
+                    ArtifactName::STree(_) => false,
                 });
 
                 // Sort the artifacts from most compatible to least compatible, this ensures that we
@@ -365,9 +370,11 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 })
             }
             Some(url) => task::block_in_place(move || {
+                let url = Url::from_str(url).expect("cannot parse back url");
+
                 Handle::current().block_on(self.package_db.get_artifact_by_url(
                     package_name.base().clone(),
-                    url.clone(),
+                    url,
                     &self.wheel_builder,
                 ))
             }),
@@ -499,8 +506,6 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             );
         };
 
-        println!("METADATA IS {:?}", metadata);
-
         // Add constraints that restrict that the extra packages are set to the same version.
         if let PypiPackageName::Base(package_name) = package_name {
             // Add constraints on the extras of a package
@@ -544,14 +549,20 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 extras,
                 ..
             } = requirement;
-
             let name = PackageName::from_str(&name).expect("invalid package name");
             let dependency_name_id = self
                 .pool
                 .intern_package_name(PypiPackageName::Base(name.clone().into()));
+
             let version_set_id = self
                 .pool
                 .intern_version_set(dependency_name_id, version_or_url.clone().into());
+
+            if let Some(VersionOrUrl::Url(url)) = version_or_url.clone() {
+                self.name_to_url
+                    .insert(name.clone().into(), url.clone().as_str().to_owned());
+            }
+
             dependencies.requirements.push(version_set_id);
 
             // Add a unique package for each extra/optional dependency

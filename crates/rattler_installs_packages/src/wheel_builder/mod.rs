@@ -4,7 +4,6 @@ mod build_environment;
 mod wheel_cache;
 
 use fs_err as fs;
-use std::io::{Read, Seek};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
@@ -12,23 +11,19 @@ use std::{collections::HashMap, path::PathBuf};
 use parking_lot::Mutex;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
+use crate::artifacts::SourceArtifact;
 use crate::python_env::VEnvError;
 use crate::resolve::{ResolveOptions, SDistResolution};
 use crate::types::{
-    NormalizedPackageName, PackageName, ParseArtifactNameError, SourceArtifact, SourceArtifactName,
-    WheelFilename,
+    NormalizedPackageName, PackageName, ParseArtifactNameError, SourceArtifactName, WheelFilename,
 };
 use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
 use crate::{
     artifacts::wheel::UnpackError,
-    artifacts::SDist,
-    artifacts::STree,
     artifacts::Wheel,
     index::PackageDb,
     python_env::WheelTags,
-    types::Artifact,
-    types::SDistFilename,
     types::{WheelCoreMetaDataError, WheelCoreMetadata},
 };
 
@@ -95,16 +90,16 @@ pub enum WheelBuildError {
     VEnvError(#[from] VEnvError),
 }
 
-impl TryFrom<&SDist> for WheelKey {
-    type Error = std::io::Error;
-    fn try_from(value: &SDist) -> Result<WheelKey, Self::Error> {
-        let mut vec = vec![];
-        let mut inner = value.lock_data();
-        inner.rewind()?;
-        inner.read_to_end(&mut vec)?;
-        Ok(WheelKey::from_bytes("sdist", &vec))
-    }
-}
+// impl TryFrom<&SDist> for WheelKey {
+//     type Error = std::io::Error;
+//     fn try_from(value: &SDist) -> Result<WheelKey, Self::Error> {
+//         let mut vec = vec![];
+//         let mut inner = value.lock_data();
+//         inner.rewind()?;
+//         inner.read_to_end(&mut vec)?;
+//         Ok(WheelKey::from_bytes("sdist", &vec))
+//     }
+// }
 
 // impl TryFrom<&SourceArtifact> for WheelKey {
 //     type Error = std::io::Error;
@@ -183,7 +178,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     /// This function also caches the virtualenvs, so that they can be reused later.
     async fn setup_build_venv(
         &self,
-        sdist: &(impl SourceArtifact + ?Sized),
+        sdist: &impl SourceArtifact,
     ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
         if let Some(venv) = self.venv_cache.lock().get(&sdist.artifact_name()) {
             tracing::debug!(
@@ -235,14 +230,14 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
 
     #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
-    pub async fn get_sdist_metadata(
+    pub async fn get_sdist_metadata<S: SourceArtifact>(
         &self,
-        sdist: &dyn SourceArtifact,
+        sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         // See if we have a locally built wheel for this sdist
         // use that metadata instead
-
-        let key: WheelKey = WheelKey::try_from(sdist)?;
+        let key: WheelKey = sdist.get_wheel_key()?;
+        // let key: WheelKey = WheelKey::try_from(sdist)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return wheel.metadata().map_err(|e| {
                 WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
@@ -278,11 +273,12 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     /// Build a wheel from an sdist by using the build_backend in a virtual env.
     /// This function uses the `build_wheel` entry point of the build backend.
     #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
-    pub async fn build_wheel(&self, sdist: &dyn SourceArtifact) -> Result<Wheel, WheelBuildError> {
+    pub async fn build_wheel<S: SourceArtifact>(
+        &self,
+        sdist: &S,
+    ) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
-        println!("BUIDLING WHEEL");
-        let key = WheelKey::try_from(sdist)?;
-        println!("I NOT FAILED");
+        let key = sdist.get_wheel_key()?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return Ok(wheel);
         }
@@ -311,7 +307,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             .into();
 
         // Save the wheel into the cache
-        let key = WheelKey::try_from(sdist)?;
+        let key = sdist.get_wheel_key()?;
 
         // Reconstruction of the wheel filename
         let file_component = wheel_file
@@ -343,11 +339,10 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::SDist;
+    use crate::artifacts::{SDist, SourceArtifact};
     use crate::index::PackageDb;
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::ResolveOptions;
-    use crate::wheel_builder::wheel_cache::WheelKey;
     use crate::wheel_builder::WheelBuilder;
     use std::path::Path;
     use tempfile::TempDir;
@@ -384,10 +379,10 @@ mod tests {
         );
 
         // Build the wheel
-        wheel_builder.build_wheel(&sdist).await.unwrap();
+        wheel_builder.build_wheel::<SDist>(&sdist).await.unwrap();
 
         // See if we can retrieve it from the cache
-        let key = WheelKey::try_from(&sdist).unwrap();
+        let key = sdist.get_wheel_key().unwrap();
         wheel_builder
             .package_db
             .local_wheel_cache()

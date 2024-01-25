@@ -1,0 +1,39 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+assertion_line: 676
+expression: result.1
+---
+WheelCoreMetadata {
+    name: PackageName {
+        source: "UNKNOWN",
+        normalized: "unknown",
+    },
+    version: Version {
+        epoch: 0,
+        release: [
+            0,
+            0,
+            0,
+        ],
+        pre: None,
+        post: None,
+        dev: None,
+        local: None,
+    },
+    metadata_version: MetadataVersion(
+        Version {
+            epoch: 0,
+            release: [
+                2,
+                1,
+            ],
+            pre: None,
+            post: None,
+            dev: None,
+            local: None,
+        },
+    ),
+    requires_dist: [],
+    requires_python: None,
+    extras: {},
+}

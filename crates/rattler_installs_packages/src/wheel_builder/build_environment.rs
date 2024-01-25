@@ -1,9 +1,8 @@
 use crate::artifacts::wheel::UnpackWheelOptions;
-use crate::artifacts::SDist;
+use crate::artifacts::SourceArtifact;
 
 use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
-use crate::types::{Artifact, SourceArtifact};
 use crate::wheel_builder::{build_requirements, WheelBuildError, WheelBuilder};
 // use fs_err as fs;
 use pep508_rs::{MarkerEnvironment, Requirement};
@@ -220,7 +219,7 @@ impl<'db> BuildEnvironment<'db> {
 
     /// Setup the build environment so that we can build a wheel from an sdist
     pub(crate) async fn setup<'i>(
-        sdist: &(impl SourceArtifact + ?Sized),
+        sdist: &impl SourceArtifact,
         wheel_builder: &WheelBuilder<'db, 'i>,
         env_markers: &MarkerEnvironment,
         wheel_tags: Option<&WheelTags>,

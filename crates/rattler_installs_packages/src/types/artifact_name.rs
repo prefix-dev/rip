@@ -1,5 +1,4 @@
 use super::{NormalizedPackageName, PackageName, ParsePackageNameError};
-use crate::artifacts::SDistError;
 use crate::python_env::WheelTag;
 use crate::resolve::PypiVersion;
 use crate::types::Version;
@@ -8,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
-use std::path::Path;
 use std::str::FromStr;
 use thiserror::Error;
 use url::Url;
@@ -37,14 +35,17 @@ pub enum ArtifactName {
     Wheel(WheelFilename),
     /// Sdist artifact
     SDist(SDistFilename),
+    /// STree artifact
+    STree(STreeFilename),
 }
 
 impl ArtifactName {
     /// Returns the version of the artifact
-    pub fn version(&self) -> &Version {
+    pub fn version(&self) -> PypiVersion {
         match self {
-            ArtifactName::Wheel(name) => &name.version,
-            ArtifactName::SDist(name) => &name.version,
+            ArtifactName::Wheel(name) => PypiVersion::Version(name.version.clone()),
+            ArtifactName::SDist(name) => PypiVersion::Version(name.version.clone()),
+            ArtifactName::STree(name) => PypiVersion::Url(name.version.clone()),
         }
     }
 
@@ -53,6 +54,7 @@ impl ArtifactName {
         match self {
             ArtifactName::Wheel(wheel) => Some(wheel),
             ArtifactName::SDist(_) => None,
+            ArtifactName::STree(_) => None,
         }
     }
 
@@ -60,7 +62,17 @@ impl ArtifactName {
     pub fn as_sdist(&self) -> Option<&SDistFilename> {
         match self {
             ArtifactName::Wheel(_) => None,
+            ArtifactName::STree(_) => None,
             ArtifactName::SDist(sdist) => Some(sdist),
+        }
+    }
+
+    /// Returns this name as a source tree name
+    pub fn as_stree(&self) -> Option<&STreeFilename> {
+        match self {
+            ArtifactName::Wheel(_) => None,
+            ArtifactName::STree(name) => Some(name),
+            ArtifactName::SDist(_) => None,
         }
     }
 
@@ -75,6 +87,7 @@ impl Display for ArtifactName {
         match self {
             ArtifactName::Wheel(name) => write!(f, "{}", name),
             ArtifactName::SDist(name) => write!(f, "{}", name),
+            ArtifactName::STree(name) => write!(f, "{}", name),
         }
     }
 }
@@ -166,16 +179,6 @@ impl Display for BuildTag {
 
 /// Structure that contains the information that is contained in a source distribution name
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
-pub struct STreeFilename {
-    /// Distribution name, e.g. ‘django’, ‘pyramid’.
-    pub distribution: PackageName,
-
-    /// Distribution version, as URL
-    pub version: Url,
-}
-
-/// Structure that contains the information that is contained in a source distribution name
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
 pub struct SDistFilename {
     /// Distribution name, e.g. ‘django’, ‘pyramid’.
     pub distribution: PackageName,
@@ -187,6 +190,16 @@ pub struct SDistFilename {
     pub format: SDistFormat,
 }
 
+/// Structure that contains the information that is contained in a source distribution name
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
+pub struct STreeFilename {
+    /// Distribution name, e.g. ‘django’, ‘pyramid’.
+    pub distribution: PackageName,
+
+    /// Direct reference
+    pub version: Url,
+}
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
 /// SourceArtifactName
 pub enum SourceArtifactName {
@@ -194,27 +207,6 @@ pub enum SourceArtifactName {
     SDist(SDistFilename),
     /// STREE
     STree(STreeFilename),
-}
-
-/// SourceArtifact Trait
-pub trait SourceArtifact: Sync {
-    /// getbytes
-    fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
-
-    /// distribution name
-    fn distribution_name(&self) -> &str;
-
-    /// version
-    fn version(&self) -> PypiVersion;
-
-    /// artifactname
-    fn artifact_name(&self) -> SourceArtifactName;
-
-    /// Read the build system info from the pyproject.toml
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError>;
-
-    /// extract to
-    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
 }
 
 impl Display for SDistFilename {
@@ -225,6 +217,17 @@ impl Display for SDistFilename {
             dist = self.distribution.as_source_str(),
             ver = self.version,
             format = self.format,
+        )
+    }
+}
+
+impl Display for STreeFilename {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{dist}-{ver}",
+            dist = self.distribution.as_source_str(),
+            ver = self.version,
         )
     }
 }

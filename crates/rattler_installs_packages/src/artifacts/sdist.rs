@@ -1,7 +1,6 @@
 use crate::resolve::PypiVersion;
 use crate::types::{
-    Artifact, NormalizedPackageName, SDistFilename, SDistFormat, STreeFilename, SourceArtifact,
-    SourceArtifactName,
+    Artifact, NormalizedPackageName, SDistFilename, SDistFormat, STreeFilename, SourceArtifactName,
 };
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
@@ -19,6 +18,31 @@ use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 use zip::ZipArchive;
+
+/// SourceArtifact Trait
+/// that can be SDist or STree
+pub trait SourceArtifact: Sync {
+    /// getbytes
+    fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
+
+    /// distribution name
+    fn distribution_name(&self) -> &str;
+
+    /// version
+    fn version(&self) -> PypiVersion;
+
+    /// artifactname
+    fn artifact_name(&self) -> SourceArtifactName;
+
+    /// Read the build system info from the pyproject.toml
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError>;
+
+    /// extract to
+    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
+
+    /// get wheel key
+    fn get_wheel_key(&self) -> Result<WheelKey, std::io::Error>;
+}
 
 /// Represents a source tree which will be transformed into SDist/Wheel.
 pub struct STree {
@@ -253,13 +277,18 @@ impl SourceArtifact for SDist {
             }
         }
     }
+
+    fn get_wheel_key(&self) -> Result<WheelKey, std::io::Error> {
+        let vec = self.get_bytes()?;
+        Ok(WheelKey::from_bytes("sdist", vec))
+    }
 }
 
 impl SourceArtifact for STree {
     /// getbytes
     fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
-        let mut vec = vec![];
-        let mut inner = self.lock_data();
+        let vec = vec![];
+        let inner = self.lock_data();
         let mut dir_entry = read_dir(inner.as_path())?;
 
         let next_entry = dir_entry.next();
@@ -319,38 +348,23 @@ impl SourceArtifact for STree {
         let src = self.lock_data();
         Self::copy_dir_all(src.as_path(), work_dir)
     }
-}
 
-impl TryInto<WheelKey> for SDist {
-    type Error = std::io::Error;
-    fn try_into(self) -> Result<WheelKey, Self::Error> {
-        let mut vec = vec![];
-        let mut inner = self.lock_data();
-        inner.rewind()?;
-        inner.read_to_end(&mut vec)?;
-        Ok(WheelKey::from_bytes("sdist", &vec))
+    fn get_wheel_key(&self) -> Result<WheelKey, std::io::Error> {
+        let inner = self.lock_data();
+        let dir_entry = read_dir(inner.as_path())?;
+        let mut hasher = DefaultHasher::new();
+
+        for entry in dir_entry {
+            let entry = entry?;
+            let modified = entry.metadata()?.modified()?;
+            modified.hash(&mut hasher);
+        }
+        let hash = hasher.finish().to_ne_bytes();
+        let slice = hash.as_slice();
+
+        Ok(WheelKey::from_bytes("sdist", slice))
     }
 }
-
-// impl TryInto<WheelKey> for STree {
-//     type Error = std::io::Error;
-//     fn try_into(self) -> Result<WheelKey, Self::Error> {
-//         let mut vec = vec![];
-//         let mut inner = self.lock_data();
-//         let dir_entry = read_dir(inner.as_path())?;
-
-//         for entry in dir_entry{
-//             let entry = entry?;
-//             let modified = entry.metadata()?.modified()?;
-//             let mut hasher = DefaultHasher::new();
-//             modified.hash(& mut hasher);
-//             let hash = hasher.finish().to_ne_bytes().as_slice();
-//             vec.push(hash);
-//         }
-
-//         Ok(WheelKey::from_bytes("sdist", vec[0]))
-//     }
-// }
 
 enum RawAndGzReader<'a> {
     Raw(&'a mut Box<dyn ReadAndSeek + Send>),
@@ -396,10 +410,10 @@ fn generic_archive_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::SDist;
+    use crate::artifacts::{SDist, SourceArtifact};
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
-    use crate::types::{NormalizedPackageName, PackageName, SourceArtifact};
+    use crate::types::PackageName;
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
@@ -475,7 +489,10 @@ mod tests {
             HashMap::default(),
         );
 
-        let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
+        let result = wheel_builder
+            .get_sdist_metadata::<SDist>(&sdist)
+            .await
+            .unwrap();
 
         assert_debug_snapshot!(result.1);
     }
@@ -789,7 +806,7 @@ mod tests {
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
 
-        assert_debug_snapshot!(artifact_info[0].filename);
+        assert_debug_snapshot!(artifact_info[0].filename.as_stree().unwrap().distribution);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -817,5 +834,33 @@ mod tests {
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
 
         assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_git_reference_source_code() {
+        let url =
+            Url::parse("git+https://github.com/Textualize/rich.git").unwrap();
+
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        );
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0]);
     }
 }

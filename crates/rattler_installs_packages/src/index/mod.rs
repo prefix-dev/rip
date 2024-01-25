@@ -9,3 +9,4 @@ mod package_database;
 pub use package_database::PackageDb;
 
 pub use self::http::CacheMode;
+pub use html::parse_hash;

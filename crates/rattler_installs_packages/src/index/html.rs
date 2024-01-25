@@ -13,7 +13,8 @@ use url::Url;
 
 use crate::types::{ArtifactInfo, DistInfoMetadata, ProjectInfo, Yanked};
 
-fn parse_hash(s: &str) -> Option<ArtifactHashes> {
+/// Parse a hash from url fragment
+pub fn parse_hash(s: &str) -> Option<ArtifactHashes> {
     if let Some(("sha256", hex)) = s.split_once('=') {
         Some(ArtifactHashes {
             sha256: parse_digest_from_hex::<Sha256>(hex),

@@ -5,11 +5,11 @@ use crate::resolve::dependency_provider::PypiDependencyProvider;
 use crate::resolve::PypiVersion;
 use crate::types::PackageName;
 use crate::{types::ArtifactInfo, types::Extra, types::NormalizedPackageName};
+use elsa::FrozenMap;
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
 use resolvo::{DefaultSolvableDisplay, Pool, Solver};
 use std::collections::HashMap;
 use std::str::FromStr;
-use url::Url;
 
 use std::collections::HashSet;
 
@@ -186,7 +186,7 @@ pub async fn resolve<'db>(
     let pool: Pool<PypiVersionSet, PypiPackageName> = Pool::new();
 
     // Construct HashMap of Name to URL
-    let mut name_to_url: HashMap<NormalizedPackageName, Url> = HashMap::default();
+    let name_to_url: FrozenMap<NormalizedPackageName, String> = FrozenMap::default();
 
     // Construct the root requirements from the requirements requested by the user.
     let requirements = requirements.into_iter();
@@ -208,8 +208,10 @@ pub async fn resolve<'db>(
             pool.intern_version_set(dependency_package_name, version_or_url.clone().into());
         root_requirements.push(version_set_id);
 
+        // let url_str
+
         if let Some(VersionOrUrl::Url(url)) = version_or_url {
-            name_to_url.insert(pypi_name.base().clone(), url.clone());
+            name_to_url.insert(pypi_name.base().clone(), url.clone().as_str().to_owned());
         }
 
         for extra in extras.iter().flatten() {
