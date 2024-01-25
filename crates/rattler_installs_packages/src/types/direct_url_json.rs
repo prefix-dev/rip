@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 /// Specifies the PyPa `direct_url.json` format.
-/// See: https://packaging.python.org/en/latest/specifications/direct-url-data-structure/
+/// See: <https://packaging.python.org/en/latest/specifications/direct-url-data-structure/>
 ///
 #[derive(Debug, Serialize, Deserialize)]
 #[serde_with::skip_serializing_none]
@@ -39,7 +39,7 @@ pub enum DirectUrlSource {
     #[serde(rename = "dir_info")]
     Dir {
         /// Is this a editable source
-        /// See: https://pip.pypa.io/en/stable/topics/local-project-installs/
+        /// See: <https://pip.pypa.io/en/stable/topics/local-project-installs/>
         editable: Option<bool>,
     },
 }
