@@ -22,7 +22,7 @@ use miette::{self, Diagnostic, IntoDiagnostic};
 use parking_lot::Mutex;
 use rattler_build::recipe::parser::{GitRev, GitSource, GitUrl};
 use rattler_build::source::git_source::git_src;
-use rattler_digest::{compute_bytes_digest, Sha256};
+use rattler_digest::{compute_bytes_digest, parse_digest_from_hex, Sha256};
 use reqwest::{header::CACHE_CONTROL, Client, StatusCode};
 use std::ffi::OsStr;
 use std::fs;
@@ -293,8 +293,12 @@ impl PackageDb {
                 let sdist_hash = dummy_sdist.get_wheel_key().into_diagnostic()?;
 
                 if let Some(hash) = url_hash.clone() {
-                    let hash_str = format!("{:?}", hash);
-                    assert_eq!(hash_str, sdist_hash.to_string())
+                    
+                    let right_hash = ArtifactHashes {
+                        sha256: parse_digest_from_hex::<Sha256>(sdist_hash.to_string().as_str()),
+                    };
+
+                    assert_eq!(hash, right_hash);
                 }
 
                 let (data_bytes, metadata) = wheel_builder

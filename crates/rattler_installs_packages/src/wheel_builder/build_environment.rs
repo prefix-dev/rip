@@ -59,7 +59,6 @@ impl<'db> BuildEnvironment<'db> {
             if let Some(parent) = fs::read_dir(&self.package_dir)?.last() {
                 let dir = parent?.path();
                 self.package_dir = dir;
-                println!("NEW PACKAGE DIR IS {:?}", &self.package_dir);
             }
         }
 
