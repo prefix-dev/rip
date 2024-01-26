@@ -4,7 +4,10 @@ mod build_environment;
 mod wheel_cache;
 
 use fs_err as fs;
+
+use std::collections::HashSet;
 use std::str::FromStr;
+
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
@@ -12,13 +15,13 @@ use parking_lot::Mutex;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
 use crate::artifacts::SourceArtifact;
-use crate::python_env::VEnvError;
-use crate::resolve::{ResolveOptions, SDistResolution};
+use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion, VEnvError};
+use crate::resolve::{OnWheelBuildFailure, ResolveOptions};
 use crate::types::{
     NormalizedPackageName, PackageName, ParseArtifactNameError, SourceArtifactName, WheelFilename,
 };
 use crate::wheel_builder::build_environment::BuildEnvironment;
-pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelKey};
+pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelCacheKey};
 use crate::{
     artifacts::wheel::UnpackError,
     artifacts::Wheel,
@@ -50,6 +53,14 @@ pub struct WheelBuilder<'db, 'i> {
 
     /// The passed environment variables
     env_variables: HashMap<String, String>,
+
+    /// Saved build environments
+    /// This is used to save build environments for debugging
+    /// only if the `save_on_failure` option is set in resolve options
+    saved_build_envs: Mutex<HashSet<PathBuf>>,
+
+    /// Python interpreter version
+    python_version: PythonInterpreterVersion,
 }
 
 /// An error that can occur while building a wheel
@@ -68,8 +79,8 @@ pub enum WheelBuildError {
     #[error("could not run command {0} to build wheel: {1}")]
     CouldNotRunCommand(String, std::io::Error),
 
-    #[error("could not resolve environment for wheel building")]
-    CouldNotResolveEnvironment(Vec<Requirement>),
+    #[error("could not resolve environment for wheel building: {1:?}")]
+    CouldNotResolveEnvironment(Vec<Requirement>, miette::Report),
 
     #[error("error parsing JSON from extra_requirements.json: {0}")]
     JSONError(#[from] serde_json::Error),
@@ -88,59 +99,47 @@ pub enum WheelBuildError {
 
     #[error("error creating venv: {0}")]
     VEnvError(#[from] VEnvError),
-}
 
-/// Get the requirements for the build system from the pyproject.toml
-/// will use a default if there are no requirements specified
-fn build_requirements(build_system: &pyproject_toml::BuildSystem) -> Vec<Requirement> {
-    const DEFAULT_REQUIREMENTS: &[&str; 2] = &["setuptools", "wheel"];
-    if build_system.requires.is_empty() {
-        DEFAULT_REQUIREMENTS
-            .iter()
-            .map(|r| Requirement {
-                name: r.to_string(),
-                extras: None,
-                version_or_url: None,
-                marker: None,
-            })
-            .collect()
-    } else {
-        build_system.requires.clone()
-    }
+    #[error("backend path in pyproject.toml not relative: {0}")]
+    BackendPathNotRelative(PathBuf),
+
+    #[error(
+        "backend path in pyproject.toml not resolving to a path in the package directory: {0}"
+    )]
+    BackendPathNotInPackageDir(PathBuf),
+
+    #[error("could not join path: {0}")]
+    CouldNotJoinPath(#[from] std::env::JoinPathsError),
 }
 
 impl<'db, 'i> WheelBuilder<'db, 'i> {
     /// Create a new wheel builder
-    #[must_use]
     pub fn new(
         package_db: &'db PackageDb,
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
         resolve_options: &ResolveOptions,
         env_variables: HashMap<String, String>,
-    ) -> Self {
-        // We are running into a chicken & egg problem if we want to build wheels for packages that
-        // require their build system as sdist as well. For example, `hatchling` requires `hatchling` as
-        // build system. Hypothetically we'd have to look through all the hatchling sdists to find the one
-        // that doesn't depend on itself.
-        // Instead, we use wheels to build wheels.
-        let resolve_options = if resolve_options.sdist_resolution == SDistResolution::OnlySDists {
-            ResolveOptions {
-                sdist_resolution: SDistResolution::PreferWheels,
-                ..resolve_options.clone()
-            }
-        } else {
-            resolve_options.clone()
-        };
+    ) -> Result<Self, ParsePythonInterpreterVersionError> {
+        let resolve_options = resolve_options.clone();
 
-        Self {
+        let python_version = resolve_options.python_location.version()?;
+
+        Ok(Self {
             venv_cache: Mutex::new(HashMap::new()),
             package_db,
             env_markers,
             wheel_tags,
             resolve_options,
             env_variables,
-        }
+            saved_build_envs: Mutex::new(HashSet::new()),
+            python_version,
+        })
+    }
+
+    /// Get the python interpreter version
+    pub fn python_version(&self) -> &PythonInterpreterVersion {
+        &self.python_version
     }
 
     /// Get a prepared virtualenv for building a wheel (or extracting metadata) from an `[SDist]`
@@ -148,7 +147,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     async fn setup_build_venv(
         &self,
         sdist: &impl SourceArtifact,
-    ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
+    ) -> Result<Arc<BuildEnvironment<'db>>, WheelBuildError> {
         if let Some(venv) = self.venv_cache.lock().get(&sdist.artifact_name()) {
             tracing::debug!(
                 "using cached virtual env for: {:?}",
@@ -195,6 +194,36 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             .ok_or_else(|| WheelBuildError::Error("Could not get venv from cache".to_string()));
     }
 
+    /// Get the paths to the saved build environments
+    pub fn saved_build_envs(&self) -> HashSet<PathBuf> {
+        self.saved_build_envs.lock().clone()
+    }
+
+    /// Handle's a build failure by either saving the build environment or deleting it
+    fn handle_build_failure<T>(
+        &self,
+        result: Result<T, WheelBuildError>,
+        build_environment: &BuildEnvironment,
+    ) -> Result<T, WheelBuildError> {
+        if self.resolve_options.on_wheel_build_failure != OnWheelBuildFailure::SaveBuildEnv {
+            return result;
+        }
+        if let Err(e) = result {
+            // Persist the build environment
+            build_environment.persist();
+
+            // Save the information for later usage
+            let path = build_environment.work_dir();
+            tracing::info!("saved build environment is available at: {:?}", &path);
+            self.saved_build_envs
+                .lock()
+                .insert(build_environment.work_dir());
+            Err(e)
+        } else {
+            result
+        }
+    }
+
     /// Get the metadata for a given sdist by using the build_backend in a virtual env
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
 
@@ -205,8 +234,8 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         // See if we have a locally built wheel for this sdist
         // use that metadata instead
-        let key: WheelKey = sdist.get_wheel_key()?;
-        // let key: WheelKey = WheelKey::try_from(sdist)?;
+        // let key: WheelKey = sdist.get_wheel_key()?;
+        let key: WheelCacheKey = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return wheel.metadata().map_err(|e| {
                 WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
@@ -215,6 +244,19 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         let build_environment = self.setup_build_venv(sdist).await?;
 
+        // Capture the result of the build
+        // to handle different failure modes
+        let result = self
+            .get_sdist_metadata_internal(&build_environment, sdist)
+            .await;
+        self.handle_build_failure(result, &build_environment)
+    }
+
+    async fn get_sdist_metadata_internal<S: SourceArtifact>(
+        &self,
+        build_environment: &Arc<BuildEnvironment<'db>>,
+        sdist: &S,
+    ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         let output = build_environment.run_command("WheelMetadata")?;
         println!("OUTPUT IS {:?}", output);
         if !output.status.success() {
@@ -247,14 +289,25 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         sdist: &S,
     ) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
-        let key = sdist.get_wheel_key()?;
+        let key = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return Ok(wheel);
         }
 
         // Setup a new virtualenv for building the wheel or use an existing
         let build_environment = self.setup_build_venv(sdist).await?;
+        // Capture the result of the build
+        // to handle different failure modes
+        let result = self.build_wheel_internal(&build_environment, sdist).await;
 
+        self.handle_build_failure(result, &build_environment)
+    }
+
+    async fn build_wheel_internal<S: SourceArtifact>(
+        &self,
+        build_environment: &Arc<BuildEnvironment<'db>>,
+        sdist: &S,
+    ) -> Result<Wheel, WheelBuildError> {
         // Run the wheel stage
         let output = build_environment.run_command("Wheel")?;
 
@@ -276,7 +329,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             .into();
 
         // Save the wheel into the cache
-        let key = sdist.get_wheel_key()?;
+        let key = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
 
         // Reconstruction of the wheel filename
         let file_component = wheel_file
@@ -310,17 +363,22 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 mod tests {
     use crate::artifacts::{SDist, SourceArtifact};
     use crate::index::PackageDb;
-    use crate::python_env::Pep508EnvMakers;
+    use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
     use crate::resolve::ResolveOptions;
+    use crate::wheel_builder::wheel_cache::WheelCacheKey;
     use crate::wheel_builder::WheelBuilder;
+    use reqwest::Client;
+    use reqwest_middleware::ClientWithMiddleware;
     use std::path::Path;
     use tempfile::TempDir;
 
     fn get_package_db() -> (PackageDb, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
+        let client = ClientWithMiddleware::from(Client::new());
+
         (
             PackageDb::new(
-                Default::default(),
+                client,
                 &[url::Url::parse("https://pypi.org/simple/").unwrap()],
                 tempdir.path(),
             )
@@ -345,18 +403,66 @@ mod tests {
             None,
             &resolve_options,
             Default::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         wheel_builder.build_wheel::<SDist>(&sdist).await.unwrap();
 
         // See if we can retrieve it from the cache
-        let key = sdist.get_wheel_key().unwrap();
+        let key = WheelCacheKey::from_sdist(&sdist, wheel_builder.python_version()).unwrap();
         wheel_builder
             .package_db
             .local_wheel_cache()
             .wheel_for_key(&key)
             .unwrap()
             .unwrap();
+
+        // No one will be using 1.0.0, I reckon
+        let older_python = PythonInterpreterVersion::new(1, 0, 0);
+        let key = WheelCacheKey::from_sdist(&sdist, &older_python).unwrap();
+        assert!(wheel_builder
+            .package_db
+            .local_wheel_cache()
+            .wheel_for_key(&key)
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_and_save_env() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/tampered-rich-13.6.0.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"tampered-rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions {
+            on_wheel_build_failure: crate::resolve::OnWheelBuildFailure::SaveBuildEnv,
+            ..Default::default()
+        };
+
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            Default::default(),
+        )
+        .unwrap();
+
+        // Build the wheel
+        // this should fail because we don't have the right environment
+        let result = wheel_builder.build_wheel(&sdist).await;
+        assert!(result.is_err());
+
+        let saved_build_envs = wheel_builder.saved_build_envs();
+        assert_eq!(saved_build_envs.len(), 1);
+
+        let path = saved_build_envs.iter().next().unwrap();
+
+        // Check if the build env is there
+        assert!(path.exists());
     }
 }

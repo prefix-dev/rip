@@ -1,0 +1,1464 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+expression: metadata
+---
+WheelCoreMetadata {
+    name: PackageName {
+        source: "setuptools",
+        normalized: "setuptools",
+    },
+    version: Version {
+        epoch: 0,
+        release: [
+            69,
+            0,
+            2,
+        ],
+        pre: None,
+        post: None,
+        dev: None,
+        local: None,
+    },
+    metadata_version: MetadataVersion(
+        Version {
+            epoch: 0,
+            release: [
+                2,
+                1,
+            ],
+            pre: None,
+            post: None,
+            dev: None,
+            local: None,
+        },
+    ),
+    requires_dist: [
+        Requirement {
+            name: "sphinx",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        3,
+                                        5,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "sphinx",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: LessThan,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        7,
+                                        2,
+                                        5,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "jaraco.packaging",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        9,
+                                        3,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "rst.linker",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        1,
+                                        9,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "furo",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "sphinx-lint",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "jaraco.tidelift",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        1,
+                                        4,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pygments-github-lexers",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: Equal,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
+                                        0,
+                                        5,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "sphinx-favicon",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "sphinx-inline-tabs",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "sphinx-reredirects",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "sphinxcontrib-towncrier",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "sphinx-notfound-page",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: LessThan,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        2,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        1,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "docs",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        6,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-checkdocs",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        2,
+                                        4,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-enabler",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        2,
+                                        2,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "flake8-2020",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "virtualenv",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        13,
+                                        0,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "wheel",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pip",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        19,
+                                        1,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "jaraco.envs",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        2,
+                                        2,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-xdist",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "jaraco.path",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        3,
+                                        2,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "build",
+            extras: Some(
+                [
+                    "virtualenv",
+                ],
+            ),
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "filelock",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        3,
+                                        4,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "ini2toml",
+            extras: Some(
+                [
+                    "lite",
+                ],
+            ),
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
+                                        9,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "tomli-w",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        1,
+                                        0,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-timeout",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-xdist",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-enabler",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "virtualenv",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        13,
+                                        0,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "tomli",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "wheel",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "jaraco.path",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        3,
+                                        2,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "jaraco.envs",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        2,
+                                        2,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "build",
+            extras: Some(
+                [
+                    "virtualenv",
+                ],
+            ),
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        1,
+                                        0,
+                                        3,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "filelock",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        3,
+                                        4,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "packaging",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        23,
+                                        1,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                Expression(
+                    MarkerExpression {
+                        l_value: Extra,
+                        operator: Equal,
+                        r_value: QuotedString(
+                            "testing-integration",
+                        ),
+                    },
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-black",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
+                                        3,
+                                        7,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                And(
+                    [
+                        Expression(
+                            MarkerExpression {
+                                l_value: MarkerEnvString(
+                                    PlatformPythonImplementation,
+                                ),
+                                operator: NotEqual,
+                                r_value: QuotedString(
+                                    "PyPy",
+                                ),
+                            },
+                        ),
+                        Expression(
+                            MarkerExpression {
+                                l_value: Extra,
+                                operator: Equal,
+                                r_value: QuotedString(
+                                    "testing",
+                                ),
+                            },
+                        ),
+                    ],
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-cov",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                And(
+                    [
+                        Expression(
+                            MarkerExpression {
+                                l_value: MarkerEnvString(
+                                    PlatformPythonImplementation,
+                                ),
+                                operator: NotEqual,
+                                r_value: QuotedString(
+                                    "PyPy",
+                                ),
+                            },
+                        ),
+                        Expression(
+                            MarkerExpression {
+                                l_value: Extra,
+                                operator: Equal,
+                                r_value: QuotedString(
+                                    "testing",
+                                ),
+                            },
+                        ),
+                    ],
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-mypy",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
+                                        9,
+                                        1,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                And(
+                    [
+                        Expression(
+                            MarkerExpression {
+                                l_value: MarkerEnvString(
+                                    PlatformPythonImplementation,
+                                ),
+                                operator: NotEqual,
+                                r_value: QuotedString(
+                                    "PyPy",
+                                ),
+                            },
+                        ),
+                        Expression(
+                            MarkerExpression {
+                                l_value: Extra,
+                                operator: Equal,
+                                r_value: QuotedString(
+                                    "testing",
+                                ),
+                            },
+                        ),
+                    ],
+                ),
+            ),
+        },
+        Requirement {
+            name: "jaraco.develop",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        7,
+                                        21,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: Some(
+                And(
+                    [
+                        And(
+                            [
+                                Expression(
+                                    MarkerExpression {
+                                        l_value: MarkerEnvVersion(
+                                            PythonVersion,
+                                        ),
+                                        operator: GreaterEqual,
+                                        r_value: QuotedString(
+                                            "3.9",
+                                        ),
+                                    },
+                                ),
+                                Expression(
+                                    MarkerExpression {
+                                        l_value: MarkerEnvString(
+                                            SysPlatform,
+                                        ),
+                                        operator: NotEqual,
+                                        r_value: QuotedString(
+                                            "cygwin",
+                                        ),
+                                    },
+                                ),
+                            ],
+                        ),
+                        Expression(
+                            MarkerExpression {
+                                l_value: Extra,
+                                operator: Equal,
+                                r_value: QuotedString(
+                                    "testing",
+                                ),
+                            },
+                        ),
+                    ],
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-ruff",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                And(
+                    [
+                        Expression(
+                            MarkerExpression {
+                                l_value: MarkerEnvString(
+                                    SysPlatform,
+                                ),
+                                operator: NotEqual,
+                                r_value: QuotedString(
+                                    "cygwin",
+                                ),
+                            },
+                        ),
+                        Expression(
+                            MarkerExpression {
+                                l_value: Extra,
+                                operator: Equal,
+                                r_value: QuotedString(
+                                    "testing",
+                                ),
+                            },
+                        ),
+                    ],
+                ),
+            ),
+        },
+        Requirement {
+            name: "pytest-perf",
+            extras: None,
+            version_or_url: None,
+            marker: Some(
+                And(
+                    [
+                        Expression(
+                            MarkerExpression {
+                                l_value: MarkerEnvString(
+                                    SysPlatform,
+                                ),
+                                operator: NotEqual,
+                                r_value: QuotedString(
+                                    "cygwin",
+                                ),
+                            },
+                        ),
+                        Expression(
+                            MarkerExpression {
+                                l_value: Extra,
+                                operator: Equal,
+                                r_value: QuotedString(
+                                    "testing",
+                                ),
+                            },
+                        ),
+                    ],
+                ),
+            ),
+        },
+    ],
+    requires_python: Some(
+        VersionSpecifiers(
+            [
+                VersionSpecifier {
+                    operator: GreaterThanEqual,
+                    version: Version {
+                        epoch: 0,
+                        release: [
+                            3,
+                            8,
+                        ],
+                        pre: None,
+                        post: None,
+                        dev: None,
+                        local: None,
+                    },
+                },
+            ],
+        ),
+    ),
+    extras: {},
+}

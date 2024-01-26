@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use once_cell::sync::OnceCell;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -13,38 +14,41 @@ pub enum FindPythonError {
     IoError(#[from] std::io::Error),
 }
 
+/// Return cached python executable.
 /// Try to find the python executable in the current environment.
 /// Using sys.executable aproach will return original interpretator path
-/// and not the shim in case of using which
-pub fn system_python_executable() -> Result<PathBuf, FindPythonError> {
-    // When installed with homebrew on macOS, the python3 executable is called `python3` instead
-    // Also on some ubuntu installs this is the case
-    // For windows it should just be python
+/// and not the shim in case of using which.
+pub fn system_python_executable() -> Result<&'static PathBuf, FindPythonError> {
+    static SYSTEM_PYTHON_EXECUTABLE: OnceCell<PathBuf> = OnceCell::new();
+    SYSTEM_PYTHON_EXECUTABLE.get_or_try_init(|| {
+        // When installed with homebrew on macOS, the python3 executable is called `python3` instead
+        // Also on some ubuntu installs this is the case
+        // For windows it should just be python
+        let output = match std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import sys; print(sys.executable, end='')")
+            .output()
+            .or_else(|_| {
+                std::process::Command::new("python")
+                    .arg("-c")
+                    .arg("import sys; print(sys.executable, end='')")
+                    .output()
+            }) {
+            Err(e) if e.kind() == ErrorKind::NotFound => return Err(FindPythonError::NotFound),
+            Err(e) => return Err(FindPythonError::IoError(e)),
+            Ok(output) => output,
+        };
 
-    let output = match std::process::Command::new("python3")
-        .arg("-c")
-        .arg("import sys; print(sys.executable, end='')")
-        .output()
-        .or_else(|_| {
-            std::process::Command::new("python")
-                .arg("-c")
-                .arg("import sys; print(sys.executable, end='')")
-                .output()
-        }) {
-        Err(e) if e.kind() == ErrorKind::NotFound => return Err(FindPythonError::NotFound),
-        Err(e) => return Err(FindPythonError::IoError(e)),
-        Ok(output) => output,
-    };
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let python_path = PathBuf::from_str(&stdout).unwrap();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let python_path = PathBuf::from_str(&stdout).unwrap();
+        // sys.executable can return empty string or python's None
+        if !python_path.exists() {
+            return Err(FindPythonError::NotFound);
+        }
 
-    // sys.executable can return empty string or python's None
-    if !python_path.exists() {
-        return Err(FindPythonError::NotFound);
-    }
-
-    Ok(python_path)
+        Ok(python_path)
+    })
 }
 
 /// Errors that can occur while trying to parse the python version
@@ -59,8 +63,8 @@ pub enum ParsePythonInterpreterVersionError {
     FindPythonError(#[from] FindPythonError),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
 /// Represents a Python interpreters version parts.
-#[derive(Clone)]
 pub struct PythonInterpreterVersion {
     /// The major version of the interpreter.
     pub major: u32,
@@ -125,7 +129,8 @@ impl PythonInterpreterVersion {
 
     /// Get the python version from the system interpreter
     pub fn from_system() -> Result<Self, ParsePythonInterpreterVersionError> {
-        Self::from_path(&system_python_executable()?)
+        let python_path = system_python_executable()?;
+        Self::from_path(python_path)
     }
 
     /// Get the python version a path to the python executable

@@ -7,7 +7,8 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use http::header::{ACCEPT, CACHE_CONTROL};
 use http_cache_semantics::{AfterResponse, BeforeRequest, CachePolicy};
 use miette::Diagnostic;
-use reqwest::{header::HeaderMap, Client, Method};
+use reqwest::{header::HeaderMap, Method};
+use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -41,14 +42,14 @@ pub enum CacheMode {
 
 #[derive(Debug, Clone)]
 pub struct Http {
-    pub(crate) client: Client,
+    pub(crate) client: ClientWithMiddleware,
     http_cache: Arc<FileStore>,
 }
 
 #[derive(Debug, Error, Diagnostic)]
 pub enum HttpRequestError {
     #[error(transparent)]
-    HttpError(#[from] reqwest::Error),
+    HttpError(#[from] reqwest_middleware::Error),
 
     #[error(transparent)]
     IoError(#[from] io::Error),
@@ -58,9 +59,15 @@ pub enum HttpRequestError {
     NotCached(#[from] NotCached),
 }
 
+impl From<reqwest::Error> for HttpRequestError {
+    fn from(e: reqwest::Error) -> Self {
+        Self::HttpError(e.into())
+    }
+}
+
 impl Http {
     /// Constructs a new instance.
-    pub fn new(client: Client, http_cache: FileStore) -> Self {
+    pub fn new(client: ClientWithMiddleware, http_cache: FileStore) -> Self {
         Http {
             client,
             http_cache: Arc::new(http_cache),
@@ -317,7 +324,7 @@ async fn fill_cache_async(
 
 /// Converts from a `http::request::Parts` into a `reqwest::Request`.
 fn convert_request(
-    client: Client,
+    client: ClientWithMiddleware,
     parts: http::request::Parts,
 ) -> Result<reqwest::Request, reqwest::Error> {
     client

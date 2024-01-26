@@ -4,12 +4,11 @@ use crate::types::{
 };
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
-use crate::wheel_builder::WheelKey;
+use crate::wheel_builder::WheelCacheKey;
 use flate2::read::GzDecoder;
 // use fs_err as fs;
 use miette::IntoDiagnostic;
 use parking_lot::{Mutex, MutexGuard};
-use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::ffi::OsStr;
 use std::fs::{self, read_dir};
@@ -18,7 +17,6 @@ use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 use zip::ZipArchive;
-
 
 /// SDist or STree act as a SourceArtifact
 /// so we can use it in methods where we expect sdist
@@ -48,7 +46,7 @@ pub trait SourceArtifact: Sync {
     fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
 
     /// calculate wheelkey for this artifact
-    fn get_wheel_key(&self) -> Result<WheelKey, std::io::Error>;
+    fn get_wheel_key(&self) -> Result<WheelCacheKey, std::io::Error>;
 }
 
 /// Represents a source tree which can be a simple directory on filesystem
@@ -91,24 +89,18 @@ pub struct SDist {
     file: Mutex<Box<dyn ReadAndSeek + Send>>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct BuildSystem {
-    backend_path: Vec<PathBuf>,
-    build_backend: String,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum SDistError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("No PKG-INFO found in archive")]    
+    #[error("No PKG-INFO found in archive")]
     NoPkgInfoFound,
 
     #[error("No pyproject.toml found in archive")]
     NoPyProjectTomlFound,
 
-    #[error("Could not parse pyproject.toml")]    
+    #[error("Could not parse pyproject.toml")]
     PyProjectTomlParseError(String),
 
     #[error("Could not parse metadata")]
@@ -210,7 +202,7 @@ impl SDist {
 
 impl Artifact for SDist {
     type Name = SDistFilename;
-    
+
     fn name(&self) -> &Self::Name {
         &self.name
     }
@@ -223,13 +215,15 @@ impl Artifact for SDist {
 }
 
 impl SourceArtifact for SDist {
-
     fn distribution_name(&self) -> &str {
         self.name().distribution.as_source_str()
     }
 
     fn version(&self) -> PypiVersion {
-        PypiVersion::Version(self.name().version.clone())
+        PypiVersion::Version {
+            version: self.name().version.clone(),
+            package_allows_prerelease: false,
+        }
     }
 
     fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
@@ -282,14 +276,13 @@ impl SourceArtifact for SDist {
         }
     }
 
-    fn get_wheel_key(&self) -> Result<WheelKey, std::io::Error> {
+    fn get_wheel_key(&self) -> Result<WheelCacheKey, std::io::Error> {
         let vec = self.get_bytes()?;
-        Ok(WheelKey::from_bytes("sdist", vec))
+        Ok(WheelCacheKey::from_bytes("sdist", vec))
     }
 }
 
 impl SourceArtifact for STree {
-    
     /// read hash for last modified files
     fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
         let vec = vec![];
@@ -350,7 +343,7 @@ impl SourceArtifact for STree {
         Self::copy_dir_all(src.as_path(), work_dir)
     }
 
-    fn get_wheel_key(&self) -> Result<WheelKey, std::io::Error> {
+    fn get_wheel_key(&self) -> Result<WheelCacheKey, std::io::Error> {
         let inner = self.lock_data();
         let dir_entry = read_dir(inner.as_path())?;
         let mut hasher = DefaultHasher::new();
@@ -363,7 +356,7 @@ impl SourceArtifact for STree {
         let hash = hasher.finish().to_ne_bytes();
         let slice = hash.as_slice();
 
-        Ok(WheelKey::from_bytes("sdist", slice))
+        Ok(WheelCacheKey::from_bytes("sdist", slice))
     }
 }
 
@@ -414,11 +407,15 @@ mod tests {
     use crate::artifacts::{SDist, SourceArtifact};
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
+    use crate::resolve::SDistResolution;
+    use crate::types::Extra;
     use crate::types::PackageName;
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
-    use std::collections::HashMap;
+    use reqwest::Client;
+    use reqwest_middleware::ClientWithMiddleware;
+    use std::collections::{HashMap, HashSet};
     use std::env;
     use std::path::Path;
     use std::str::FromStr;
@@ -427,9 +424,11 @@ mod tests {
 
     fn get_package_db() -> (PackageDb, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
+        let client = ClientWithMiddleware::from(Client::new());
+
         (
             PackageDb::new(
-                Default::default(),
+                client,
                 &[url::Url::parse("https://pypi.org/simple/").unwrap()],
                 tempdir.path(),
             )
@@ -488,7 +487,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         let result = wheel_builder
             .get_sdist_metadata::<SDist>(&sdist)
@@ -514,7 +514,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -539,7 +540,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -572,7 +574,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -610,7 +613,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -644,7 +648,8 @@ mod tests {
             None,
             &resolve_options,
             mandatory_env,
-        );
+        )
+        .unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await;
@@ -672,7 +677,11 @@ mod tests {
             HashMap::default(),
         );
 
-        let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
+        let result = wheel_builder
+            .unwrap()
+            .get_sdist_metadata(&sdist)
+            .await
+            .unwrap();
 
         assert_debug_snapshot!(result.1);
     }
@@ -714,6 +723,49 @@ mod tests {
         assert_debug_snapshot!(init_file_text);
     }
 
+    #[tracing_test::traced_test]
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheel_with_backend_path() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/setuptools-69.0.2.tar.gz");
+
+        let sdist = SDist::from_path(&path, &"setuptools".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions {
+            sdist_resolution: SDistResolution::OnlySDists,
+            ..Default::default()
+        };
+
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        // Build the wheel
+        let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
+
+        let (_, metadata) = wheel.metadata().unwrap();
+        let mut metadata = metadata.clone();
+        let extras: HashSet<Extra> = HashSet::from_iter(vec![
+            Extra::from_str("certs").unwrap(),
+            Extra::from_str("ssl").unwrap(),
+            Extra::from_str("testing-integration").unwrap(),
+            Extra::from_str("docs").unwrap(),
+            Extra::from_str("testing").unwrap(),
+        ]);
+        assert_eq!(metadata.extras, extras);
+
+        // hashset does not have a deterministic order
+        metadata.extras = Default::default();
+        assert_debug_snapshot!(metadata);
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_rich_sdist_as_source_dependency() {
         let path =
@@ -733,7 +785,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
@@ -765,7 +818,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
@@ -797,7 +851,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
@@ -824,7 +879,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
@@ -839,9 +895,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_rich_git_reference_source_code() {
-        let url =
-            Url::parse("git+https://github.com/Textualize/rich.git").unwrap();
-
+        let url = Url::parse("git+https://github.com/Textualize/rich.git").unwrap();
 
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
@@ -852,7 +906,8 @@ mod tests {
             None,
             &resolve_options,
             HashMap::default(),
-        );
+        )
+        .unwrap();
 
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db

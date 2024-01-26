@@ -12,4 +12,7 @@ mod dependency_provider;
 mod solve;
 
 pub use dependency_provider::PypiVersion;
-pub use solve::{resolve, PinnedPackage, ResolveOptions, SDistResolution};
+pub use solve::{
+    resolve, OnWheelBuildFailure, PinnedPackage, PreReleaseResolution, ResolveOptions,
+    SDistResolution,
+};

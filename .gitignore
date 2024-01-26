@@ -3,4 +3,7 @@
 *.sqlite3
 **/__pycache__/**
 .DS_STORE
-.venv
+# pixi environments
+.pixi
+# other venvs
+.venv*/

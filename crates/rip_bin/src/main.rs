@@ -1,5 +1,7 @@
 use fs_err as fs;
+use rattler_installs_packages::resolve::PreReleaseResolution;
 use rip_bin::{global_multi_progress, IndicatifWriter};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -14,11 +16,19 @@ use url::Url;
 
 use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
 use rattler_installs_packages::python_env::{PythonLocation, WheelTags};
+use rattler_installs_packages::resolve::OnWheelBuildFailure;
 use rattler_installs_packages::wheel_builder::WheelBuilder;
 use rattler_installs_packages::{
     normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve,
     resolve::ResolveOptions, types::Requirement,
 };
+
+#[derive(Serialize, Debug)]
+struct Solution {
+    resolved: bool,
+    packages: HashMap<String, String>,
+    error: Option<String>,
+}
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -36,9 +46,11 @@ struct Args {
     #[clap(default_value = "https://pypi.org/simple/", long)]
     index_url: Url,
 
+    /// Verbose logging from resolvo
     #[clap(short)]
     verbose: bool,
 
+    /// How to handle sidsts
     #[clap(flatten)]
     sdist_resolution: SDistResolution,
 
@@ -49,6 +61,17 @@ struct Args {
     #[arg(short = 'c', long)]
     /// Disable inheritance of env variables.
     clean_env: bool,
+
+    #[arg(long)]
+    /// Save failed wheel build environments
+    save_on_failure: bool,
+
+    /// Prefer pre-releases over normal releases
+    #[clap(long)]
+    pre: bool,
+
+    #[clap(long)]
+    json: bool,
 }
 
 #[derive(Parser)]
@@ -88,6 +111,9 @@ impl From<SDistResolution> for resolve::SDistResolution {
 }
 
 async fn actual_main() -> miette::Result<()> {
+    use reqwest::Client;
+    use reqwest_middleware::ClientWithMiddleware;
+
     let args = Args::parse();
 
     // Setup tracing subscriber
@@ -106,8 +132,9 @@ async fn actual_main() -> miette::Result<()> {
     tracing::info!("cache directory: {}", cache_dir.display());
 
     // Construct a package database
+    let client = ClientWithMiddleware::from(Client::new());
     let package_db = rattler_installs_packages::index::PackageDb::new(
-        Default::default(),
+        client,
         &[normalize_index_url(args.index_url.clone())],
         &cache_dir,
     )
@@ -152,10 +179,24 @@ async fn actual_main() -> miette::Result<()> {
         None => PythonLocation::System,
     };
 
+    let on_wheel_build_failure = if args.save_on_failure {
+        OnWheelBuildFailure::SaveBuildEnv
+    } else {
+        OnWheelBuildFailure::DeleteBuildEnv
+    };
+
+    let pre_release_resolution = if args.pre {
+        PreReleaseResolution::Allow
+    } else {
+        PreReleaseResolution::from_specs(&args.specs)
+    };
+
     let resolve_opts = ResolveOptions {
         sdist_resolution: args.sdist_resolution.into(),
         python_location: python_location.clone(),
         clean_env: args.clean_env,
+        on_wheel_build_failure,
+        pre_release_resolution,
     };
 
     // Solve the environment
@@ -172,7 +213,19 @@ async fn actual_main() -> miette::Result<()> {
     .await
     {
         Ok(blueprint) => blueprint,
-        Err(err) => miette::bail!("Could not solve for the requested requirements:\n{err}"),
+        Err(err) => {
+            if args.json {
+                let solution = Solution {
+                    resolved: false,
+                    packages: HashMap::default(),
+                    error: Some(format!("{}", err)),
+                };
+                println!("{}", serde_json::to_string_pretty(&solution).unwrap());
+                return Ok(());
+            } else {
+                miette::bail!("Could not solve for the requested requirements:\n{err}")
+            }
+        }
     };
 
     // Output the selected versions
@@ -227,9 +280,14 @@ async fn actual_main() -> miette::Result<()> {
             Some(&compatible_tags),
             &resolve_opts,
             Default::default(),
-        );
+        )
+        .into_diagnostic()?;
 
-        for pinned_package in blueprint.into_iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
+        for pinned_package in blueprint
+            .clone()
+            .into_iter()
+            .sorted_by(|a, b| a.name.cmp(&b.name))
+        {
             println!(
                 "\ninstalling: {} - {}",
                 console::style(pinned_package.name).bold().green(),
@@ -249,6 +307,18 @@ async fn actual_main() -> miette::Result<()> {
         "\n{}",
         console::style("Successfully installed environment!").bold()
     );
+
+    if args.json {
+        let solution = Solution {
+            resolved: true,
+            packages: blueprint
+                .into_iter()
+                .map(|p| (p.name.to_string(), p.version.to_string()))
+                .collect(),
+            error: None,
+        };
+        println!("{}", serde_json::to_string_pretty(&solution).unwrap());
+    }
 
     Ok(())
 }

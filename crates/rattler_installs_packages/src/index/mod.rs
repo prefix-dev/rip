@@ -2,6 +2,7 @@
 
 mod file_store;
 
+mod git;
 pub mod html;
 mod http;
 mod package_database;

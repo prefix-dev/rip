@@ -45,6 +45,8 @@ fn into_artifact_info(
     let requires_python = attributes
         .get("data-requires-python")
         .flatten()
+        // filter empty strings
+        .filter(|a| !a.as_utf8_str().is_empty())
         .map(|a| {
             VersionSpecifiers::from_str(
                 html_escape::decode_html_entities(a.as_utf8_str().as_ref()).as_ref(),
@@ -211,6 +213,7 @@ mod test {
                   <a href="link-1.0.tar.gz#sha256=0000000000000000000000000000000000000000000000000000000000000000">link1</a>
                   <a href="/elsewhere/link-2.0.zip" data-yanked="some reason">link2</a>
                   <a href="link-3.0.tar.gz" data-requires-python=">= 3.17">link3</a>
+                  <a href="link-4.0.tar.gz" data-requires-python="">link</a>
                 </body>
               </html>
             "#,
@@ -269,6 +272,24 @@ mod test {
               url: "https://example.com/new-base/link-3.0.tar.gz",
               hashes: None,
               r#requires-python: Some(">=3.17"),
+              r#dist-info-metadata: DistInfoMetadata(
+                available: false,
+                hashes: ArtifactHashes(),
+              ),
+              yanked: Yanked(
+                yanked: false,
+                reason: None,
+              ),
+            ),
+            ArtifactInfo(
+              filename: SDist(SDistFilename(
+                distribution: "link",
+                version: "4.0",
+                format: TarGz,
+              )),
+              url: "https://example.com/new-base/link-4.0.tar.gz",
+              hashes: None,
+              r#requires-python: None,
               r#dist-info-metadata: DistInfoMetadata(
                 available: false,
                 hashes: ArtifactHashes(),

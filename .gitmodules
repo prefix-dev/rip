@@ -1,0 +1,3 @@
+[submodule "test-data/packse"]
+	path = test-data/packse
+	url = https://github.com/zanieb/packse

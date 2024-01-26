@@ -1,8 +1,34 @@
 //! Create a cache for storing locally built wheels
 //! These are wheel files that are created when building a wheel from an sdist.
 //! That uses cacache as a backend to actually store wheels.
+//!
+//! The wheels are stored via a layer of indirection. The key is a hash of the sdist content and the python interpreter version.
+//! The value is the wheel file itself.
+//!
+//! So in cacache we have:
+//! ┌──────────────────┐
+//! │                  │
+//! │                  │
+//! │                  │
+//! │   WheelCacheKey  │
+//! │                  │
+//! │                  │
+//! │                  │
+//! └──────────────────┘
+//!          │   Metadata
+//!          │
+//! ┌───────▼────┐           ┌──────────────┐
+//! │             │           │              │
+//! │  WheelHash  │           │              │
+//! │             ├─────────►│    Wheel     │
+//! │             │           │              │
+//! └─────────────┘           └──────────────┘
+//!
+//! So cacache stores the hashed wheel key and associated with this is with the content hash of the wheel
+//! This way multiple WheelCacheKeys can point to the same wheel.
 
-use crate::artifacts::Wheel;
+use crate::artifacts::{SDist, SourceArtifact, Wheel};
+use crate::python_env::PythonInterpreterVersion;
 use crate::types::{Artifact, WheelFilename};
 use cacache::{Integrity, WriteOpts};
 use rattler_digest::Sha256;
@@ -21,7 +47,7 @@ pub struct WheelCache {
 
 #[derive(Debug)]
 /// A key that can be used to retrieve a wheel from the cache
-pub struct WheelKey(String);
+pub struct WheelCacheKey(String);
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WheelKeyMetadata {
@@ -29,7 +55,7 @@ struct WheelKeyMetadata {
     integrity: String,
 }
 
-impl ToString for WheelKey {
+impl ToString for WheelCacheKey {
     /// Get WheelKey string representation without suffix
     fn to_string(&self) -> String {
         let mut parts = self.0.split(':');
@@ -37,7 +63,7 @@ impl ToString for WheelKey {
     }
 }
 
-impl WheelKey {
+impl WheelCacheKey {
     /// Create a wheel key from bytes, will become '{prefix}:{hash_hexadecimal}'
     pub fn from_bytes(prefix: impl AsRef<str>, bytes: impl AsRef<[u8]>) -> Self {
         let hash = rattler_digest::compute_bytes_digest::<Sha256>(bytes);
@@ -47,6 +73,24 @@ impl WheelKey {
     /// Create a wheel key from a prefix and a string, will become '{prefix}:{string}'
     pub fn new(prefix: impl AsRef<str>, key: impl AsRef<str>) -> Self {
         Self(format!("{}:{}", prefix.as_ref(), key.as_ref()))
+    }
+
+    /// Create a WheelCacheKey from an sdist and the python interpreter version
+    pub fn from_sdist(
+        sdist: &impl SourceArtifact,
+        python_interpreter_version: &PythonInterpreterVersion,
+    ) -> Result<WheelCacheKey, std::io::Error> {
+        let hash = sdist.get_bytes()?;
+        let hash = rattler_digest::compute_bytes_digest::<Sha256>(&hash);
+
+        // Hash python version
+        Ok(WheelCacheKey::new(
+            "sdist",
+            format!(
+                "{:x}:v{}.{}",
+                hash, python_interpreter_version.major, python_interpreter_version.minor,
+            ),
+        ))
     }
 }
 
@@ -69,6 +113,16 @@ impl WheelCache {
         Self { path }
     }
 
+    /// List wheels in the cache
+    pub fn wheels(&self) -> impl Iterator<Item = serde_json::Result<WheelFilename>> {
+        cacache::index::ls(&self.path)
+            .filter_map(|index| index.ok())
+            .map(|index| {
+                serde_json::from_value::<WheelKeyMetadata>(index.metadata)
+                    .map(|metadata| metadata.wheel_filename)
+            })
+    }
+
     /// Save wheel into cache
     fn save_wheel(&self, wheel_contents: &mut dyn Read) -> Result<Integrity, WheelCacheError> {
         // Write the wheel to the cache
@@ -77,10 +131,10 @@ impl WheelCache {
         Ok(writer.commit()?)
     }
 
-    /// Associate wheel with key
+    /// Associate wheel with cache key
     pub fn associate_wheel(
         &self,
-        key: &WheelKey,
+        key: &WheelCacheKey,
         wheel_name: WheelFilename,
         wheel: &mut dyn Read,
     ) -> Result<(), WheelCacheError> {
@@ -104,7 +158,10 @@ impl WheelCache {
     }
 
     /// Get wheel for key, returns None if it does not exist for this key
-    pub fn wheel_for_key(&self, wheel_key: &WheelKey) -> Result<Option<Wheel>, WheelCacheError> {
+    pub fn wheel_for_key(
+        &self,
+        wheel_key: &WheelCacheKey,
+    ) -> Result<Option<Wheel>, WheelCacheError> {
         // Find metadata for the key
         let metadata = cacache::index::find(&self.path, &wheel_key.0)?;
 
@@ -139,9 +196,9 @@ mod tests {
     #[test]
     pub fn test_key() {
         let bytes = b"hello world";
-        let key = super::WheelKey::from_bytes("bla", bytes);
+        let key = super::WheelCacheKey::from_bytes("bla", bytes);
         insta::assert_debug_snapshot!(key, @r###"
-        WheelKey(
+        WheelCacheKey(
             "bla:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
         )
         "###);
@@ -164,7 +221,7 @@ mod tests {
         // Associate wheel with another key
         // use a bit of random data here but we need to use
         // the sdist content hash in reality
-        let key = super::WheelKey::from_bytes("bla", "foo");
+        let key = super::WheelCacheKey::from_bytes("bla", "foo");
         cache
             .associate_wheel(&key, wheel_filename, &mut std::io::BufReader::new(wheel))
             .unwrap();
@@ -172,5 +229,7 @@ mod tests {
         // Get back the wheel
         // See if we have a value
         cache.wheel_for_key(&key).unwrap().unwrap();
+
+        assert_eq!(cache.wheels().count(), 1);
     }
 }

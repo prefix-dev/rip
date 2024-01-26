@@ -43,8 +43,14 @@ impl ArtifactName {
     /// Returns the version of the artifact
     pub fn version(&self) -> PypiVersion {
         match self {
-            ArtifactName::Wheel(name) => PypiVersion::Version(name.version.clone()),
-            ArtifactName::SDist(name) => PypiVersion::Version(name.version.clone()),
+            ArtifactName::Wheel(name) => PypiVersion::Version {
+                version: name.version.clone(),
+                package_allows_prerelease: name.version.any_prerelease(),
+            },
+            ArtifactName::SDist(name) => PypiVersion::Version {
+                version: name.version.clone(),
+                package_allows_prerelease: name.version.any_prerelease(),
+            },
             ArtifactName::STree(name) => PypiVersion::Url(name.version.clone()),
         }
     }
@@ -207,6 +213,15 @@ pub enum SourceArtifactName {
     SDist(SDistFilename),
     /// STREE
     STree(STreeFilename),
+}
+
+impl Display for SourceArtifactName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceArtifactName::SDist(sdist) => write!(f, "{}", sdist),
+            SourceArtifactName::STree(stree) => write!(f, "{}", stree),
+        }
+    }
 }
 
 impl Display for SDistFilename {

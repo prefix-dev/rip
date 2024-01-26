@@ -7,7 +7,7 @@ use crate::types::PackageName;
 use crate::{types::ArtifactInfo, types::Extra, types::NormalizedPackageName};
 use elsa::FrozenMap;
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
-use resolvo::{DefaultSolvableDisplay, Pool, Solver};
+use resolvo::{DefaultSolvableDisplay, Pool, Solver, UnsolvableOrCancelled};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -131,6 +131,67 @@ pub enum SDistResolution {
     OnlySDists,
 }
 
+/// Defines how to pre-releases are handled during package resolution.
+#[derive(Debug, Clone, Eq, PartialOrd, PartialEq)]
+pub enum PreReleaseResolution {
+    /// Don't allow pre-releases to be selected during resolution
+    Disallow,
+
+    /// Conditionally allow pre-releases to be selected during resolution. This
+    /// behavior emulates `pip`'s pre-release resolution, which is not according
+    /// to "spec" but the most widely used logic.
+    ///
+    /// It works as follows:
+    ///
+    /// - if a version specifier mentions a pre-release, then we allow
+    ///   pre-releases to be selected, for example `jupyterlab==4.1.0b0` will
+    ///   allow the selection of the `jupyterlab-4.1.0b0` beta release during
+    ///   resolution.
+    /// - if a package _only_ contains pre-release versions then we allow
+    ///   pre-releases to be selected for any version specifier. For example, if
+    ///   the package `supernew` only contains `supernew-1.0.0b0` and
+    ///   `supernew-1.0.0b1` then we allow `supernew==1.0.0` to select
+    ///   `supernew-1.0.0b1` during resolution.
+    /// - Any name that is mentioned in the `allow` list will allow pre-releases (this
+    ///   is usually derived from the specs given by the user). For example, if the user
+    ///   asks for `foo>0.0.0b0`, pre-releases are globally enabled for package foo (also as
+    ///   transitive dependency).
+    AllowIfNoOtherVersionsOrEnabled {
+        /// A list of package names that will allow pre-releases to be selected
+        allow_names: Vec<String>,
+    },
+
+    /// Allow any pre-releases to be selected during resolution
+    Allow,
+}
+
+impl Default for PreReleaseResolution {
+    fn default() -> Self {
+        PreReleaseResolution::AllowIfNoOtherVersionsOrEnabled {
+            allow_names: Vec::new(),
+        }
+    }
+}
+
+impl PreReleaseResolution {
+    /// Return a AllowIfNoOtherVersionsOrEnabled variant from a list of requirements
+    pub fn from_specs(specs: &[Requirement]) -> Self {
+        let mut allow_names = Vec::new();
+        for spec in specs {
+            match &spec.version_or_url {
+                Some(VersionOrUrl::VersionSpecifier(v)) => {
+                    if v.iter().any(|s| s.version().any_prerelease()) {
+                        let name = PackageName::from_str(&spec.name).expect("invalid package name");
+                        allow_names.push(name.as_str().to_string());
+                    }
+                }
+                _ => continue,
+            };
+        }
+        PreReleaseResolution::AllowIfNoOtherVersionsOrEnabled { allow_names }
+    }
+}
+
 impl SDistResolution {
     /// Returns true if sdists are allowed to be selected during resolution
     pub fn allow_sdists(&self) -> bool {
@@ -141,6 +202,16 @@ impl SDistResolution {
     pub fn allow_wheels(&self) -> bool {
         !matches!(self, SDistResolution::OnlySDists)
     }
+}
+
+/// Specifies what to do with failed build environments
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OnWheelBuildFailure {
+    /// Save failed build environments to temporary directory
+    SaveBuildEnv,
+    /// Delete failed build environments
+    #[default]
+    DeleteBuildEnv,
 }
 
 /// Additional options that may influence the solver. In general passing [`Default::default`] to
@@ -158,6 +229,14 @@ pub struct ResolveOptions {
 
     /// Defines if we should inherit env variables during build process of wheel files
     pub clean_env: bool,
+
+    /// Defines what to do with failed build environments
+    /// by default these are deleted but can also be saved for debugging purposes
+    pub on_wheel_build_failure: OnWheelBuildFailure,
+
+    /// Defines whether pre-releases are allowed to be selected during resolution. By default
+    /// pre-releases are not allowed (only if there are no other versions available for a given dependency).
+    pub pre_release_resolution: PreReleaseResolution,
 }
 
 /// Resolves an environment that contains the given requirements and all dependencies of those
@@ -204,8 +283,10 @@ pub async fn resolve<'db>(
         let name = PackageName::from_str(name).expect("invalid package name");
         let pypi_name = PypiPackageName::Base(name.clone().into());
         let dependency_package_name = pool.intern_package_name(pypi_name.clone());
-        let version_set_id =
-            pool.intern_version_set(dependency_package_name, version_or_url.clone().into());
+        let version_set_id = pool.intern_version_set(
+            dependency_package_name,
+            PypiVersionSet::from_spec(version_or_url.clone(), &options.pre_release_resolution),
+        );
         root_requirements.push(version_set_id);
 
         // let url_str
@@ -218,8 +299,10 @@ pub async fn resolve<'db>(
             let extra: Extra = extra.parse().expect("invalid extra");
             let dependency_package_name = pool
                 .intern_package_name(PypiPackageName::Extra(name.clone().into(), extra.clone()));
-            let version_set_id =
-                pool.intern_version_set(dependency_package_name, version_or_url.clone().into());
+            let version_set_id = pool.intern_version_set(
+                dependency_package_name,
+                PypiVersionSet::from_spec(version_or_url.clone(), &options.pre_release_resolution),
+            );
             root_requirements.push(version_set_id);
         }
     }
@@ -242,12 +325,18 @@ pub async fn resolve<'db>(
     let solvables = match solver.solve(root_requirements) {
         Ok(solvables) => solvables,
         Err(e) => {
-            return Err(miette::miette!(
-                "{}",
-                e.display_user_friendly(&solver, &DefaultSolvableDisplay)
-                    .to_string()
-                    .trim()
-            ))
+            return match e {
+                UnsolvableOrCancelled::Unsolvable(problem) => Err(miette::miette!(
+                    "{}",
+                    problem
+                        .display_user_friendly(&solver, &DefaultSolvableDisplay)
+                        .to_string()
+                        .trim()
+                )),
+                UnsolvableOrCancelled::Cancelled(_) => {
+                    Err(miette::miette!("The resolution was cancelled"))
+                }
+            }
         }
     };
     let mut result: HashMap<NormalizedPackageName, PinnedPackage<'_>> = HashMap::new();
