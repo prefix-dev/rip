@@ -12,6 +12,7 @@ use crate::wheel_builder::WheelBuilder;
 use elsa::FrozenMap;
 use itertools::Itertools;
 use miette::IntoDiagnostic;
+use parking_lot::Mutex;
 use pep440_rs::{Operator, Version, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
 use resolvo::{
@@ -19,7 +20,6 @@ use resolvo::{
     SolverCache, VersionSet,
 };
 use std::any::Any;
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -187,7 +187,7 @@ pub(crate) struct PypiDependencyProvider<'db, 'i> {
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
 
     options: &'i ResolveOptions,
-    should_cancel_with_value: RefCell<Option<String>>,
+    should_cancel_with_value: Mutex<Option<String>>,
 }
 
 impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
@@ -351,7 +351,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
     fn should_cancel_with_value(&self) -> Option<Box<dyn Any>> {
         // Supply the error message
         self.should_cancel_with_value
-            .borrow()
+            .lock()
             .as_ref()
             .map(|s| Box::new(s.clone()) as Box<dyn Any>)
     }
@@ -574,7 +574,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 )
                 .unwrap()
         }) else {
-            *self.should_cancel_with_value.borrow_mut() = Some(format!("could not find metadata for any sdist or wheel for this package. No metadata could be extracted for the following available artifacts:\n{}",
+            *self.should_cancel_with_value.lock() = Some(format!("could not find metadata for any sdist or wheel for this package. No metadata could be extracted for the following available artifacts:\n{}",
                                                                                                                    artifacts.iter().format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))));
             return Dependencies::Unknown(self.pool.intern_string("".to_string()));
         };
