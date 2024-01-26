@@ -18,6 +18,8 @@ use resolvo::{
     Candidates, Dependencies, DependencyProvider, KnownDependencies, NameId, Pool, SolvableId,
     SolverCache, VersionSet,
 };
+use std::any::Any;
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -185,6 +187,7 @@ pub(crate) struct PypiDependencyProvider<'db, 'i> {
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
 
     options: &'i ResolveOptions,
+    should_cancel_with_value: RefCell<Option<String>>,
 }
 
 impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
@@ -213,6 +216,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             favored_packages,
             locked_packages,
             options,
+            should_cancel_with_value: Default::default(),
         })
     }
 
@@ -342,6 +346,14 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
 {
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
         &self.pool
+    }
+
+    fn should_cancel_with_value(&self) -> Option<Box<dyn Any>> {
+        // Supply the error message
+        self.should_cancel_with_value
+            .borrow()
+            .as_ref()
+            .map(|s| Box::new(s.clone()) as Box<dyn Any>)
     }
 
     fn sort_candidates(
@@ -562,9 +574,9 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 )
                 .unwrap()
         }) else {
-            let error = self.pool.intern_string(format!("could not find metadata for any sdist or wheel for this package. No metadata could be extracted for the following available artifacts:\n{}",
-                                                        artifacts.iter().format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))));
-            return Dependencies::Unknown(error);
+            *self.should_cancel_with_value.borrow_mut() = Some(format!("could not find metadata for any sdist or wheel for this package. No metadata could be extracted for the following available artifacts:\n{}",
+                                                                                                                   artifacts.iter().format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))));
+            return Dependencies::Unknown(self.pool.intern_string("".to_string()));
         };
 
         // Add constraints that restrict that the extra packages are set to the same version.
