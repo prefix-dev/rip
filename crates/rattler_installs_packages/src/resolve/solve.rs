@@ -315,8 +315,12 @@ pub async fn resolve<'db>(
                         .to_string()
                         .trim()
                 )),
-                UnsolvableOrCancelled::Cancelled(_) => {
-                    Err(miette::miette!("The resolution was cancelled"))
+                UnsolvableOrCancelled::Cancelled(e) => {
+                    Err(miette::miette!(
+                            help = "Probably an error during processing of source distributions. Please check the error message above.",
+                            "{}",
+                            e.downcast::<String>().expect("invalid cancellation error message, expected a string, this indicates an error in the code"
+                        )))
                 }
             }
         }
