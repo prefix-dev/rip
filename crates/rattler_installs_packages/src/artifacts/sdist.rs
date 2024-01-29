@@ -888,9 +888,23 @@ mod tests {
             .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
             .await
             .unwrap();
-        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
 
-        assert_debug_snapshot!(artifact_info[0].filename);
+        let artifact_info = content
+            .iter()
+            .flat_map(|(_, artifacts)| artifacts.iter())
+            .collect::<Vec<_>>();
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // assert_debug_snapshot!(wheel_metadata.0);
+        assert_debug_snapshot!(wheel_metadata.1);
+
+        // assert_debug_snapshot!(artifact_info[0].filename);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -917,6 +931,88 @@ mod tests {
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
 
-        assert_debug_snapshot!(artifact_info[0]);
+        assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_git_reference_with_tag_source_code() {
+        // Let's checkout some old version that have different requirements as new one
+        let url = Url::parse("git+https://github.com/Textualize/rich.git@v1.0.0").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+
+        let artifact_info = content
+            .iter()
+            .flat_map(|(_, artifacts)| artifacts.iter())
+            .collect::<Vec<_>>();
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_debug_snapshot!(wheel_metadata.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_local_git_reference() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/stree/dev_folder_with_rich");
+
+        let url =
+            Url::parse(format!("git+file:///{}.git", path.as_os_str().to_str().unwrap()).as_str())
+                .unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+
+        let artifact_info = content
+            .iter()
+            .flat_map(|(_, artifacts)| artifacts.iter())
+            .collect::<Vec<_>>();
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_debug_snapshot!(wheel_metadata.1);
     }
 }

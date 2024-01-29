@@ -1,7 +1,8 @@
-use super::git::git_src;
-use super::git::{GitRev, GitSource, GitUrl};
-use crate::artifacts::{SDist, STree, SourceArtifact, Wheel};
+use super::git::git_clone;
+use super::git::GitSource;
+use crate::artifacts::{SDist, STree, Wheel};
 use crate::index::file_store::FileStore;
+use crate::index::git::ParsedUrl;
 use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::resolve::PypiVersion;
@@ -9,6 +10,7 @@ use crate::types::{
     ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, PackageName, ProjectInfo,
     SDistFilename, SDistFormat, STreeFilename, WheelCoreMetadata, Yanked,
 };
+use crate::utils::ReadAndSeek;
 use crate::wheel_builder::{WheelBuildError, WheelBuilder, WheelCache};
 use crate::{
     types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName, types::Version,
@@ -22,11 +24,11 @@ use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use parking_lot::Mutex;
-use rattler_digest::{compute_bytes_digest, parse_digest_from_hex, Sha256};
+use rattler_digest::{compute_bytes_digest, Sha256};
 use reqwest::{header::CACHE_CONTROL, StatusCode};
 use reqwest_middleware::ClientWithMiddleware;
-use std::ffi::OsStr;
-use std::fs;
+use std::fs::File;
+use std::io::Seek;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fmt::Display, io::Read, path::Path};
@@ -125,6 +127,84 @@ impl PackageDb {
         }
     }
 
+    /// Return an sdist from file path
+    pub async fn get_sdist_from_file_path<'a, 'i>(
+        &self,
+        normalized_package_name: &NormalizedPackageName,
+        url: Url,
+        wheel_builder: &WheelBuilder<'a, 'i>,
+    ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
+        let distribution = PackageName::from(normalized_package_name.clone());
+        let url_as_str = url.as_str();
+
+        let format = SDistFormat::get_extension(url_as_str).into_diagnostic()?;
+        let dummy_version =
+            Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
+
+        let dummy_sdist_file_name = SDistFilename {
+            distribution,
+            version: dummy_version,
+            format,
+        };
+
+        let file = File::open(url.path()).into_diagnostic()?;
+
+        let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(file))?;
+
+        let wheel_metadata = wheel_builder
+            .get_sdist_metadata(&dummy_sdist)
+            .await
+            .into_diagnostic()?;
+
+        // construct a real sdist filename
+        let sdist_filename = SDistFilename {
+            distribution: wheel_metadata.1.name.clone(),
+            version: wheel_metadata.1.version.clone(),
+            format,
+        };
+
+        let filename = ArtifactName::SDist(sdist_filename.clone());
+
+        Ok((wheel_metadata, filename))
+    }
+
+    /// Return an sdist from file path
+    pub async fn get_stree_from_file_path<'a, 'i>(
+        &self,
+        normalized_package_name: &NormalizedPackageName,
+        url: Url,
+        path: Option<PathBuf>,
+        wheel_builder: &WheelBuilder<'a, 'i>,
+    ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
+        let distribution = PackageName::from(normalized_package_name.clone());
+        let path = match path {
+            None => PathBuf::from_str(url.path()).into_diagnostic()?,
+            Some(path) => path,
+        };
+
+        let stree_file_name = STreeFilename {
+            distribution,
+            version: url.clone(),
+        };
+
+        let stree = STree {
+            name: stree_file_name,
+            location: Mutex::new(path),
+        };
+
+        let wheel_metadata = wheel_builder
+            .get_sdist_metadata(&stree)
+            .await
+            .into_diagnostic()?;
+
+        let stree_file_name = STreeFilename {
+            distribution: wheel_metadata.1.name.clone(),
+            version: url.clone(),
+        };
+
+        Ok((wheel_metadata, ArtifactName::STree(stree_file_name)))
+    }
+
     /// Get artifact by file URL
     pub async fn get_file_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
         &self,
@@ -137,86 +217,48 @@ impl PackageDb {
 
         let normalized_package_name = p.into();
 
-        let dummy_version =
-            Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
+        let (metadata_bytes, metadata, artifact_name) =
+            if path.is_file() && str_name.ends_with(".whl") {
+                let wheel = Wheel::from_path(path, &normalized_package_name)
+                    .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))
+                    .into_diagnostic()?;
 
-        let (data_bytes, metadata, artifact_name) = if path.is_file() && str_name.ends_with(".whl")
-        {
-            let wheel = Wheel::from_path(path, &normalized_package_name)
-                .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))
-                .into_diagnostic()?;
-
-            let (data_bytes, metadata) = wheel.metadata()?;
-            (
-                data_bytes,
-                metadata,
-                ArtifactName::Wheel(wheel.name().clone()),
-            )
-        } else if path.is_file() {
-            let distribution = PackageName::from(normalized_package_name.clone());
-
-            let format = SDistFormat::get_extension(str_name).into_diagnostic()?;
-
-            let dummy_sdist_file_name = SDistFilename {
-                distribution,
-                version: dummy_version,
-                format,
-            };
-            let bytes = fs::File::open(path).into_diagnostic()?;
-
-            let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
-
-            let (data_bytes, metadata) = wheel_builder
-                .get_sdist_metadata(&dummy_sdist)
-                .await
-                .into_diagnostic()?;
-
-            // construct a real sdist filename
-            let sdist_filename = SDistFilename {
-                distribution: metadata.name.clone(),
-                version: metadata.version.clone(),
-                format,
+                let (data_bytes, metadata) = wheel.metadata()?;
+                (
+                    data_bytes,
+                    metadata,
+                    ArtifactName::Wheel(wheel.name().clone()),
+                )
+            } else if path.is_file() {
+                let (wheel_metadata, name) = self
+                    .get_sdist_from_file_path(&normalized_package_name, url.clone(), wheel_builder)
+                    .await?;
+                (wheel_metadata.0, wheel_metadata.1, name)
+            } else {
+                let (wheel_metadata, name) = self
+                    .get_stree_from_file_path(
+                        &normalized_package_name,
+                        url.clone(),
+                        None,
+                        wheel_builder,
+                    )
+                    .await?;
+                (wheel_metadata.0, wheel_metadata.1, name)
             };
 
-            let filename = ArtifactName::SDist(sdist_filename.clone());
-
-            (data_bytes, metadata, filename)
-        } else {
-            let distribution = PackageName::from(normalized_package_name.clone());
-
-            let stree_file_name = STreeFilename {
-                distribution,
-                version: url.clone(),
-            };
-
-            let stree = STree {
-                name: stree_file_name,
-                location: Mutex::new(path.to_path_buf()),
-            };
-
-            let (data_bytes, metadata) = wheel_builder
-                .get_sdist_metadata(&stree)
-                .await
-                .into_diagnostic()?;
-
-            let stree_file_name = STreeFilename {
-                distribution: metadata.name.clone(),
-                version: url.clone(),
-            };
-
-            (data_bytes, metadata, ArtifactName::STree(stree_file_name))
-        };
-
-        // TODO: extract hash from url if it's present
-        let project_hash = ArtifactHashes {
-            sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
+        let artifact_hash = {
+            ArtifactHashes {
+                sha256: Some(rattler_digest::compute_bytes_digest::<Sha256>(
+                    metadata_bytes.clone(),
+                )),
+            }
         };
 
         // let's try to build an artifact info
         let artifact_info = ArtifactInfo {
             filename: artifact_name,
             url: url.clone(),
-            hashes: Some(project_hash),
+            hashes: Some(artifact_hash),
             requires_python: metadata.requires_python,
             dist_info_metadata: DistInfoMetadata::default(),
             yanked: Yanked::default(),
@@ -229,12 +271,49 @@ impl PackageDb {
             .or_default()
             .push(artifact_info.clone());
 
-        self.put_metadata_in_cache(&artifact_info, &data_bytes)
+        self.put_metadata_in_cache(&artifact_info, &metadata_bytes)
             .await?;
 
         Ok(self
             .artifacts
             .insert(normalized_package_name.clone(), Box::new(result)))
+    }
+
+    /// Return an sdist from file path
+    pub async fn get_sdist_from_http<'a, 'i>(
+        &self,
+        normalized_package_name: &NormalizedPackageName,
+        url: Url,
+        bytes: Box<dyn ReadAndSeek + Send>,
+        wheel_builder: &WheelBuilder<'a, 'i>,
+    ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
+        // it's probably an sdist
+        let distribution = PackageName::from(normalized_package_name.clone());
+        let version = Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
+        let format = SDistFormat::get_extension(url.path()).into_diagnostic()?;
+
+        let dummy_sdist_file_name = SDistFilename {
+            distribution,
+            version,
+            format,
+        };
+
+        let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
+
+        let wheel_metadata = wheel_builder
+            .get_sdist_metadata(&dummy_sdist)
+            .await
+            .into_diagnostic()?;
+
+        // construct a real sdist filename
+        let sdist_filename = SDistFilename {
+            distribution: wheel_metadata.1.name.clone(),
+            version: wheel_metadata.1.version.clone(),
+            format,
+        };
+        let filename = ArtifactName::SDist(sdist_filename.clone());
+
+        Ok((wheel_metadata, filename))
     }
 
     /// Get artifact by file URL
@@ -260,69 +339,48 @@ impl PackageDb {
             )
             .await?;
 
-        let bytes = artifact_bytes
+        let mut bytes = artifact_bytes
             .into_body()
             .into_local()
             .await
             .into_diagnostic()?;
 
+        let artifact_hash = {
+            let mut bytes_for_hash = vec![];
+            bytes.rewind().into_diagnostic()?;
+            bytes.read_to_end(&mut bytes_for_hash).into_diagnostic()?;
+            bytes.rewind().into_diagnostic()?;
+            ArtifactHashes {
+                sha256: Some(rattler_digest::compute_bytes_digest::<Sha256>(
+                    bytes_for_hash,
+                )),
+            }
+        };
+
+        if let Some(hash) = url_hash.clone() {
+            assert_eq!(hash, artifact_hash);
+        };
+
         let (filename, data_bytes, metadata) = match str_name.ends_with(".whl") {
             true => {
-                // it's wheel
-                let url_path = PathBuf::from_str(url.path()).unwrap();
-                let file_name = url_path
-                    .file_name()
-                    .and_then(OsStr::to_str)
-                    .ok_or_else(|| {
-                        miette::miette!("path {:?} does not contain a wheel filename", url_path)
-                    })?;
-                let wheel_filename =
-                    WheelFilename::from_filename(file_name, &normalized_package_name)
-                        .into_diagnostic()?;
-                let wheel = Wheel::new(wheel_filename.clone(), Box::new(bytes))?;
-                let filename = ArtifactName::Wheel(wheel_filename);
+                let wheel = Wheel::from_url_and_bytes(url.path(), &normalized_package_name, bytes)?;
+
+                let filename = ArtifactName::Wheel(wheel.name().clone());
                 let (data_bytes, metadata) = wheel.metadata()?;
+
                 (filename, data_bytes, metadata)
             }
             false => {
-                // it's probably an sdist
-                let distribution = PackageName::from(normalized_package_name.clone());
-                let version =
-                    Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
-                let format = SDistFormat::get_extension(str_name).into_diagnostic()?;
+                let (wheel_metadata, filename) = self
+                    .get_sdist_from_http(
+                        &normalized_package_name,
+                        url.clone(),
+                        bytes,
+                        wheel_builder,
+                    )
+                    .await?;
 
-                let dummy_sdist_file_name = SDistFilename {
-                    distribution,
-                    version,
-                    format,
-                };
-
-                let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
-
-                // verify hash of url fragment with sdist
-                let sdist_hash = dummy_sdist.get_wheel_key().into_diagnostic()?;
-
-                if let Some(hash) = url_hash.clone() {
-                    let right_hash = ArtifactHashes {
-                        sha256: parse_digest_from_hex::<Sha256>(sdist_hash.to_string().as_str()),
-                    };
-
-                    assert_eq!(hash, right_hash);
-                }
-
-                let (data_bytes, metadata) = wheel_builder
-                    .get_sdist_metadata(&dummy_sdist)
-                    .await
-                    .into_diagnostic()?;
-
-                // construct a real sdist filename
-                let sdist_filename = SDistFilename {
-                    distribution: metadata.name.clone(),
-                    version: metadata.version.clone(),
-                    format,
-                };
-                let filename = ArtifactName::SDist(sdist_filename.clone());
-                (filename, data_bytes, metadata)
+                (filename, wheel_metadata.0, wheel_metadata.1)
             }
         };
 
@@ -341,7 +399,7 @@ impl PackageDb {
         let artifact_info = ArtifactInfo {
             filename,
             url: url.clone(),
-            hashes: url_hash,
+            hashes: Some(artifact_hash),
             requires_python,
             dist_info_metadata,
             yanked,
@@ -368,56 +426,42 @@ impl PackageDb {
         url: Url,
         wheel_builder: &WheelBuilder<'a, 'i>,
     ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
-        let str_name = url.as_str();
-
-        let new_str_url = str_name.replace("git+https", "https");
-
-        let checkout_url = Url::from_str(new_str_url.as_str()).unwrap();
-
         let normalized_package_name = p.into();
 
+        let parsed_url = ParsedUrl::new(&url)?;
+
         let git_source = GitSource {
-            url: GitUrl::Url(checkout_url.clone()),
-            rev: GitRev::Head,
-            depth: None,
-            patches: vec![],
-            target_directory: None,
-            lfs: false,
+            url: parsed_url.git_url,
+            rev: parsed_url.revision,
         };
 
         let temp_dir = tempdir().unwrap();
 
-        let cache_dir = temp_dir.path().join("rip-git-cache");
-        let clone_dir = temp_dir.path().join("rip-clone-dir");
+        let mut location = git_clone(&git_source, &temp_dir).into_diagnostic()?;
 
-        let (location, _rev) =
-            git_src(&git_source, cache_dir.as_ref(), clone_dir.as_ref()).unwrap();
-
-        let distribution = PackageName::from(normalized_package_name.clone());
-
-        let stree_partial_file_name = STreeFilename {
-            distribution,
-            version: url.clone(),
+        if let Some(subdirectory) = parsed_url.subdirectory {
+            location.push(&subdirectory);
+            if !location.exists() {
+                return Err(miette::miette!(
+                    "Requested subdirectory fragment {:?} can't be located at following url {:?}",
+                    subdirectory,
+                    url
+                ));
+            }
         };
 
-        let stree = STree {
-            name: stree_partial_file_name,
-            location: Mutex::new(location.to_path_buf()),
-        };
+        println!("LOCATION IS {:?}", location);
 
-        let (data_bytes, metadata) = wheel_builder
-            .get_sdist_metadata(&stree)
-            .await
-            .into_diagnostic()?;
+        let (wheel_metadata, filename) = self
+            .get_stree_from_file_path(
+                &normalized_package_name,
+                url.clone(),
+                Some(location),
+                wheel_builder,
+            )
+            .await?;
 
-        let stree_partial_file_name = STreeFilename {
-            distribution: metadata.name.clone(),
-            version: url.clone(),
-        };
-
-        let filename = ArtifactName::STree(stree_partial_file_name.clone());
-
-        let requires_python = metadata.requires_python;
+        let requires_python = wheel_metadata.1.requires_python;
 
         let dist_info_metadata = DistInfoMetadata {
             available: false,
@@ -448,7 +492,7 @@ impl PackageDb {
             .or_default()
             .push(artifact_info.clone());
 
-        self.put_metadata_in_cache(&artifact_info, &data_bytes)
+        self.put_metadata_in_cache(&artifact_info, &wheel_metadata.0)
             .await?;
 
         Ok(self
@@ -472,7 +516,7 @@ impl PackageDb {
             self.get_file_artifact(p, url, wheel_builder).await
         } else if url.scheme() == "https" {
             self.get_http_artifact(p, url, wheel_builder).await
-        } else if url.scheme() == "git+https" {
+        } else if url.scheme() == "git+https" || url.scheme() == "git+file" {
             self.get_git_artifact(p, url, wheel_builder).await
         } else {
             // make it a better error

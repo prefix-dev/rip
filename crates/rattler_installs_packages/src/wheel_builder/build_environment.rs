@@ -137,30 +137,39 @@ impl<'db> BuildEnvironment<'db> {
         // Extract the sdist to the work folder
         // extract to a specific package dir
         let work_dir = self.work_dir.path();
-        
+
         sdist.extract_to(work_dir.as_path())?;
+
+        for path in read_dir(work_dir.as_path())? {
+            println!("PATH IS {:?}", path);
+        }
 
         // // when sdists are downloaded from pypi - they have correct name
         // // name - version
         // // when we are using direct versions, we don't know the actual version
-        // // so we create package-dir as name-file://version or name-http://your-url-version 
+        // // so we create package-dir as name-file://version or name-http://your-url-version
         // // which is not actually true
-        // // so extracting or moving
+        // // so after extracting or moving
         // // we map correct package location
+        // // when URL is actually a git version
+        // // it is extracted in work_dir
+        // // so we map package_dir to work_dir
 
-        if let Some(package_dir_name) = self.package_dir.file_name() {
+        if sdist.version().is_git() {
+            self.package_dir = self.work_dir.path();
+        } else if let Some(package_dir_name) = self.package_dir.file_name() {
             let actual_package_dir = work_dir.join(package_dir_name);
-            if !actual_package_dir.exists(){
-
-                for path in read_dir(work_dir.clone())?{
-                    if let Ok(entry) = path {
-                        if entry.file_name().to_str().is_some_and(|name| name.contains(sdist.distribution_name())){
-                            self.package_dir = entry.path();
-                            break;
-                        }
+            if !actual_package_dir.exists() {
+                for path in (read_dir(work_dir.clone())?).flatten() {
+                    if path
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.contains(sdist.distribution_name()))
+                    {
+                        self.package_dir = path.path();
+                        break;
                     }
                 }
-
             }
         }
 

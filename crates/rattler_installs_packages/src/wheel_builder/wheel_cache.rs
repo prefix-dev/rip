@@ -27,7 +27,7 @@
 //! So cacache stores the hashed wheel key and associated with this is with the content hash of the wheel
 //! This way multiple WheelCacheKeys can point to the same wheel.
 
-use crate::artifacts::{SDist, SourceArtifact, Wheel};
+use crate::artifacts::{SourceArtifact, Wheel};
 use crate::python_env::PythonInterpreterVersion;
 use crate::types::{Artifact, WheelFilename};
 use cacache::{Integrity, WriteOpts};

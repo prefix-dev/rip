@@ -11,7 +11,7 @@ WheelCoreMetadata {
         epoch: 0,
         release: [
             13,
-            7,
+            6,
             0,
         ],
         pre: None,
@@ -88,26 +88,22 @@ WheelCoreMetadata {
             name: "markdown-it-py",
             extras: None,
             version_or_url: Some(
-                VersionSpecifier(
-                    VersionSpecifiers(
-                        [
-                            VersionSpecifier {
-                                operator: GreaterThanEqual,
-                                version: Version {
-                                    epoch: 0,
-                                    release: [
-                                        2,
-                                        2,
-                                        0,
-                                    ],
-                                    pre: None,
-                                    post: None,
-                                    dev: None,
-                                    local: None,
-                                },
-                            },
-                        ],
-                    ),
+                Url(
+                    Url {
+                        scheme: "git+https",
+                        cannot_be_a_base: false,
+                        username: "",
+                        password: None,
+                        host: Some(
+                            Domain(
+                                "github.com",
+                            ),
+                        ),
+                        port: None,
+                        path: "/executablebooks/markdown-it-py.git",
+                        query: None,
+                        fragment: None,
+                    },
                 ),
             ),
             marker: None,

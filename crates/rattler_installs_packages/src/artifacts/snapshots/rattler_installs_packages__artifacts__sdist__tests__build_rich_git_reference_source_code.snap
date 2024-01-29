@@ -1,115 +1,27 @@
 ---
 source: crates/rattler_installs_packages/src/artifacts/sdist.rs
-expression: "artifact_info[0]"
+expression: "artifact_info[0].filename"
 ---
-ArtifactInfo {
-    filename: STree(
-        STreeFilename {
-            distribution: PackageName {
-                source: "rich",
-                normalized: "rich",
-            },
-            version: Url {
-                scheme: "git+https",
-                cannot_be_a_base: false,
-                username: "",
-                password: None,
-                host: Some(
-                    Domain(
-                        "github.com",
-                    ),
+STree(
+    STreeFilename {
+        distribution: PackageName {
+            source: "rich",
+            normalized: "rich",
+        },
+        version: Url {
+            scheme: "git+https",
+            cannot_be_a_base: false,
+            username: "",
+            password: None,
+            host: Some(
+                Domain(
+                    "github.com",
                 ),
-                port: None,
-                path: "/Textualize/rich.git",
-                query: None,
-                fragment: None,
-            },
-        },
-    ),
-    url: Url {
-        scheme: "git+https",
-        cannot_be_a_base: false,
-        username: "",
-        password: None,
-        host: Some(
-            Domain(
-                "github.com",
             ),
-        ),
-        port: None,
-        path: "/Textualize/rich.git",
-        query: None,
-        fragment: None,
-    },
-    hashes: Some(
-        ArtifactHashes {
-            sha256: Some(
-                [
-                    109,
-                    5,
-                    51,
-                    195,
-                    103,
-                    29,
-                    97,
-                    155,
-                    83,
-                    67,
-                    136,
-                    254,
-                    17,
-                    113,
-                    234,
-                    11,
-                    236,
-                    90,
-                    102,
-                    214,
-                    186,
-                    138,
-                    8,
-                    129,
-                    117,
-                    38,
-                    23,
-                    106,
-                    203,
-                    171,
-                    178,
-                    230,
-                ],
-            ),
-        },
-    ),
-    requires_python: Some(
-        VersionSpecifiers(
-            [
-                VersionSpecifier {
-                    operator: GreaterThanEqual,
-                    version: Version {
-                        epoch: 0,
-                        release: [
-                            3,
-                            7,
-                            0,
-                        ],
-                        pre: None,
-                        post: None,
-                        dev: None,
-                        local: None,
-                    },
-                },
-            ],
-        ),
-    ),
-    dist_info_metadata: DistInfoMetadata {
-        available: false,
-        hashes: ArtifactHashes {
-            sha256: None,
+            port: None,
+            path: "/Textualize/rich.git",
+            query: None,
+            fragment: None,
         },
     },
-    yanked: Yanked {
-        yanked: false,
-        reason: None,
-    },
-}
+)

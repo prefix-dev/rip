@@ -1,7 +1,6 @@
 use super::solve::PreReleaseResolution;
 use super::SDistResolution;
 use crate::artifacts::SDist;
-use crate::artifacts::SourceArtifact;
 use crate::artifacts::Wheel;
 use crate::index::PackageDb;
 use crate::python_env::WheelTags;
@@ -104,6 +103,14 @@ impl PypiVersion {
         match self {
             PypiVersion::Url(_) => false,
             PypiVersion::Version { version, .. } => version.any_prerelease(),
+        }
+    }
+
+    /// Return if pypi version is git url version
+    pub fn is_git(&self) -> bool {
+        match self {
+            PypiVersion::Version { .. } => false,
+            PypiVersion::Url(url) => url.scheme().contains("git"),
         }
     }
 }

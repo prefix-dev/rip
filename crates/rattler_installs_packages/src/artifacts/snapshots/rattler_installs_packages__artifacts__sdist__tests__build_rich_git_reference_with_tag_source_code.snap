@@ -10,8 +10,8 @@ WheelCoreMetadata {
     version: Version {
         epoch: 0,
         release: [
-            13,
-            7,
+            1,
+            0,
             0,
         ],
         pre: None,
@@ -34,7 +34,7 @@ WheelCoreMetadata {
     ),
     requires_dist: [
         Requirement {
-            name: "ipywidgets",
+            name: "colorama",
             extras: None,
             version_or_url: Some(
                 VersionSpecifier(
@@ -45,9 +45,9 @@ WheelCoreMetadata {
                                 version: Version {
                                     epoch: 0,
                                     release: [
-                                        7,
-                                        5,
-                                        1,
+                                        0,
+                                        4,
+                                        3,
                                     ],
                                     pre: None,
                                     post: None,
@@ -60,7 +60,93 @@ WheelCoreMetadata {
                                 version: Version {
                                     epoch: 0,
                                     release: [
+                                        0,
+                                        5,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: None,
+        },
+        Requirement {
+            name: "commonmark",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
                                         9,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                            VersionSpecifier {
+                                operator: LessThan,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
+                                        10,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                        ],
+                    ),
+                ),
+            ),
+            marker: None,
+        },
+        Requirement {
+            name: "dataclasses",
+            extras: None,
+            version_or_url: Some(
+                VersionSpecifier(
+                    VersionSpecifiers(
+                        [
+                            VersionSpecifier {
+                                operator: GreaterThanEqual,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
+                                        7,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                            VersionSpecifier {
+                                operator: LessThan,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
+                                        8,
                                     ],
                                     pre: None,
                                     post: None,
@@ -73,19 +159,36 @@ WheelCoreMetadata {
                 ),
             ),
             marker: Some(
-                Expression(
-                    MarkerExpression {
-                        l_value: Extra,
-                        operator: Equal,
-                        r_value: QuotedString(
-                            "jupyter",
+                And(
+                    [
+                        Expression(
+                            MarkerExpression {
+                                l_value: MarkerEnvVersion(
+                                    PythonVersion,
+                                ),
+                                operator: GreaterEqual,
+                                r_value: QuotedString(
+                                    "3.6",
+                                ),
+                            },
                         ),
-                    },
+                        Expression(
+                            MarkerExpression {
+                                l_value: MarkerEnvVersion(
+                                    PythonVersion,
+                                ),
+                                operator: LessThan,
+                                r_value: QuotedString(
+                                    "3.7",
+                                ),
+                            },
+                        ),
+                    ],
                 ),
             ),
         },
         Requirement {
-            name: "markdown-it-py",
+            name: "pprintpp",
             extras: None,
             version_or_url: Some(
                 VersionSpecifier(
@@ -96,8 +199,23 @@ WheelCoreMetadata {
                                 version: Version {
                                     epoch: 0,
                                     release: [
-                                        2,
-                                        2,
+                                        0,
+                                        4,
+                                        0,
+                                    ],
+                                    pre: None,
+                                    post: None,
+                                    dev: None,
+                                    local: None,
+                                },
+                            },
+                            VersionSpecifier {
+                                operator: LessThan,
+                                version: Version {
+                                    epoch: 0,
+                                    release: [
+                                        0,
+                                        5,
                                         0,
                                     ],
                                     pre: None,
@@ -125,8 +243,8 @@ WheelCoreMetadata {
                                     epoch: 0,
                                     release: [
                                         2,
-                                        13,
-                                        0,
+                                        6,
+                                        1,
                                     ],
                                     pre: None,
                                     post: None,
@@ -167,9 +285,9 @@ WheelCoreMetadata {
                                 version: Version {
                                     epoch: 0,
                                     release: [
+                                        3,
+                                        7,
                                         4,
-                                        0,
-                                        0,
                                     ],
                                     pre: None,
                                     post: None,
@@ -182,7 +300,8 @@ WheelCoreMetadata {
                                 version: Version {
                                     epoch: 0,
                                     release: [
-                                        5,
+                                        4,
+                                        0,
                                         0,
                                     ],
                                     pre: None,
@@ -195,19 +314,7 @@ WheelCoreMetadata {
                     ),
                 ),
             ),
-            marker: Some(
-                Expression(
-                    MarkerExpression {
-                        l_value: MarkerEnvVersion(
-                            PythonVersion,
-                        ),
-                        operator: LessThan,
-                        r_value: QuotedString(
-                            "3.9",
-                        ),
-                    },
-                ),
-            ),
+            marker: None,
         },
     ],
     requires_python: Some(
@@ -219,7 +326,20 @@ WheelCoreMetadata {
                         epoch: 0,
                         release: [
                             3,
-                            7,
+                            6,
+                        ],
+                        pre: None,
+                        post: None,
+                        dev: None,
+                        local: None,
+                    },
+                },
+                VersionSpecifier {
+                    operator: LessThan,
+                    version: Version {
+                        epoch: 0,
+                        release: [
+                            4,
                             0,
                         ],
                         pre: None,
@@ -231,10 +351,5 @@ WheelCoreMetadata {
             ],
         ),
     ),
-    extras: {
-        Extra {
-            source: "jupyter",
-            normalized: "jupyter",
-        },
-    },
+    extras: {},
 }
