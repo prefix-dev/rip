@@ -556,8 +556,17 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             .get(&solvable_id)
             .expect("the artifacts must already have been cached");
 
-        // If there are no artifacts we can stop here
+        // If there are no artifacts we can have two cases
         if artifacts.is_empty() {
+            // TODO: rework this so it makes more sense from an API perspective later, I think we should add the concept of installed_and_locked or something
+            // It is locked the package data may be available externally
+            // So it's fine if there are no artifacts, we can just assume this has been taken care of
+            let locked_package = self.locked_packages.get(package_name.base());
+            if locked_package.map(|p| &p.version) == Some(package_version) {
+                return Dependencies::Known(dependencies);
+            }
+
+            // Otherwise, we do expect data, and it's not fine if there are no artifacts
             let error = self.pool.intern_string(format!(
                 "there are no artifacts available for {}={}",
                 package_name, package_version
