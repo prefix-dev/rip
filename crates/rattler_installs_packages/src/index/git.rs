@@ -339,9 +339,11 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
             let path = path.to_string_lossy();
             let mut command = git_command("clone");
 
+            println!("PATH IS {:?}", path);
+
             command
                 .arg("--recursive")
-                .arg(format!("file://{}/.git", path).as_str())
+                .arg(format!("file://{}.git", path).as_str())
                 .arg(cache_path.as_os_str());
 
             let output = command
@@ -350,9 +352,8 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
 
             if !output.status.success() {
                 tracing::error!("Command failed: {:?}", command);
-                return Err(SourceError::GitErrorStr(
-                    "failed to execute clone from file",
-                ));
+                let err_msg = format!("failed to execute clone from file {:?}", output.status);
+                return Err(SourceError::GitError(err_msg));
             }
         }
     };

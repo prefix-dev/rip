@@ -977,6 +977,7 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../test-data/stree/dev_folder_with_rich");
 
+        println!("PATH CREATED IS {:?}", path);
         let url =
             Url::parse(format!("git+file://{}.git", path.as_os_str().to_str().unwrap()).as_str())
                 .unwrap();
