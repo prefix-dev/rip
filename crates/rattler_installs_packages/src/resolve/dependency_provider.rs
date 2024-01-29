@@ -12,12 +12,14 @@ use crate::wheel_builder::WheelBuilder;
 use elsa::FrozenMap;
 use itertools::Itertools;
 use miette::IntoDiagnostic;
+use parking_lot::Mutex;
 use pep440_rs::{Operator, Version, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
 use resolvo::{
     Candidates, Dependencies, DependencyProvider, KnownDependencies, NameId, Pool, SolvableId,
     SolverCache, VersionSet,
 };
+use std::any::Any;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cmp::Ordering;
@@ -208,6 +210,7 @@ pub(crate) struct PypiDependencyProvider<'db, 'i> {
     pub name_to_url: FrozenMap<NormalizedPackageName, String>,
 
     options: &'i ResolveOptions,
+    should_cancel_with_value: Mutex<Option<String>>,
 }
 
 impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
@@ -240,6 +243,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             locked_packages,
             name_to_url,
             options,
+            should_cancel_with_value: Default::default(),
         })
     }
 
@@ -371,6 +375,14 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
 {
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
         &self.pool
+    }
+
+    fn should_cancel_with_value(&self) -> Option<Box<dyn Any>> {
+        // Supply the error message
+        self.should_cancel_with_value
+            .lock()
+            .as_ref()
+            .map(|s| Box::new(s.clone()) as Box<dyn Any>)
     }
 
     fn sort_candidates(
@@ -596,9 +608,9 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
                 )
                 .unwrap()
         }) else {
-            let error = self.pool.intern_string(format!("could not find metadata for any sdist or wheel for this package. No metadata could be extracted for the following available artifacts:\n{}",
-                                                        artifacts.iter().format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))));
-            return Dependencies::Unknown(error);
+            *self.should_cancel_with_value.lock() = Some(format!("could not find metadata for any sdist or wheel for this package. No metadata could be extracted for the following available artifacts:\n{}",
+                                                                                                                   artifacts.iter().format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))));
+            return Dependencies::Unknown(self.pool.intern_string("".to_string()));
         };
 
         // Add constraints that restrict that the extra packages are set to the same version.

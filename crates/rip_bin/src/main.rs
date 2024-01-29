@@ -214,16 +214,16 @@ async fn actual_main() -> miette::Result<()> {
     {
         Ok(blueprint) => blueprint,
         Err(err) => {
-            if args.json {
+            return if args.json {
                 let solution = Solution {
                     resolved: false,
                     packages: HashMap::default(),
                     error: Some(format!("{}", err)),
                 };
                 println!("{}", serde_json::to_string_pretty(&solution).unwrap());
-                return Ok(());
+                Ok(())
             } else {
-                miette::bail!("Could not solve for the requested requirements:\n{err}")
+                Err(err.wrap_err("Could not solve for requested requirements"))
             }
         }
     };
