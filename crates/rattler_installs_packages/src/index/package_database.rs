@@ -254,7 +254,6 @@ impl PackageDb {
             }
         };
 
-        // let's try to build an artifact info
         let artifact_info = ArtifactInfo {
             filename: artifact_name,
             url: url.clone(),
@@ -384,25 +383,13 @@ impl PackageDb {
             }
         };
 
-        let requires_python = metadata.requires_python;
-
-        let dist_info_metadata = DistInfoMetadata {
-            available: false,
-            hashes: ArtifactHashes::default(),
-        };
-
-        let yanked = Yanked {
-            yanked: false,
-            reason: None,
-        };
-
         let artifact_info = ArtifactInfo {
             filename,
             url: url.clone(),
             hashes: Some(artifact_hash),
-            requires_python,
-            dist_info_metadata,
-            yanked,
+            requires_python: metadata.requires_python,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
         };
 
         let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
@@ -449,8 +436,6 @@ impl PackageDb {
                 ));
             }
         };
-
-        println!("LOCATION IS {:?}", location);
 
         let (wheel_metadata, filename) = self
             .get_stree_from_file_path(
@@ -519,7 +504,6 @@ impl PackageDb {
         } else if url.scheme() == "git+https" || url.scheme() == "git+file" {
             self.get_git_artifact(p, url, wheel_builder).await
         } else {
-            // make it a better error
             Err(miette::miette!(
                 "Usage of unsecure protocol or unsupported scheme {:?}",
                 url.scheme()

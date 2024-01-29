@@ -5,14 +5,13 @@ use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
 use crate::utils::normalize_path;
 use crate::wheel_builder::{WheelBuildError, WheelBuilder};
+use fs_err as fs;
 use fs_err::read_dir;
-// use fs_err as fs;
 use parking_lot::RwLock;
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 
-use std::fs;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -139,10 +138,6 @@ impl<'db> BuildEnvironment<'db> {
         let work_dir = self.work_dir.path();
 
         sdist.extract_to(work_dir.as_path())?;
-
-        for path in read_dir(work_dir.as_path())? {
-            println!("PATH IS {:?}", path);
-        }
 
         // // when sdists are downloaded from pypi - they have correct name
         // // name - version

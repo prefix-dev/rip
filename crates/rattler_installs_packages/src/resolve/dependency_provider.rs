@@ -19,9 +19,9 @@ use resolvo::{
     Candidates, Dependencies, DependencyProvider, KnownDependencies, NameId, Pool, SolvableId,
     SolverCache, VersionSet,
 };
-use std::any::Any;
 use serde::Deserialize;
 use serde::Serialize;
+use std::any::Any;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -441,25 +441,23 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         let url_version = self.name_to_url.get(package_name.base());
 
         //TODO: make if let statement
-        let result = match url_version {
-            None => {
-                // Get all the metadata for this package
-                task::block_in_place(move || {
-                    Handle::current().block_on(
-                        self.package_db
-                            .available_artifacts(package_name.base().clone()),
-                    )
-                })
-            }
-            Some(url) => task::block_in_place(move || {
+        let result = if let Some(url) = url_version {
+            task::block_in_place(move || {
                 let url = Url::from_str(url).expect("cannot parse back url");
-
                 Handle::current().block_on(self.package_db.get_artifact_by_url(
                     package_name.base().clone(),
                     url,
                     &self.wheel_builder,
                 ))
-            }),
+            })
+        } else {
+            // Get all the metadata for this package
+            task::block_in_place(move || {
+                Handle::current().block_on(
+                    self.package_db
+                        .available_artifacts(package_name.base().clone()),
+                )
+            })
         };
 
         let artifacts = match result {

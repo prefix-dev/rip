@@ -289,8 +289,6 @@ pub async fn resolve<'db>(
         );
         root_requirements.push(version_set_id);
 
-        // let url_str
-
         if let Some(VersionOrUrl::Url(url)) = version_or_url {
             name_to_url.insert(pypi_name.base().clone(), url.clone().as_str().to_owned());
         }

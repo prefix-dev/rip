@@ -6,12 +6,12 @@ use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
 use crate::wheel_builder::WheelCacheKey;
 use flate2::read::GzDecoder;
-// use fs_err as fs;
+use fs::read_dir;
+use fs_err as fs;
 use miette::IntoDiagnostic;
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::hash_map::DefaultHasher;
 use std::ffi::OsStr;
-use std::fs::{self, read_dir};
 use std::hash::{Hash, Hasher};
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -26,14 +26,13 @@ pub trait SourceArtifact: Sync {
     /// that will we be used for hashing
     fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
 
-    /// Distributuion Name
+    /// Distribution Name
     fn distribution_name(&self) -> &str;
 
-    /// Version
-    /// Can be URL or Version
+    /// Version ( URL or Version )
     fn version(&self) -> PypiVersion;
 
-    /// source artifact name
+    /// Source artifact name
     fn artifact_name(&self) -> SourceArtifactName;
 
     /// Read the build system info from the pyproject.toml
@@ -45,7 +44,7 @@ pub trait SourceArtifact: Sync {
     /// as example this method is used by install_build_files
     fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
 
-    /// calculate wheelkey for this artifact
+    /// Return WheelCacheKey for this artifact
     fn get_wheel_key(&self) -> Result<WheelCacheKey, std::io::Error>;
 }
 
@@ -67,7 +66,7 @@ impl STree {
     /// Copy source tree directory in specific location
     fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
         fs::create_dir_all(&dst)?;
-        for entry in fs::read_dir(src)? {
+        for entry in fs::read_dir(src.as_ref())? {
             let entry = entry?;
             let ty = entry.file_type()?;
             if ty.is_dir() {
