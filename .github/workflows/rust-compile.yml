@@ -101,6 +101,12 @@ jobs:
         if: contains(matrix.target, '-musl')
         run: |
           echo "CARGO_BUILD_OPTIONS=${CARGO_BUILD_OPTIONS} --no-default-features --features rustls-tls" >> $GITHUB_OUTPUT
+      
+      - name: Configure git user which will be used in tests.
+        shell: bash
+        run: |
+            git config --global user.email "ci@example.com" 
+            git config --global user.name "ci"
 
       - name: Build
         run: >

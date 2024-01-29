@@ -352,7 +352,11 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
 
             if !output.status.success() {
                 tracing::error!("Command failed: {:?}", command);
-                let err_msg = format!("failed to execute clone from file {:?}", output.status);
+                let err = String::from_utf8(output.stderr).unwrap();
+                let err_msg = format!(
+                    "failed to execute clone from file {:?} {:?}",
+                    output.status, err
+                );
                 return Err(SourceError::GitError(err_msg));
             }
         }
