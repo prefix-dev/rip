@@ -45,6 +45,7 @@ pub struct PypiVersionSet {
 }
 
 impl PypiVersionSet {
+    /// Create a PyPiVersionSeet from VersionOrUrl specifier
     pub fn from_spec(spec: Option<VersionOrUrl>, prerelease_option: &PreReleaseResolution) -> Self {
         let allows_prerelease = match prerelease_option {
             PreReleaseResolution::Disallow => false,

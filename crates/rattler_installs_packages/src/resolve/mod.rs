@@ -11,7 +11,7 @@
 mod dependency_provider;
 mod solve;
 
-pub use dependency_provider::PypiVersion;
+pub use dependency_provider::{PypiVersion, PypiVersionSet};
 pub use solve::{
     resolve, OnWheelBuildFailure, PinnedPackage, PreReleaseResolution, ResolveOptions,
     SDistResolution,
