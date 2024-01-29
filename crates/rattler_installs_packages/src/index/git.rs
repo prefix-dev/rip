@@ -10,8 +10,6 @@ use std::{
 
 use fs_extra::dir::remove;
 use miette::IntoDiagnostic;
-// use rattler_build::recipe::parser::{GitRev, GitSource, GitUrl};
-// use rattler_build::source::git_source::git_src;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
@@ -241,10 +239,6 @@ fn get_revision_sha(dest: &PathBuf, rev: Option<String>) -> Result<GitRev, Sourc
         .current_dir(dest)
         .output()?;
 
-    // if !output.status.success() {
-    //     exit(output.status.code().unwrap_or(1));
-    // }
-
     let output_str = String::from_utf8_lossy(&output.stdout);
     let refs: HashMap<_, _> = output_str
         .lines()
@@ -303,8 +297,6 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
             .to_string_lossy()
             .to_string(),
     };
-
-    println!("FILENAME IS {:?}", filename);
 
     let cache_name = PathBuf::from(filename);
     let cache_path = cache_dir.join(cache_name);
@@ -367,35 +359,9 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
 
     let git_rev = get_revision_sha(&cache_path, source.rev.clone())?;
 
-    // // Resolve the reference and set the head to the specified revision.
-    // let output = Command::new("git")
-    //     .current_dir(&cache_path)
-    //     .args(["rev-parse", git_rev.as_str()])
-    //     .output()
-    //     .map_err(|_| SourceError::GitErrorStr("git rev-parse failed"))?;
-
-    // if !output.status.success() {
-    //     tracing::error!("Command failed: `git rev-parse \"{}\"`", &rev);
-    //     return Err(SourceError::GitErrorStr("failed to get valid hash for rev"));
-    // }
-
-    // let ref_git = String::from_utf8(output.stdout)
-    //     .map_err(|_| SourceError::GitErrorStr("failed to parse git rev as utf-8"))?
-    //     .trim()
-    //     .to_owned();
-
     let mut checkout = git_command("checkout");
-    println!("GIT REV IS {:?}", git_rev);
 
     let cmd = if !git_rev.is_head() {
-        // println!("IS BRANCH");
-        // let track_branch = format!("origin/{}", git_rev.get_commit());
-        // Some(checkout.args([
-        //     "-b",
-        //     git_rev.get_commit().as_str(),
-        //     "--track",
-        //     track_branch.as_str(),
-        // ]))
         Some(checkout.args(["-q", git_rev.get_commit().as_str()]))
     } else {
         None
@@ -407,8 +373,6 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
             .output()
             .map_err(|_| SourceError::GitErrorStr("git checkout failed"))?;
 
-        println!("I CHECKOUTED {:?}", cmd);
-
         if !output.status.success() {
             tracing::error!(
                 "Command failed: `git checkout \"{}\"`",
@@ -419,24 +383,6 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
             ));
         }
     }
-
-    // // Resolve the reference and set the head to the specified revision.
-    // let output = Command::new("git")
-    //     .current_dir(&cache_path)
-    //     .args(["rev-parse", rev.as_str()])
-    //     .output()
-    //     .map_err(|_| SourceError::GitErrorStr("git rev-parse failed"))?;
-
-    // if !output.status.success() {
-    //     tracing::error!("Command failed: `git rev-parse \"{}\"`", &rev);
-    //     return Err(SourceError::GitErrorStr("failed to get valid hash for rev"));
-    // }
-
-    // tracing::info!(
-    //     "Checked out revision: '{}' at '{}'",
-    //     &rev,
-    //     ref_git.as_str().trim()
-    // );
 
     Ok(cache_path)
 }
