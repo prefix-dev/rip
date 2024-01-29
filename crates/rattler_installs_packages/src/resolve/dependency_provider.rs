@@ -32,7 +32,7 @@ use url::Url;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 /// This is a wrapper around [`Specifiers`] that implements [`VersionSet`]
-pub(crate) struct PypiVersionSet {
+pub struct PypiVersionSet {
     /// The spec to match against
     spec: Option<VersionOrUrl>,
     /// If the VersionOrUrl is a Version specifier and any of the specifiers contains a
