@@ -31,7 +31,7 @@ use tokio::task;
 use url::Url;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
-/// This is a wrapper around [`Specifiers`] that implements [`VersionSet`]
+/// This is a wrapper around Specifiers that implements [`VersionSet`]
 pub struct PypiVersionSet {
     /// The spec to match against
     spec: Option<VersionOrUrl>,
