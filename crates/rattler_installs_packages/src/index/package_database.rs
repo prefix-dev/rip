@@ -265,7 +265,7 @@ impl PackageDb {
                 }
                 Err(err) => {
                     errors.push(format!(
-                        "Error from source distributions '{}' skipped: \n {}",
+                        "Error from source distributions '{}' not using: \n {}",
                         artifact_info.filename, err
                     ));
                     continue;
