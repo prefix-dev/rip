@@ -978,7 +978,7 @@ mod tests {
             .join("../../test-data/stree/dev_folder_with_rich");
 
         let url =
-            Url::parse(format!("git+file:///{}.git", path.as_os_str().to_str().unwrap()).as_str())
+            Url::parse(format!("git+file://{}.git", path.as_os_str().to_str().unwrap()).as_str())
                 .unwrap();
 
         let package_db = get_package_db();
