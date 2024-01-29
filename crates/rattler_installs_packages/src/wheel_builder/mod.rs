@@ -361,7 +361,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::{SDist, SourceArtifact};
+    use crate::artifacts::SDist;
     use crate::index::PackageDb;
     use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
     use crate::resolve::ResolveOptions;
