@@ -294,7 +294,7 @@ impl SourceArtifact for STree {
     }
 
     fn version(&self) -> PypiVersion {
-        PypiVersion::Url(self.name.version.clone())
+        PypiVersion::Url(self.name.url.clone())
     }
 
     fn artifact_name(&self) -> SourceArtifactName {

@@ -505,10 +505,22 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         for (artifact_version, artifacts) in artifacts.iter() {
             // Skip this version if a locked or favored version exists for this version. It will be
             // added below.
-            if locked_package.map(|p| &p.version) == Some(artifact_version)
-                || favored_package.map(|p| &p.version) == Some(artifact_version)
-            {
-                continue;
+
+            match artifact_version {
+                PypiVersion::Url(url) => {
+                    if locked_package.map(|p| &p.url) == Some(&Some(url.clone()))
+                        || favored_package.map(|p| &p.url) == Some(&Some(url.clone()))
+                    {
+                        continue;
+                    }
+                }
+                PypiVersion::Version { version, .. } => {
+                    if locked_package.map(|p| &p.version) == Some(version)
+                        || favored_package.map(|p| &p.version) == Some(version)
+                    {
+                        continue;
+                    }
+                }
             }
 
             // Add the solvable
@@ -540,7 +552,15 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
 
         // Add a locked dependency
         if let Some(locked) = self.locked_packages.get(package_name.base()) {
-            let solvable_id = self.pool.intern_solvable(name, locked.version.clone());
+            let version = if let Some(url) = &locked.url {
+                PypiVersion::Url(url.clone())
+            } else {
+                PypiVersion::Version {
+                    version: locked.version.clone(),
+                    package_allows_prerelease: locked.version.any_prerelease(),
+                }
+            };
+            let solvable_id = self.pool.intern_solvable(name, version);
             candidates.candidates.push(solvable_id);
             candidates.locked = Some(solvable_id);
             self.cached_artifacts
@@ -549,7 +569,15 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
 
         // Add a favored dependency
         if let Some(favored) = self.favored_packages.get(package_name.base()) {
-            let solvable_id = self.pool.intern_solvable(name, favored.version.clone());
+            let version = if let Some(url) = &favored.url {
+                PypiVersion::Url(url.clone())
+            } else {
+                PypiVersion::Version {
+                    version: favored.version.clone(),
+                    package_allows_prerelease: favored.version.any_prerelease(),
+                }
+            };
+            let solvable_id = self.pool.intern_solvable(name, version);
             candidates.candidates.push(solvable_id);
             candidates.favored = Some(solvable_id);
             self.cached_artifacts
@@ -608,8 +636,18 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             // It is locked the package data may be available externally
             // So it's fine if there are no artifacts, we can just assume this has been taken care of
             let locked_package = self.locked_packages.get(package_name.base());
-            if locked_package.map(|p| &p.version) == Some(package_version) {
-                return Dependencies::Known(dependencies);
+            match package_version {
+                PypiVersion::Url(url) => {
+                    if locked_package.map(|p| &p.url) == Some(&Some(url.clone())) {
+                        return Dependencies::Known(dependencies);
+                    }
+                }
+
+                PypiVersion::Version { version, .. } => {
+                    if locked_package.map(|p| &p.version) == Some(version) {
+                        return Dependencies::Known(dependencies);
+                    }
+                }
             }
 
             // Otherwise, we do expect data, and it's not fine if there are no artifacts

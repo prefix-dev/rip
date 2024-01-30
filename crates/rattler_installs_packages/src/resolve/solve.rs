@@ -6,10 +6,12 @@ use crate::resolve::PypiVersion;
 use crate::types::PackageName;
 use crate::{types::ArtifactInfo, types::Extra, types::NormalizedPackageName};
 use elsa::FrozenMap;
+use pep440_rs::Version;
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
 use resolvo::{DefaultSolvableDisplay, Pool, Solver, UnsolvableOrCancelled};
 use std::collections::HashMap;
 use std::str::FromStr;
+use url::Url;
 
 use std::collections::HashSet;
 use std::ops::Deref;
@@ -21,10 +23,10 @@ pub struct PinnedPackage<'db> {
     pub name: NormalizedPackageName,
 
     /// The selected version
-    pub version: PypiVersion,
+    pub version: Version,
 
     /// The possible direct URL for it
-    // pub url: Option<Url>,
+    pub url: Option<Url>,
 
     /// The extras that where selected either by the user or as part of the resolution.
     pub extras: HashSet<Extra>,
@@ -347,20 +349,32 @@ pub async fn resolve<'db>(
         let name = pool.resolve_package_name(solvable.name_id());
         let version = solvable.inner();
 
+        let artifacts: Vec<_> = provider
+            .cached_artifacts
+            .get(&solvable_id)
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect();
+
+        let (version, url) = match version {
+            PypiVersion::Version { version, .. } => (version.clone(), None),
+            PypiVersion::Url(url) => {
+                // artifacts get by url have only one artifact and one possible version
+                let info = artifacts[0];
+                (info.filename.version(), Some(url.clone()))
+            }
+        };
+
         // Get the entry in the result
         let entry = result
             .entry(name.base().clone())
             .or_insert_with(|| PinnedPackage {
                 name: name.base().clone(),
-                version: version.clone(),
+                version,
+                url,
+                artifacts,
                 extras: Default::default(),
-                artifacts: provider
-                    .cached_artifacts
-                    .get(&solvable_id)
-                    .into_iter()
-                    .flatten()
-                    .copied()
-                    .collect(),
             });
 
         // Add the extra if selected
