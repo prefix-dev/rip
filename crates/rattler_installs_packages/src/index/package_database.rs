@@ -265,7 +265,7 @@ impl PackageDb {
                 }
                 Err(err) => {
                     errors.push(format!(
-                        "Error from source distributions '{}' skipped: \n {}",
+                        "error while processing source distribution '{}': \n {}",
                         artifact_info.filename, err
                     ));
                     continue;
@@ -273,9 +273,10 @@ impl PackageDb {
             }
         }
 
-        // Could not find any metadata, so print the errors
-        for error in errors {
-            tracing::error!("{}", error);
+        // Check if errors is empty and if not return an error
+        if !errors.is_empty() {
+            tracing::warn!("errors while processing source distributions:");
+            miette::bail!("{}", errors.join("\n"));
         }
 
         Ok(None)

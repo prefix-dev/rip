@@ -11,7 +11,7 @@ use crate::types::{
 use crate::wheel_builder::WheelBuilder;
 use elsa::FrozenMap;
 use itertools::Itertools;
-use miette::IntoDiagnostic;
+use miette::{Diagnostic, IntoDiagnostic, MietteDiagnostic};
 use parking_lot::Mutex;
 use pep440_rs::{Operator, Version, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
@@ -24,6 +24,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use thiserror::Error;
 use tokio::runtime::Handle;
 use tokio::task;
 use url::Url;
@@ -187,7 +188,7 @@ pub(crate) struct PypiDependencyProvider<'db, 'i> {
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
 
     options: &'i ResolveOptions,
-    should_cancel_with_value: Mutex<Option<String>>,
+    should_cancel_with_value: Mutex<Option<MetadataError>>,
 }
 
 impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
@@ -339,6 +340,19 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             .iter()
             .any(|a| a.is::<S>())
     }
+}
+
+#[derive(Debug, Error, Diagnostic, Clone)]
+pub(crate) enum MetadataError {
+    #[error("Extraction of metadata in case of wheels or building in case of sdists returned no results for following artifacts:\n{0}")]
+    NoMetadata(String),
+
+    #[error("No metadata could be extracted for the following available artifacts:\n{artifacts}")]
+    ExtractionFailure {
+        artifacts: String,
+        #[related]
+        errors: Vec<MietteDiagnostic>,
+    },
 }
 
 impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
@@ -565,18 +579,44 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             return Dependencies::Unknown(error);
         }
 
-        let Some((_, metadata)) = task::block_in_place(|| {
+        let result = task::block_in_place(|| {
             // First try getting wheels
-            Handle::current()
-                .block_on(
-                    self.package_db
-                        .get_metadata(artifacts, Some(&self.wheel_builder)),
-                )
-                .unwrap()
-        }) else {
-            *self.should_cancel_with_value.lock() = Some(format!("could not find metadata for any sdist or wheel for this package. No metadata could be extracted for the following available artifacts:\n{}",
-                                                                                                                   artifacts.iter().format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))));
-            return Dependencies::Unknown(self.pool.intern_string("".to_string()));
+            Handle::current().block_on(
+                self.package_db
+                    .get_metadata(artifacts, Some(&self.wheel_builder)),
+            )
+        });
+
+        let metadata = match result {
+            // We have retrieved a value without error
+            Ok(value) => {
+                if let Some((_, metadata)) = value {
+                    // Return the metadata
+                    metadata
+                } else {
+                    let formatted_artifacts = artifacts
+                        .iter()
+                        .format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))
+                        .to_string();
+                    // No results have been found with the methods we tried
+                    *self.should_cancel_with_value.lock() =
+                        Some(MetadataError::NoMetadata(formatted_artifacts));
+                    return Dependencies::Unknown(self.pool.intern_string("".to_string()));
+                }
+            }
+            // Errors have occurred during metadata extraction
+            // This is almost always an sdist build failure
+            Err(e) => {
+                let formatted_artifacts = artifacts
+                    .iter()
+                    .format_with("\n", |a, f| f(&format_args!("\t- {}", a.filename)))
+                    .to_string();
+                *self.should_cancel_with_value.lock() = Some(MetadataError::ExtractionFailure {
+                    artifacts: formatted_artifacts,
+                    errors: vec![MietteDiagnostic::new(e.to_string()).with_help("Probably an error during processing of source distributions. Please check the error message above.")],
+                });
+                return Dependencies::Unknown(self.pool.intern_string("".to_string()));
+            }
         };
 
         // Add constraints that restrict that the extra packages are set to the same version.
