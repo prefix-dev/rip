@@ -80,7 +80,7 @@ impl WheelCacheKey {
         sdist: &impl SourceArtifact,
         python_interpreter_version: &PythonInterpreterVersion,
     ) -> Result<WheelCacheKey, std::io::Error> {
-        let hash = sdist.get_bytes()?;
+        let hash = sdist.try_get_bytes()?;
         let hash = rattler_digest::compute_bytes_digest::<Sha256>(&hash);
 
         // Hash python version

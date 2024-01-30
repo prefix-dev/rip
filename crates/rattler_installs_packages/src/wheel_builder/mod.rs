@@ -234,7 +234,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         // See if we have a locally built wheel for this sdist
         // use that metadata instead
-        // let key: WheelKey = sdist.get_wheel_key()?;
         let key: WheelCacheKey = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return wheel.metadata().map_err(|e| {

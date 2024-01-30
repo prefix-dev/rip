@@ -4,7 +4,6 @@ use crate::types::{
 };
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
-use crate::wheel_builder::WheelCacheKey;
 use flate2::read::GzDecoder;
 use fs::read_dir;
 use fs_err as fs;
@@ -23,7 +22,7 @@ use zip::ZipArchive;
 pub trait SourceArtifact: Sync {
     /// get bytes of an artifact
     /// that will we be used for hashing
-    fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
+    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
 
     /// Distribution Name
     fn distribution_name(&self) -> String;
@@ -42,9 +41,6 @@ pub trait SourceArtifact: Sync {
     /// for stree we move it
     /// as example this method is used by install_build_files
     fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
-
-    /// Return WheelCacheKey for this artifact
-    fn get_wheel_key(&self) -> Result<WheelCacheKey, std::io::Error>;
 }
 
 /// Represents a source tree which can be a simple directory on filesystem
@@ -224,7 +220,7 @@ impl SourceArtifact for SDist {
         }
     }
 
-    fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
         let mut vec = vec![];
         let mut inner = self.lock_data();
         inner.rewind()?;
@@ -273,16 +269,10 @@ impl SourceArtifact for SDist {
             }
         }
     }
-
-    fn get_wheel_key(&self) -> Result<WheelCacheKey, std::io::Error> {
-        let vec = self.get_bytes()?;
-        Ok(WheelCacheKey::from_bytes("sdist", vec))
-    }
 }
 
 impl SourceArtifact for STree {
-    /// read hash for last modified files
-    fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
         let vec = vec![];
         let inner = self.lock_data();
         let mut dir_entry = read_dir(inner.as_path())?;
@@ -293,7 +283,6 @@ impl SourceArtifact for STree {
             let mut hasher = DefaultHasher::new();
             modified.hash(&mut hasher);
             let hash = hasher.finish().to_be_bytes().as_slice().to_owned();
-            // vec.push(hash);
             return Ok(hash);
         }
 
@@ -339,22 +328,6 @@ impl SourceArtifact for STree {
     fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
         let src = self.lock_data();
         Self::copy_dir_all(src.as_path(), work_dir)
-    }
-
-    fn get_wheel_key(&self) -> Result<WheelCacheKey, std::io::Error> {
-        let inner = self.lock_data();
-        let dir_entry = read_dir(inner.as_path())?;
-        let mut hasher = DefaultHasher::new();
-
-        for entry in dir_entry {
-            let entry = entry?;
-            let modified = entry.metadata()?.modified()?;
-            modified.hash(&mut hasher);
-        }
-        let hash = hasher.finish().to_ne_bytes();
-        let slice = hash.as_slice();
-
-        Ok(WheelCacheKey::from_bytes("sdist", slice))
     }
 }
 
