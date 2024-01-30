@@ -23,7 +23,7 @@ pub use artifact::Artifact;
 
 pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFilename,
-    SDistFormat, WheelFilename,
+    SDistFormat, STreeFilename, SourceArtifactName, WheelFilename,
 };
 
 pub use direct_url_json::{DirectUrlHashes, DirectUrlJson, DirectUrlSource, DirectUrlVcs};

@@ -1,0 +1,27 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+expression: "artifact_info[0].filename"
+---
+STree(
+    STreeFilename {
+        distribution: PackageName {
+            source: "rich",
+            normalized: "rich",
+        },
+        version: Url {
+            scheme: "git+https",
+            cannot_be_a_base: false,
+            username: "",
+            password: None,
+            host: Some(
+                Domain(
+                    "github.com",
+                ),
+            ),
+            port: None,
+            path: "/Textualize/rich.git",
+            query: None,
+            fragment: None,
+        },
+    },
+)

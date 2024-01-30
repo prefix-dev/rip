@@ -24,6 +24,19 @@ async fn no_sdists() {
     insta::assert_display_snapshot!(error)
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn local_sdists() {
+    let res = ResolveBuilder::default()
+        .with_requirement(
+            "rich@file:///Users/graf/projects/oss/rip/test-data/sdists/rich-13.6.0.tar.gz",
+        )
+        .resolve()
+        .await
+        .unwrap();
+
+    insta::assert_display_snapshot!(error)
+}
+
 /// Tests that the `SDistResolution::PreferWheels` option selects the highest version with a wheel
 /// over any version with an sdist.
 ///

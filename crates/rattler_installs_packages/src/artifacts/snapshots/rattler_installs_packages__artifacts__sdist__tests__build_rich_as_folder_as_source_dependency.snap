@@ -1,0 +1,8 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+expression: "artifact_info[0].filename.as_stree().unwrap().distribution"
+---
+PackageName {
+    source: "rich",
+    normalized: "rich",
+}

@@ -1,12 +1,12 @@
 use crate::artifacts::wheel::UnpackWheelOptions;
-use crate::artifacts::SDist;
+use crate::artifacts::SourceArtifact;
 
 use crate::python_env::{PythonLocation, VEnv, WheelTags};
 use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
-use crate::types::Artifact;
 use crate::utils::normalize_path;
 use crate::wheel_builder::{WheelBuildError, WheelBuilder};
 use fs_err as fs;
+use fs_err::read_dir;
 use parking_lot::RwLock;
 use pep508_rs::{MarkerEnvironment, Requirement};
 use std::collections::{HashMap, HashSet};
@@ -129,10 +129,45 @@ fn normalize_backend_path(
 
 impl<'db> BuildEnvironment<'db> {
     /// Extract the wheel and write the build_frontend.py to the work folder
-    pub(crate) fn install_build_files(&self, sdist: &SDist) -> std::io::Result<()> {
-        let work_dir = self.work_dir.path();
+    pub(crate) fn install_build_files(
+        &mut self,
+        sdist: &(impl SourceArtifact + ?Sized),
+    ) -> std::io::Result<()> {
         // Extract the sdist to the work folder
+        // extract to a specific package dir
+        let work_dir = self.work_dir.path();
+
         sdist.extract_to(work_dir.as_path())?;
+
+        // when sdists are downloaded from pypi - they have correct name
+        // name - version
+        // when we are using direct versions, we don't know the actual version
+        // so we create package-dir as name-file://version or name-http://your-url-version
+        // which is not actually true
+        // so after extracting or moving
+        // we map correct package location
+        // when URL is actually a git version
+        // it is extracted in work_dir
+        // so we map package_dir to work_dir
+
+        if sdist.version().is_git() {
+            self.package_dir = self.work_dir.path();
+        } else if let Some(package_dir_name) = self.package_dir.file_name() {
+            let actual_package_dir = work_dir.join(package_dir_name);
+            if !actual_package_dir.exists() {
+                for path in (read_dir(work_dir.clone())?).flatten() {
+                    if path
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.contains(&sdist.distribution_name()))
+                    {
+                        self.package_dir = path.path();
+                        break;
+                    }
+                }
+            }
+        }
+
         // Write the python frontend to the work folder
         fs::write(work_dir.join("build_frontend.py"), BUILD_FRONTEND_PY)
     }
@@ -317,7 +352,7 @@ impl<'db> BuildEnvironment<'db> {
 
     /// Setup the build environment so that we can build a wheel from an sdist
     pub(crate) async fn setup<'i>(
-        sdist: &SDist,
+        sdist: &impl SourceArtifact,
         wheel_builder: &WheelBuilder<'db, 'i>,
         env_markers: &'i MarkerEnvironment,
         wheel_tags: Option<&'i WheelTags>,
@@ -371,7 +406,7 @@ impl<'db> BuildEnvironment<'db> {
         .map_err(|e| {
             tracing::error!(
                 "could not resolve build requirements when trying to build a wheel for : {}",
-                sdist.name()
+                sdist.artifact_name()
             );
             WheelBuildError::CouldNotResolveEnvironment(build_requirements.to_vec(), e)
         })?;
@@ -396,11 +431,10 @@ impl<'db> BuildEnvironment<'db> {
         }
 
         // Package dir for the package we need to build
-        let package_dir = work_dir.path().join(format!(
-            "{}-{}",
-            sdist.name().distribution.as_source_str(),
-            sdist.name().version
-        ));
+        let package_dir =
+            work_dir
+                .path()
+                .join(format!("{}-{}", sdist.distribution_name(), sdist.version(),));
 
         let env_variables = if let Some(backend_path) = &build_system.backend_path {
             let mut env_variables = env_variables;
