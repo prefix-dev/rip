@@ -742,10 +742,16 @@ mod tests {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
-        let url =
-            Url::parse(format!("file:///{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
+        let url = Url::parse(
+            format!(
+                "file://{}",
+                path.canonicalize().unwrap().as_os_str().to_str().unwrap()
+            )
+            .as_str(),
+        )
+        .unwrap();
 
-        // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+        eprint!("FORMATTED URL IS {:?}", url);
 
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
