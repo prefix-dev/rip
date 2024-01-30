@@ -168,16 +168,19 @@ async fn actual_main() -> miette::Result<()> {
         env_markers
     );
 
-    let compatible_tags = WheelTags::from_env().await.into_diagnostic()?;
-    tracing::debug!(
-        "extracted the following compatible wheel tags from the system python interpreter: {}",
-        compatible_tags.tags().format(", ")
-    );
-
     let python_location = match args.python_interpreter {
         Some(python_interpreter) => PythonLocation::Custom(python_interpreter),
         None => PythonLocation::System,
     };
+
+    let compatible_tags =
+        WheelTags::from_python(python_location.executable().into_diagnostic()?.as_path())
+            .await
+            .into_diagnostic()?;
+    tracing::debug!(
+        "extracted the following compatible wheel tags from the system python interpreter: {}",
+        compatible_tags.tags().format(", ")
+    );
 
     let on_wheel_build_failure = if args.save_on_failure {
         OnWheelBuildFailure::SaveBuildEnv
