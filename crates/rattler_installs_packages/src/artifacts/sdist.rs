@@ -809,7 +809,7 @@ mod tests {
             .join("../../test-data/stree/dev_folder_with_rich");
 
         let url =
-            Url::parse(format!("file:///{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
+            Url::parse(format!("file://{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
 
         // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
