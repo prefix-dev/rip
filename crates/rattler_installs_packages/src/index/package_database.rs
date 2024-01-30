@@ -131,13 +131,21 @@ impl PackageDb {
     pub async fn get_sdist_from_file_path<'a, 'i>(
         &self,
         normalized_package_name: &NormalizedPackageName,
-        url: Url,
+        path: &PathBuf,
         wheel_builder: &WheelBuilder<'a, 'i>,
     ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
         let distribution = PackageName::from(normalized_package_name.clone());
-        let url_as_str = url.as_str();
 
-        let format = SDistFormat::get_extension(url_as_str).into_diagnostic()?;
+        let path_str = if let Some(path_str) = path.as_os_str().to_str() {
+            path_str
+        } else {
+            return Err(WheelBuildError::Error(format!(
+                "Could not convert path in utf-8 str {}",
+                path.to_string_lossy()
+            )))
+            .into_diagnostic();
+        };
+        let format = SDistFormat::get_extension(path_str).into_diagnostic()?;
         let dummy_version =
             Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
 
@@ -147,7 +155,7 @@ impl PackageDb {
             format,
         };
 
-        let file = File::open(url.path()).into_diagnostic()?;
+        let file = File::open(path).into_diagnostic()?;
 
         let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(file))?;
 
@@ -239,7 +247,7 @@ impl PackageDb {
                 )
             } else if path.is_file() {
                 let (wheel_metadata, name) = self
-                    .get_sdist_from_file_path(&normalized_package_name, url.clone(), wheel_builder)
+                    .get_sdist_from_file_path(&normalized_package_name, &path, wheel_builder)
                     .await?;
                 (wheel_metadata.0, wheel_metadata.1, name)
             } else {
@@ -247,7 +255,7 @@ impl PackageDb {
                     .get_stree_from_file_path(
                         &normalized_package_name,
                         url.clone(),
-                        None,
+                        Some(path),
                         wheel_builder,
                     )
                     .await?;
