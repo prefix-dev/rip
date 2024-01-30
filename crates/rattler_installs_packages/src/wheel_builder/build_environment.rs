@@ -139,16 +139,16 @@ impl<'db> BuildEnvironment<'db> {
 
         sdist.extract_to(work_dir.as_path())?;
 
-        // // when sdists are downloaded from pypi - they have correct name
-        // // name - version
-        // // when we are using direct versions, we don't know the actual version
-        // // so we create package-dir as name-file://version or name-http://your-url-version
-        // // which is not actually true
-        // // so after extracting or moving
-        // // we map correct package location
-        // // when URL is actually a git version
-        // // it is extracted in work_dir
-        // // so we map package_dir to work_dir
+        // when sdists are downloaded from pypi - they have correct name
+        // name - version
+        // when we are using direct versions, we don't know the actual version
+        // so we create package-dir as name-file://version or name-http://your-url-version
+        // which is not actually true
+        // so after extracting or moving
+        // we map correct package location
+        // when URL is actually a git version
+        // it is extracted in work_dir
+        // so we map package_dir to work_dir
 
         if sdist.version().is_git() {
             self.package_dir = self.work_dir.path();
@@ -159,7 +159,7 @@ impl<'db> BuildEnvironment<'db> {
                     if path
                         .file_name()
                         .to_str()
-                        .is_some_and(|name| name.contains(sdist.distribution_name()))
+                        .is_some_and(|name| name.contains(&sdist.distribution_name()))
                     {
                         self.package_dir = path.path();
                         break;

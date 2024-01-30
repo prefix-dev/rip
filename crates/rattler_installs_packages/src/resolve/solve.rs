@@ -262,7 +262,7 @@ pub async fn resolve<'db>(
     env_variables: HashMap<String, String>,
 ) -> miette::Result<Vec<PinnedPackage<'db>>> {
     // Construct the pool
-    let pool: Pool<PypiVersionSet, PypiPackageName> = Pool::new();
+    let pool = Pool::new();
 
     // Construct HashMap of Name to URL
     let name_to_url: FrozenMap<NormalizedPackageName, String> = FrozenMap::default();
@@ -343,7 +343,7 @@ pub async fn resolve<'db>(
     };
     let mut result: HashMap<NormalizedPackageName, PinnedPackage<'_>> = HashMap::new();
     for solvable_id in solvables {
-        let pool: &Pool<PypiVersionSet, PypiPackageName> = solver.pool();
+        let pool = solver.pool();
         let solvable = pool.resolve_solvable(solvable_id);
         let name = pool.resolve_package_name(solvable.name_id());
         let version = solvable.inner();

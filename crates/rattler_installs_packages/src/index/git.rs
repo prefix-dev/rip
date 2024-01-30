@@ -94,7 +94,10 @@ impl Default for GitRev {
         Self::Head
     }
 }
-
+/// A struct which store
+/// cleaned url with revision and subdirectory
+/// parsed from
+/// git+https://github.com/example/repo.git@1.0.0#subdirectry=some
 pub struct ParsedUrl {
     /// Url to the git repository
     pub git_url: GitUrl,
@@ -221,9 +224,39 @@ fn git_command(sub_cmd: &str) -> Command {
     if std::io::stdin().is_terminal() {
         command.stdout(std::process::Stdio::inherit());
         command.stderr(std::process::Stdio::inherit());
-        // command.arg("--progress");
+        command.arg("--progress");
     }
     command
+}
+
+fn git_version() -> miette::Result<(u8, u8)> {
+    let output = Command::new("git")
+        .arg("version")
+        .output()
+        .into_diagnostic()?;
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let regex = Regex::new(r"^git version (\d+)\.(\d+)(?:\s+\(.*\))?*").into_diagnostic()?;
+    let captures = regex.captures(&output_str);
+    if let Some(version) = captures {
+        let major = u8::from_str(&version[1]).into_diagnostic()?;
+        let minor = u8::from_str(&version[2]).into_diagnostic()?;
+        Ok((major, minor))
+    } else {
+        Err(miette::miette!(
+            help = "Can't parse git version.",
+            "{}",
+            output_str
+        ))
+    }
+}
+
+fn support_partial_clone() -> miette::Result<bool> {
+    let version = git_version()?;
+    if version >= (2, 17) {
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 fn get_revision_sha(dest: &PathBuf, rev: Option<String>) -> Result<GitRev, SourceError> {
@@ -284,8 +317,6 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
     let cache_dir = tmp_dir.path().join("rip-git-cache");
     let recipe_dir = tmp_dir.path().join("rip-clone-dir");
 
-    println!("FILENAME IS {:?}", source);
-
     let filename = match &source.url() {
         GitUrl::Url(url) => (|| Some(url.path_segments()?.last()?.to_string()))()
             .ok_or_else(|| SourceError::GitErrorStr("failed to get filename from url"))?,
@@ -305,13 +336,16 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
     match &source.url() {
         GitUrl::Url(_) => {
             // If the cache_path exists, initialize the repo and fetch the specified revision.
-            if cache_path.exists() {
-                // fetch_repo(&cache_path, url, &rev)?;
-            } else {
+            if !cache_path.exists() {
                 let mut command = git_command("clone");
+                if support_partial_clone().is_ok() {
+                    command.arg("--filter=blob:none");
+                } else {
+                    command.arg("--recursive");
+                }
 
                 command
-                    .args(["--recursive", source.url().to_string().as_str()])
+                    .arg(source.url().to_string().as_str())
                     .arg(cache_path.as_os_str());
 
                 let output = command
@@ -338,8 +372,6 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
 
             let path = path.to_string_lossy();
             let mut command = git_command("clone");
-
-            println!("PATH IS {:?}", path);
 
             command
                 .arg("--recursive")
@@ -386,6 +418,21 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
             return Err(SourceError::GitErrorStr(
                 "failed to checkout for a valid rev",
             ));
+        }
+    }
+
+    // update submodules
+    if cache_path.join(".gitmodules").exists() {
+        let mut submodule = git_command("submodule");
+        let output = submodule
+            .current_dir(&cache_path)
+            .arg("update")
+            .args(["--init", "--recursive", "-q"])
+            .output()
+            .map_err(|_| SourceError::GitErrorStr("git submodule update failed"))?;
+
+        if !output.status.success() {
+            return Err(SourceError::GitErrorStr("failed to update git module"));
         }
     }
 

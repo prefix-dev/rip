@@ -441,11 +441,10 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         // check if we have URL variant for this name
         let url_version = self.name_to_url.get(package_name.base());
 
-        //TODO: make if let statement
         let result = if let Some(url) = url_version {
             task::block_in_place(move || {
                 let url = Url::from_str(url).expect("cannot parse back url");
-                Handle::current().block_on(self.package_db.get_artifact_by_url(
+                Handle::current().block_on(self.package_db.get_artifact_by_direct_url(
                     package_name.base().clone(),
                     url,
                     &self.wheel_builder,
@@ -474,7 +473,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         let locked_package = self.locked_packages.get(package_name.base());
         let favored_package = self.favored_packages.get(package_name.base());
 
-        let should_package_allows_prerelease = match &self.options.pre_release_resolution {
+        let should_package_allow_prerelease = match &self.options.pre_release_resolution {
             PreReleaseResolution::Disallow => false,
             PreReleaseResolution::AllowIfNoOtherVersionsOrEnabled { allow_names } => {
                 if allow_names.contains(&package_name.base().to_string()) {
@@ -503,7 +502,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             {
                 PypiVersion::Version {
                     version: version.to_owned(),
-                    package_allows_prerelease: should_package_allows_prerelease,
+                    package_allows_prerelease: should_package_allow_prerelease,
                 }
             } else {
                 artifact_version.clone()

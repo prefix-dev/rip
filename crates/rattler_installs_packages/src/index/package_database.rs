@@ -168,7 +168,7 @@ impl PackageDb {
         Ok((wheel_metadata, filename))
     }
 
-    /// Return an sdist from file path
+    /// Return an stree from file path
     pub async fn get_stree_from_file_path<'a, 'i>(
         &self,
         normalized_package_name: &NormalizedPackageName,
@@ -297,6 +297,10 @@ impl PackageDb {
             format,
         };
 
+        // when we receive a direct file or http url
+        // we don't know the version for artifact until we extract the actual metadata
+        // so we create a plain sdist object aka dummy
+        // and populate it with correct metadata after calling `get_sdist_metadata`
         let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
 
         let wheel_metadata = wheel_builder
@@ -316,7 +320,7 @@ impl PackageDb {
     }
 
     /// Get artifact by file URL
-    pub async fn get_http_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
+    pub async fn get_direct_http_url_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
         &self,
         p: P,
         url: Url,
@@ -360,27 +364,19 @@ impl PackageDb {
             assert_eq!(hash, artifact_hash);
         };
 
-        let (filename, data_bytes, metadata) = match str_name.ends_with(".whl") {
-            true => {
-                let wheel = Wheel::from_url_and_bytes(url.path(), &normalized_package_name, bytes)?;
+        let (filename, data_bytes, metadata) = if str_name.ends_with(".whl") {
+            let wheel = Wheel::from_url_and_bytes(url.path(), &normalized_package_name, bytes)?;
 
-                let filename = ArtifactName::Wheel(wheel.name().clone());
-                let (data_bytes, metadata) = wheel.metadata()?;
+            let filename = ArtifactName::Wheel(wheel.name().clone());
+            let (data_bytes, metadata) = wheel.metadata()?;
 
-                (filename, data_bytes, metadata)
-            }
-            false => {
-                let (wheel_metadata, filename) = self
-                    .get_sdist_from_http(
-                        &normalized_package_name,
-                        url.clone(),
-                        bytes,
-                        wheel_builder,
-                    )
-                    .await?;
+            (filename, data_bytes, metadata)
+        } else {
+            let (wheel_metadata, filename) = self
+                .get_sdist_from_http(&normalized_package_name, url.clone(), bytes, wheel_builder)
+                .await?;
 
-                (filename, wheel_metadata.0, wheel_metadata.1)
-            }
+            (filename, wheel_metadata.0, wheel_metadata.1)
         };
 
         let artifact_info = ArtifactInfo {
@@ -486,7 +482,7 @@ impl PackageDb {
     }
 
     /// Get artifact directly from file, vcs, or url
-    pub async fn get_artifact_by_url<'a, 'i, P: Into<NormalizedPackageName>>(
+    pub async fn get_artifact_by_direct_url<'a, 'i, P: Into<NormalizedPackageName>>(
         &self,
         p: P,
         url: Url,
@@ -500,7 +496,8 @@ impl PackageDb {
         } else if url.scheme() == "file" {
             self.get_file_artifact(p, url, wheel_builder).await
         } else if url.scheme() == "https" {
-            self.get_http_artifact(p, url, wheel_builder).await
+            self.get_direct_http_url_artifact(p, url, wheel_builder)
+                .await
         } else if url.scheme() == "git+https" || url.scheme() == "git+file" {
             self.get_git_artifact(p, url, wheel_builder).await
         } else {

@@ -9,7 +9,6 @@ use flate2::read::GzDecoder;
 use fs::read_dir;
 use fs_err as fs;
 use miette::IntoDiagnostic;
-use parking_lot::{Mutex, MutexGuard};
 use std::collections::hash_map::DefaultHasher;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
@@ -27,7 +26,7 @@ pub trait SourceArtifact: Sync {
     fn get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
 
     /// Distribution Name
-    fn distribution_name(&self) -> &str;
+    fn distribution_name(&self) -> String;
 
     /// Version ( URL or Version )
     fn version(&self) -> PypiVersion;
@@ -55,12 +54,12 @@ pub struct STree {
     pub name: STreeFilename,
 
     /// Source tree location
-    pub location: Mutex<PathBuf>,
+    pub location: parking_lot::Mutex<PathBuf>,
 }
 
 impl STree {
     /// Get a lock on the inner data
-    pub fn lock_data(&self) -> MutexGuard<PathBuf> {
+    pub fn lock_data(&self) -> parking_lot::MutexGuard<PathBuf> {
         self.location.lock()
     }
     /// Copy source tree directory in specific location
@@ -85,7 +84,7 @@ pub struct SDist {
     name: SDistFilename,
 
     /// Source dist archive
-    file: Mutex<Box<dyn ReadAndSeek + Send>>,
+    file: parking_lot::Mutex<Box<dyn ReadAndSeek + Send>>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -194,7 +193,7 @@ impl SDist {
     }
 
     /// Get a lock on the inner data
-    pub fn lock_data(&self) -> MutexGuard<Box<dyn ReadAndSeek + Send>> {
+    pub fn lock_data(&self) -> parking_lot::MutexGuard<Box<dyn ReadAndSeek + Send>> {
         self.file.lock()
     }
 }
@@ -208,14 +207,14 @@ impl Artifact for SDist {
     fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
             name,
-            file: Mutex::new(bytes),
+            file: parking_lot::Mutex::new(bytes),
         })
     }
 }
 
 impl SourceArtifact for SDist {
-    fn distribution_name(&self) -> &str {
-        self.name().distribution.as_source_str()
+    fn distribution_name(&self) -> String {
+        self.name().distribution.as_source_str().to_owned()
     }
 
     fn version(&self) -> PypiVersion {
@@ -301,8 +300,8 @@ impl SourceArtifact for STree {
         Ok(vec)
     }
 
-    fn distribution_name(&self) -> &str {
-        self.name.distribution.as_source_str()
+    fn distribution_name(&self) -> String {
+        self.name.distribution.as_source_str().to_owned()
     }
 
     fn version(&self) -> PypiVersion {
@@ -790,7 +789,7 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -823,7 +822,7 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -856,7 +855,7 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -884,7 +883,7 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
             .await
             .unwrap();
 
@@ -925,7 +924,7 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -953,51 +952,7 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
-            .await
-            .unwrap();
-
-        let artifact_info = content
-            .iter()
-            .flat_map(|(_, artifacts)| artifacts.iter())
-            .collect::<Vec<_>>();
-
-        let wheel_metadata = package_db
-            .0
-            .get_metadata(artifact_info.as_slice(), None)
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_debug_snapshot!(wheel_metadata.1);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    pub async fn build_rich_local_git_reference() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test-data/stree/dev_folder_with_rich");
-
-        println!("PATH CREATED IS {:?}", path);
-        let url =
-            Url::parse(format!("git+file://{}.git", path.as_os_str().to_str().unwrap()).as_str())
-                .unwrap();
-
-        let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
-        let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
-            None,
-            &resolve_options,
-            HashMap::default(),
-        )
-        .unwrap();
-
-        let norm_name = PackageName::from_str("rich").unwrap();
-        let content = package_db
-            .0
-            .get_artifact_by_url(norm_name, url.clone(), &wheel_builder)
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
             .await
             .unwrap();
 

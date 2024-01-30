@@ -258,7 +258,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         let output = build_environment.run_command("WheelMetadata")?;
-        println!("OUTPUT IS {:?}", output);
         if !output.status.success() {
             if output.status.code() == Some(50) {
                 tracing::warn!("SDist build backend does not support metadata generation");
@@ -324,7 +323,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
                 .into();
 
         // Get the name of the package
-        let package_name: NormalizedPackageName = PackageName::from_str(sdist.distribution_name())
+        let package_name: NormalizedPackageName = PackageName::from_str(&sdist.distribution_name())
             .unwrap()
             .into();
 
@@ -350,7 +349,6 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
             &mut fs::File::open(&wheel_file)?,
         )?;
 
-        println!("TRYIGN TO RECONSTRUCT WHEEL");
         // Reconstruct wheel from the path
         let wheel = Wheel::from_path(&wheel_file, &package_name)
             .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))?;
@@ -407,7 +405,7 @@ mod tests {
         .unwrap();
 
         // Build the wheel
-        wheel_builder.build_wheel::<SDist>(&sdist).await.unwrap();
+        wheel_builder.build_wheel(&sdist).await.unwrap();
 
         // See if we can retrieve it from the cache
         let key = WheelCacheKey::from_sdist(&sdist, wheel_builder.python_version()).unwrap();
