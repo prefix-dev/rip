@@ -317,13 +317,9 @@ pub async fn resolve<'db>(
                         .trim()
                 )),
                 UnsolvableOrCancelled::Cancelled(e) => {
-                    let e = e.downcast::<crate::resolve::dependency_provider::MetadataError>().expect("invalid cancellation error message, expected a string, this indicates an error in the code");
+                    let e = e.downcast::<crate::resolve::dependency_provider::MetadataError>().expect("invalid cancellation error message, expected a MetadataError, this indicates an error in the code");
                     let report = e.deref().clone().into();
                     Err(report)
-                    // Err(miette::miette!(
-                    //         help = "Probably an error during processing of source distributions. Please check the error message above.",
-                    //         "{}",
-                    //     )))
                 }
             };
         }
