@@ -112,17 +112,12 @@ jobs:
         id: test-options
         if: ${{ !matrix.skip-tests }}
         run: |
-          echo "CARGO_TEST_OPTIONS=${CARGO_TEST_OPTIONS} --exclude tools" >> $GITHUB_OUTPUT
+          echo "CARGO_TEST_OPTIONS=${CARGO_TEST_OPTIONS}" >> $GITHUB_OUTPUT
 
       - name: Run tests
         if: ${{ !matrix.skip-tests }}
         run: >
-          cargo test
-          --workspace
-          ${{ steps.build-options.outputs.CARGO_BUILD_OPTIONS}}
-          ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}
-          --
-          --nocapture
+          cargo test ${{ steps.build-options.outputs.CARGO_BUILD_OPTIONS}} ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}} --package rattler_installs_packages --lib -- artifacts::sdist::tests::build_rich_sdist_as_source_dependency --exact --nocapture
 
       # test if venv works properly on windows
       # using old and newest python version

@@ -61,6 +61,7 @@ impl STree {
     /// Copy source tree directory in specific location
     fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
         fs::create_dir_all(&dst)?;
+        eprintln!("TRYING TO COPY ALL FROM {:?}", src.as_ref());
         for entry in fs::read_dir(src.as_ref())? {
             let entry = entry?;
             let ty = entry.file_type()?;
@@ -70,6 +71,7 @@ impl STree {
                 fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
             }
         }
+        eprintln!("COPIED ALL FROM {:?}", src.as_ref());
         Ok(())
     }
 }
@@ -742,16 +744,10 @@ mod tests {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
-        let url = Url::parse(
-            format!(
-                "file://{}",
-                path.canonicalize().unwrap().as_os_str().to_str().unwrap()
-            )
-            .as_str(),
-        )
-        .unwrap();
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
 
-        eprint!("FORMATTED URL IS {:?}", url);
+        eprintln!("FORMATTED URL IS {:?}", url);
+        eprintln!("CANONICAL {:?}", path.canonicalize().unwrap());
 
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();

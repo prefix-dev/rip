@@ -137,6 +137,7 @@ impl<'db> BuildEnvironment<'db> {
         // extract to a specific package dir
         let work_dir = self.work_dir.path();
 
+        eprintln!("BEFORE EXTRACT_TO");
         sdist.extract_to(work_dir.as_path())?;
 
         // when sdists are downloaded from pypi - they have correct name
