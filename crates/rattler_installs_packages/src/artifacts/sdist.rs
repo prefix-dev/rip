@@ -61,7 +61,6 @@ impl STree {
     /// Copy source tree directory in specific location
     fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
         fs::create_dir_all(&dst)?;
-        eprintln!("TRYING TO COPY ALL FROM {:?}", src.as_ref());
         for entry in fs::read_dir(src.as_ref())? {
             let entry = entry?;
             let ty = entry.file_type()?;
@@ -71,7 +70,6 @@ impl STree {
                 fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
             }
         }
-        eprintln!("COPIED ALL FROM {:?}", src.as_ref());
         Ok(())
     }
 }
