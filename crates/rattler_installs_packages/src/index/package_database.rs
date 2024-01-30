@@ -212,14 +212,22 @@ impl PackageDb {
         url: Url,
         wheel_builder: &WheelBuilder<'a, 'i>,
     ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
+        let path = if let Ok(path) = url.to_file_path() {
+            path
+        } else {
+            return Err(WheelBuildError::Error(format!(
+                "Could not build wheel from path {}",
+                url
+            )))
+            .into_diagnostic();
+        };
         let str_name = url.path();
-        let path = Path::new(str_name);
 
         let normalized_package_name = p.into();
 
         let (metadata_bytes, metadata, artifact_name) =
             if path.is_file() && str_name.ends_with(".whl") {
-                let wheel = Wheel::from_path(path, &normalized_package_name)
+                let wheel = Wheel::from_path(&path, &normalized_package_name)
                     .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))
                     .into_diagnostic()?;
 

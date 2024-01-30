@@ -746,9 +746,6 @@ mod tests {
 
         let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
 
-        eprintln!("FORMATTED URL IS {:?}", url);
-        eprintln!("CANONICAL {:?}", path.canonicalize().unwrap());
-
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
         let resolve_options = ResolveOptions::default();
@@ -777,10 +774,7 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../test-data/sdists/rich_without_metadata_in_path.tar.gz");
 
-        let url =
-            Url::parse(format!("file:///{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
-
-        // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
 
         let package_db = get_package_db();
         let env_markers = Pep508EnvMakers::from_env().await.unwrap();
@@ -810,8 +804,7 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../test-data/stree/dev_folder_with_rich");
 
-        let url =
-            Url::parse(format!("file://{}", path.as_os_str().to_str().unwrap()).as_str()).unwrap();
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
 
         // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
