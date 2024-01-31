@@ -376,7 +376,7 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::artifacts::{SDist, SourceArtifact};
-    use crate::index::ArtifactRequest;
+    use crate::index::{ArtifactRequest, PackageSourcesBuilder};
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
     use crate::resolve::SDistResolution;
@@ -399,15 +399,11 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let client = ClientWithMiddleware::from(Client::new());
 
+        let url = url::Url::parse("https://pypi.org/simple/").unwrap();
+        let sources = PackageSourcesBuilder::new(url).build().unwrap();
+
         (
-            Arc::new(
-                PackageDb::new(
-                    client,
-                    &[url::Url::parse("https://pypi.org/simple/").unwrap()],
-                    tempdir.path(),
-                )
-                .unwrap(),
-            ),
+            Arc::new(PackageDb::new(sources, client, tempdir.path()).unwrap()),
             tempdir,
         )
     }

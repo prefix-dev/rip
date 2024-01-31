@@ -289,7 +289,7 @@ impl WheelBuilder {
 #[cfg(test)]
 mod tests {
     use crate::artifacts::SDist;
-    use crate::index::PackageDb;
+    use crate::index::{PackageDb, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
     use crate::resolve::ResolveOptions;
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
@@ -305,15 +305,11 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let client = ClientWithMiddleware::from(Client::new());
 
+        let url = url::Url::parse("https://pypi.org/simple/").unwrap();
+        let sources = PackageSourcesBuilder::new(url).build().unwrap();
+
         (
-            Arc::new(
-                PackageDb::new(
-                    client,
-                    &[url::Url::parse("https://pypi.org/simple/").unwrap()],
-                    tempdir.path(),
-                )
-                .unwrap(),
-            ),
+            Arc::new(PackageDb::new(sources, client, tempdir.path()).unwrap()),
             tempdir,
         )
     }

@@ -3,6 +3,7 @@ use rattler_installs_packages::resolve::PreReleaseResolution;
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::default::Default;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -16,6 +17,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 use url::Url;
 
 use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
+use rattler_installs_packages::index::PackageSourcesBuilder;
 use rattler_installs_packages::python_env::{PythonLocation, WheelTags};
 use rattler_installs_packages::resolve::OnWheelBuildFailure;
 use rattler_installs_packages::wheel_builder::WheelBuilder;
@@ -133,20 +135,18 @@ async fn actual_main() -> miette::Result<()> {
     tracing::info!("cache directory: {}", cache_dir.display());
 
     // Construct a package database
+    let index_url = normalize_index_url(args.index_url.clone());
+    let sources = PackageSourcesBuilder::new(index_url).build()?;
+
     let client = ClientWithMiddleware::from(Client::new());
     let package_db = Arc::new(
-        rattler_installs_packages::index::PackageDb::new(
-            client,
-            &[normalize_index_url(args.index_url.clone())],
-            &cache_dir,
-        )
-        .into_diagnostic()
-        .wrap_err_with(|| {
-            format!(
-                "failed to construct package database for index {}",
-                args.index_url
-            )
-        })?,
+        rattler_installs_packages::index::PackageDb::new(sources, client, &cache_dir)
+            .wrap_err_with(|| {
+                format!(
+                    "failed to construct package database for index {}",
+                    args.index_url
+                )
+            })?,
     );
 
     // Determine the environment markers for the current machine

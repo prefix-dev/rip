@@ -72,6 +72,8 @@ fs_extra = "1.3.0"
 async_http_range_reader = "0.6.0"
 
 [dev-dependencies]
+anyhow = "1.0.79"
+axum = "0.6.20"
 criterion = "0.5"
 insta = { version = "1.33.0", features = ["ron", "redactions"] }
 miette = { version = "5.10.0", features = ["fancy"] }
@@ -80,6 +82,7 @@ rstest = "0.18.2"
 test-utils = { path = "../test-utils" }
 tokio = { version = "1.32.0", features = ["rt", "macros", "rt-multi-thread"] }
 tokio-test = "0.4.3"
+tower-http = { version = "0.4.4", features = ["add-extension"] }
 tracing-test = "0.2.4"
 
 [[bench]]
