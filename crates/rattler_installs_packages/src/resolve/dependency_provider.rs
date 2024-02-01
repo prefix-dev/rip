@@ -12,12 +12,12 @@ use crate::wheel_builder::WheelBuilder;
 use elsa::FrozenMap;
 use itertools::Itertools;
 use miette::{Diagnostic, IntoDiagnostic, MietteDiagnostic};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use pep440_rs::{Operator, Version, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
 use resolvo::{
-    Candidates, Dependencies, DependencyProvider, KnownDependencies, NameId, Pool, SolvableId,
-    SolverCache, VersionSet,
+    Candidates, Dependencies, DependencyProvider, KnownDependencies, NameId, OneShotSender, Pool,
+    SolvableId, SolverCache, VersionSet,
 };
 use serde::Deserialize;
 use serde::Serialize;
@@ -29,8 +29,6 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::runtime::Handle;
-use tokio::task;
 use url::Url;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -199,6 +197,10 @@ impl Display for PypiPackageName {
     }
 }
 
+pub struct PyPiResolvoBridge {
+    inner: Arc<PypiDependencyProvider>,
+}
+
 /// This is a [`DependencyProvider`] for PyPI packages
 pub(crate) struct PypiDependencyProvider {
     pub pool: Pool<PypiVersionSet, PypiPackageName>,
@@ -207,11 +209,11 @@ pub(crate) struct PypiDependencyProvider {
     markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
 
-    pub cached_artifacts: FrozenMap<SolvableId, Vec<Arc<ArtifactInfo>>>,
+    pub cached_artifacts: RwLock<HashMap<SolvableId, Arc<[Arc<ArtifactInfo>]>>>,
 
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-    pub name_to_url: FrozenMap<NormalizedPackageName, String>,
+    pub name_to_url: RwLock<HashMap<NormalizedPackageName, Url>>,
 
     options: ResolveOptions,
     should_cancel_with_value: Mutex<Option<MetadataError>>,
@@ -228,7 +230,7 @@ impl PypiDependencyProvider {
         compatible_tags: Option<Arc<WheelTags>>,
         locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-        name_to_url: FrozenMap<NormalizedPackageName, String>,
+        name_to_url: HashMap<NormalizedPackageName, Url>,
         options: ResolveOptions,
         env_variables: HashMap<String, String>,
     ) -> miette::Result<Self> {
@@ -252,7 +254,7 @@ impl PypiDependencyProvider {
             cached_artifacts: Default::default(),
             favored_packages,
             locked_packages,
-            name_to_url,
+            name_to_url: RwLock::new(name_to_url),
             options,
             should_cancel_with_value: Default::default(),
         })
@@ -378,11 +380,11 @@ impl PypiDependencyProvider {
     }
 
     fn solvable_has_artifact_type<S: Artifact>(&self, solvable_id: SolvableId) -> bool {
-        self.cached_artifacts
-            .get(&solvable_id)
-            .unwrap_or(&[])
-            .iter()
-            .any(|a| a.is::<S>())
+        if let Some(artifacts) = self.cached_artifacts.read().get(&solvable_id).cloned() {
+            artifacts.iter().any(|a| a.is::<S>())
+        } else {
+            false
+        }
     }
 }
 
@@ -399,14 +401,15 @@ pub(crate) enum MetadataError {
     },
 }
 
-impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDependencyProvider {
+impl DependencyProvider<PypiVersionSet, PypiPackageName> for PyPiResolvoBridge {
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
-        &self.pool
+        &self.inner.pool
     }
 
     fn should_cancel_with_value(&self) -> Option<Box<dyn Any>> {
         // Supply the error message
-        self.should_cancel_with_value
+        self.inner
+            .should_cancel_with_value
             .lock()
             .as_ref()
             .map(|s| Box::new(s.clone()) as Box<dyn Any>)
@@ -417,73 +420,43 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         solver: &SolverCache<PypiVersionSet, PypiPackageName, Self>,
         solvables: &mut [SolvableId],
     ) {
-        solvables.sort_by(|&a, &b| {
-            // First sort the solvables based on the artifact types we have available for them and
-            // whether some of them are preferred. If one artifact type is preferred over another
-            // we sort those versions above the others even if the versions themselves are lower.
-            if matches!(self.options.sdist_resolution, SDistResolution::PreferWheels) {
-                let a_has_wheels = self.solvable_has_artifact_type::<Wheel>(a);
-                let b_has_wheels = self.solvable_has_artifact_type::<Wheel>(b);
-                match (a_has_wheels, b_has_wheels) {
-                    (true, false) => return Ordering::Less,
-                    (false, true) => return Ordering::Greater,
-                    _ => {}
-                }
-            } else if matches!(self.options.sdist_resolution, SDistResolution::PreferSDists) {
-                let a_has_sdists = self.solvable_has_artifact_type::<SDist>(a);
-                let b_has_sdists = self.solvable_has_artifact_type::<SDist>(b);
-                match (a_has_sdists, b_has_sdists) {
-                    (true, false) => return Ordering::Less,
-                    (false, true) => return Ordering::Greater,
-                    _ => {}
-                }
-            }
-
-            let solvable_a = solver.pool().resolve_solvable(a);
-            let solvable_b = solver.pool().resolve_solvable(b);
-
-            match (&solvable_a.inner(), &solvable_b.inner()) {
-                // Sort Urls alphabetically
-                // TODO: Do better
-                (PypiVersion::Url(a), PypiVersion::Url(b)) => a.cmp(b),
-
-                // Prefer Urls over versions
-                (PypiVersion::Url(_), PypiVersion::Version { .. }) => Ordering::Greater,
-                (PypiVersion::Version { .. }, PypiVersion::Url(_)) => Ordering::Less,
-
-                // Sort versions from highest to lowest
-                (
-                    PypiVersion::Version { version: a, .. },
-                    PypiVersion::Version { version: b, .. },
-                ) => b.cmp(a),
-            }
-        })
+        self.inner.sort_candidates(solver, solvables)
     }
 
-    fn get_candidates(&self, name: NameId) -> Option<Candidates> {
+    fn get_candidates(&self, name: NameId, sender: OneShotSender<Option<Candidates>>) {
+        let provider = self.inner.clone();
+        tokio::spawn(async move {
+            let candidates = provider.get_candidates(name).await;
+            let _ = sender.send(candidates);
+        });
+    }
+
+    fn get_dependencies(&self, solvable: SolvableId, sender: OneShotSender<Dependencies>) {
+        let provider = self.inner.clone();
+        tokio::spawn(async move {
+            let dependencies = provider.get_dependencies(solvable).await;
+            let _ = sender.send(dependencies);
+        });
+    }
+}
+
+impl PypiDependencyProvider {
+    pub async fn get_candidates(&self, name: NameId) -> Option<Candidates> {
         let package_name = self.pool.resolve_package_name(name);
         tracing::info!("collecting {}", package_name);
 
         // check if we have URL variant for this name
-        let url_version = self.name_to_url.get(package_name.base());
+        let url_version = self.name_to_url.read().get(package_name.base()).cloned();
 
         let result = if let Some(url) = url_version {
-            task::block_in_place(move || {
-                let url = Url::from_str(url).expect("cannot parse back url");
-                Handle::current().block_on(self.package_db.get_artifact_by_direct_url(
-                    package_name.base().clone(),
-                    url,
-                    &self.wheel_builder,
-                ))
-            })
+            self.package_db
+                .get_artifact_by_direct_url(package_name.base().clone(), url, &self.wheel_builder)
+                .await
         } else {
             // Get all the metadata for this package
-            task::block_in_place(move || {
-                Handle::current().block_on(
-                    self.package_db
-                        .available_artifacts(package_name.base().clone()),
-                )
-            })
+            self.package_db
+                .available_artifacts(package_name.base().clone())
+                .await
         };
 
         let artifacts = match result {
@@ -541,6 +514,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             match self.filter_candidates(artifacts) {
                 Ok(artifacts) => {
                     self.cached_artifacts
+                        .write()
                         .insert(solvable_id, artifacts.into_iter().cloned().collect());
                 }
                 Err(reason) => {
@@ -557,7 +531,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             candidates.candidates.push(solvable_id);
             candidates.locked = Some(solvable_id);
             self.cached_artifacts
-                .insert(solvable_id, locked.artifacts.clone());
+                .write()
+                .insert(solvable_id, Arc::from(locked.artifacts.clone()));
         }
 
         // Add a favored dependency
@@ -566,13 +541,14 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             candidates.candidates.push(solvable_id);
             candidates.favored = Some(solvable_id);
             self.cached_artifacts
-                .insert(solvable_id, favored.artifacts.clone());
+                .write()
+                .insert(solvable_id, Arc::from(favored.artifacts.clone()));
         }
 
         Some(candidates)
     }
 
-    fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
+    pub async fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
         let solvable = self.pool.resolve_solvable(solvable_id);
         let package_name = self.pool.resolve_package_name(solvable.name_id());
         let package_version = solvable.inner();
@@ -610,8 +586,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         }
 
         // Retrieve the artifacts that are applicable for this version
-        let artifacts = self
-            .cached_artifacts
+        let cached_artifacts = self.cached_artifacts.read();
+        let artifacts = cached_artifacts
             .get(&solvable_id)
             .expect("the artifacts must already have been cached");
 
@@ -633,13 +609,10 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             return Dependencies::Unknown(error);
         }
 
-        let result = task::block_in_place(|| {
-            // First try getting wheels
-            Handle::current().block_on(
-                self.package_db
-                    .get_metadata(artifacts, Some(&self.wheel_builder)),
-            )
-        });
+        let result = self
+            .package_db
+            .get_metadata(artifacts, Some(&self.wheel_builder))
+            .await;
 
         let metadata = match result {
             // We have retrieved a value without error
@@ -735,8 +708,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             );
 
             if let Some(VersionOrUrl::Url(url)) = version_or_url.clone() {
-                self.name_to_url
-                    .insert(name.clone().into(), url.clone().as_str().to_owned());
+                self.name_to_url.write().insert(name.clone().into(), url);
             }
 
             dependencies.requirements.push(version_set_id);
@@ -759,5 +731,53 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         }
 
         Dependencies::Known(dependencies)
+    }
+
+    fn sort_candidates<DS: DependencyProvider<PypiVersionSet, PypiPackageName>>(
+        &self,
+        solver: &SolverCache<PypiVersionSet, PypiPackageName, DS>,
+        solvables: &mut [SolvableId],
+    ) {
+        solvables.sort_by(|&a, &b| {
+            // First sort the solvables based on the artifact types we have available for them and
+            // whether some of them are preferred. If one artifact type is preferred over another
+            // we sort those versions above the others even if the versions themselves are lower.
+            if matches!(self.options.sdist_resolution, SDistResolution::PreferWheels) {
+                let a_has_wheels = self.solvable_has_artifact_type::<Wheel>(a);
+                let b_has_wheels = self.solvable_has_artifact_type::<Wheel>(b);
+                match (a_has_wheels, b_has_wheels) {
+                    (true, false) => return Ordering::Less,
+                    (false, true) => return Ordering::Greater,
+                    _ => {}
+                }
+            } else if matches!(self.options.sdist_resolution, SDistResolution::PreferSDists) {
+                let a_has_sdists = self.solvable_has_artifact_type::<SDist>(a);
+                let b_has_sdists = self.solvable_has_artifact_type::<SDist>(b);
+                match (a_has_sdists, b_has_sdists) {
+                    (true, false) => return Ordering::Less,
+                    (false, true) => return Ordering::Greater,
+                    _ => {}
+                }
+            }
+
+            let solvable_a = solver.pool().resolve_solvable(a);
+            let solvable_b = solver.pool().resolve_solvable(b);
+
+            match (&solvable_a.inner(), &solvable_b.inner()) {
+                // Sort Urls alphabetically
+                // TODO: Do better
+                (PypiVersion::Url(a), PypiVersion::Url(b)) => a.cmp(b),
+
+                // Prefer Urls over versions
+                (PypiVersion::Url(_), PypiVersion::Version { .. }) => Ordering::Greater,
+                (PypiVersion::Version { .. }, PypiVersion::Url(_)) => Ordering::Less,
+
+                // Sort versions from highest to lowest
+                (
+                    PypiVersion::Version { version: a, .. },
+                    PypiVersion::Version { version: b, .. },
+                ) => b.cmp(a),
+            }
+        })
     }
 }

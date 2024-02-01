@@ -1,4 +1,4 @@
-use super::dependency_provider::{PypiPackageName, PypiVersionSet};
+use super::dependency_provider::{PyPiResolvoBridge, PypiPackageName, PypiVersionSet};
 use crate::index::PackageDb;
 use crate::python_env::{PythonLocation, WheelTags};
 use crate::resolve::dependency_provider::PypiDependencyProvider;
@@ -14,6 +14,7 @@ use std::str::FromStr;
 use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
+use url::Url;
 
 /// Represents a single locked down distribution (python package) after calling [`resolve`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,7 +268,7 @@ pub async fn resolve(
     let pool = Pool::new();
 
     // Construct HashMap of Name to URL
-    let name_to_url: FrozenMap<NormalizedPackageName, String> = FrozenMap::default();
+    let mut name_to_url: HashMap<NormalizedPackageName, Url> = HashMap::default();
 
     // Construct the root requirements from the requirements requested by the user.
     let requirements = requirements.into_iter();
@@ -292,7 +293,7 @@ pub async fn resolve(
         root_requirements.push(version_set_id);
 
         if let Some(VersionOrUrl::Url(url)) = version_or_url {
-            name_to_url.insert(pypi_name.base().clone(), url.clone().as_str().to_owned());
+            name_to_url.insert(pypi_name.base().clone(), url.clone());
         }
 
         for extra in extras.iter().flatten() {
@@ -308,7 +309,7 @@ pub async fn resolve(
     }
 
     // Construct the provider
-    let provider = PypiDependencyProvider::new(
+    let provider = Arc::new(PypiDependencyProvider::new(
         pool,
         package_db,
         env_markers,
@@ -318,10 +319,12 @@ pub async fn resolve(
         name_to_url,
         options,
         env_variables,
-    )?;
+    )?);
 
     // Invoke the solver to get a solution to the requirements
-    let mut solver = Solver::new(&provider);
+    let mut solver = Solver::new(PyPiResolvoBridge {
+        inner: provider.clone(),
+    });
     let solvables = match solver.solve(root_requirements) {
         Ok(solvables) => solvables,
         Err(e) => {
@@ -357,10 +360,10 @@ pub async fn resolve(
                 extras: Default::default(),
                 artifacts: provider
                     .cached_artifacts
+                    .read()
                     .get(&solvable_id)
                     .into_iter()
-                    .flatten()
-                    .cloned()
+                    .flat_map(|artifacts| artifacts.iter().cloned())
                     .collect(),
             });
 
