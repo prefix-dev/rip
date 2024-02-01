@@ -68,10 +68,8 @@ configparser = "3.0.3"
 cacache = { version = "12.0.0", default-features = false, features = ["tokio-runtime", "mmap"] }
 async-recursion = "1.0.5"
 fs-err = "2.11.0"
+async_http_range_reader = "0.6.0"
 
-[dependencies.async_http_range_reader]
-git = "https://github.com/mamba-org/rattler"
-rev = "b002f38fa9c9d855d450519ccccc1b7c491ee140"
 
 [dev-dependencies]
 criterion = "0.5"
