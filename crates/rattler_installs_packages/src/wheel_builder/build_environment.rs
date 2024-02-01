@@ -1,14 +1,14 @@
 use crate::artifacts::wheel::UnpackWheelOptions;
 use crate::artifacts::SourceArtifact;
 
-use crate::python_env::{PythonLocation, VEnv, WheelTags};
-use crate::resolve::{resolve, PinnedPackage, ResolveOptions};
+use crate::python_env::{PythonLocation, VEnv};
+use crate::resolve::{resolve, PinnedPackage};
 use crate::utils::normalize_path;
 use crate::wheel_builder::{WheelBuildError, WheelBuilder};
 use fs_err as fs;
 use fs_err::read_dir;
 use parking_lot::RwLock;
-use pep508_rs::{MarkerEnvironment, Requirement};
+use pep508_rs::Requirement;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 
@@ -86,14 +86,14 @@ const BUILD_FRONTEND_PY: &str = include_str!("./wheel_builder_frontend.py");
 /// This struct contains the virtualenv and everything that is needed
 /// to execute the PEP517 build backend hools
 #[derive(Debug)]
-pub(crate) struct BuildEnvironment<'db> {
+pub(crate) struct BuildEnvironment {
     work_dir: TempBuildEnvironment,
     package_dir: PathBuf,
     #[allow(dead_code)]
     build_system: pyproject_toml::BuildSystem,
     entry_point: String,
     build_requirements: Vec<Requirement>,
-    resolved_wheels: Vec<PinnedPackage<'db>>,
+    resolved_wheels: Vec<PinnedPackage>,
     venv: VEnv,
     env_variables: HashMap<String, String>,
     clean_env: bool,
@@ -127,7 +127,7 @@ fn normalize_backend_path(
     Ok(normed)
 }
 
-impl<'db> BuildEnvironment<'db> {
+impl BuildEnvironment {
     /// Extract the wheel and write the build_frontend.py to the work folder
     pub(crate) fn install_build_files(
         &mut self,
@@ -212,12 +212,9 @@ impl<'db> BuildEnvironment<'db> {
     /// Install extra requirements into the venv, if any extra were found
     /// If the extra requirements are already installed, this will do nothing
     /// for that requirement.
-    pub(crate) async fn install_extra_requirements<'i>(
+    pub(crate) async fn install_extra_requirements(
         &self,
-        wheel_builder: &WheelBuilder<'db, 'i>,
-        env_markers: &MarkerEnvironment,
-        wheel_tags: Option<&WheelTags>,
-        resolve_options: &ResolveOptions,
+        wheel_builder: &WheelBuilder,
     ) -> Result<(), WheelBuildError> {
         // Get extra requirements if any
         let extra_requirements = self.get_extra_requirements()?;
@@ -237,13 +234,13 @@ impl<'db> BuildEnvironment<'db> {
             let favored_packages = HashMap::default();
             let all_requirements = combined_requirements.to_vec();
             let extra_resolved_wheels = resolve(
-                wheel_builder.package_db,
+                wheel_builder.package_db.clone(),
                 all_requirements.iter(),
-                env_markers,
-                wheel_tags,
+                wheel_builder.env_markers.clone(),
+                wheel_builder.wheel_tags.clone(),
                 locked_packages,
                 favored_packages,
-                resolve_options,
+                wheel_builder.resolve_options.clone(),
                 self.env_variables.clone(),
             )
             .await
@@ -351,19 +348,15 @@ impl<'db> BuildEnvironment<'db> {
     }
 
     /// Setup the build environment so that we can build a wheel from an sdist
-    pub(crate) async fn setup<'i>(
+    pub(crate) async fn setup(
         sdist: &impl SourceArtifact,
-        wheel_builder: &WheelBuilder<'db, 'i>,
-        env_markers: &'i MarkerEnvironment,
-        wheel_tags: Option<&'i WheelTags>,
-        resolve_options: &ResolveOptions,
-        env_variables: HashMap<String, String>,
-    ) -> Result<BuildEnvironment<'db>, WheelBuildError> {
+        wheel_builder: &WheelBuilder,
+    ) -> Result<BuildEnvironment, WheelBuildError> {
         // Setup a work directory and a new env dir
         let work_dir = tempfile::tempdir()?;
         let venv = VEnv::create(
             &work_dir.path().join("venv"),
-            resolve_options.python_location.clone(),
+            wheel_builder.resolve_options.python_location.clone(),
         )?;
 
         // Find the build system
@@ -393,13 +386,13 @@ impl<'db> BuildEnvironment<'db> {
         );
         // Resolve the build environment
         let resolved_wheels = resolve(
-            wheel_builder.package_db,
+            wheel_builder.package_db.clone(),
             build_requirements.iter(),
-            env_markers,
-            wheel_tags,
+            wheel_builder.env_markers.clone(),
+            wheel_builder.wheel_tags.clone(),
             HashMap::default(),
             HashMap::default(),
-            resolve_options,
+            wheel_builder.resolve_options.clone(),
             Default::default(),
         )
         .await
@@ -437,7 +430,7 @@ impl<'db> BuildEnvironment<'db> {
                 .join(format!("{}-{}", sdist.distribution_name(), sdist.version(),));
 
         let env_variables = if let Some(backend_path) = &build_system.backend_path {
-            let mut env_variables = env_variables;
+            let mut env_variables = wheel_builder.env_variables.clone();
             // insert env var for the backend path that will be used by the build frontend
             env_variables.insert(
                 "PEP517_BACKEND_PATH".into(),
@@ -447,7 +440,7 @@ impl<'db> BuildEnvironment<'db> {
             );
             env_variables
         } else {
-            env_variables
+            wheel_builder.env_variables.clone()
         };
 
         Ok(BuildEnvironment {
@@ -459,8 +452,8 @@ impl<'db> BuildEnvironment<'db> {
             resolved_wheels,
             venv,
             env_variables,
-            clean_env: resolve_options.clean_env,
-            python_location: resolve_options.python_location.clone(),
+            clean_env: wheel_builder.resolve_options.clean_env,
+            python_location: wheel_builder.resolve_options.python_location.clone(),
         })
     }
 }
