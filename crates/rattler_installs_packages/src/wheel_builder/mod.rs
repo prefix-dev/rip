@@ -6,6 +6,7 @@ mod wheel_cache;
 use fs_err as fs;
 
 use std::collections::HashSet;
+use std::str::FromStr;
 
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
@@ -13,23 +14,23 @@ use std::{collections::HashMap, path::PathBuf};
 use parking_lot::Mutex;
 use pep508_rs::{MarkerEnvironment, Requirement};
 
+use crate::artifacts::SourceArtifact;
 use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion, VEnvError};
 use crate::resolve::{OnWheelBuildFailure, ResolveOptions};
-use crate::types::{NormalizedPackageName, ParseArtifactNameError, WheelFilename};
+use crate::types::{
+    NormalizedPackageName, PackageName, ParseArtifactNameError, SourceArtifactName, WheelFilename,
+};
 use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelCacheKey};
 use crate::{
     artifacts::wheel::UnpackError,
-    artifacts::SDist,
     artifacts::Wheel,
     index::PackageDb,
     python_env::WheelTags,
-    types::Artifact,
-    types::SDistFilename,
     types::{WheelCoreMetaDataError, WheelCoreMetadata},
 };
 
-type BuildCache<'db> = Mutex<HashMap<SDistFilename, Arc<BuildEnvironment<'db>>>>;
+type BuildCache<'db> = Mutex<HashMap<SourceArtifactName, Arc<BuildEnvironment<'db>>>>;
 
 /// A builder for wheels
 pub struct WheelBuilder<'db, 'i> {
@@ -145,22 +146,19 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     /// This function also caches the virtualenvs, so that they can be reused later.
     async fn setup_build_venv(
         &self,
-        sdist: &SDist,
+        sdist: &impl SourceArtifact,
     ) -> Result<Arc<BuildEnvironment<'db>>, WheelBuildError> {
-        if let Some(venv) = self.venv_cache.lock().get(sdist.name()) {
+        if let Some(venv) = self.venv_cache.lock().get(&sdist.artifact_name()) {
             tracing::debug!(
                 "using cached virtual env for: {:?}",
-                sdist.name().distribution.as_source_str()
+                sdist.distribution_name()
             );
             return Ok(venv.clone());
         }
 
-        tracing::debug!(
-            "creating virtual env for: {:?}",
-            sdist.name().distribution.as_source_str()
-        );
+        tracing::debug!("creating virtual env for: {:?}", sdist.distribution_name());
 
-        let build_environment = BuildEnvironment::setup(
+        let mut build_environment = BuildEnvironment::setup(
             sdist,
             self,
             self.env_markers,
@@ -185,13 +183,13 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         // Insert into the venv cache
         self.venv_cache
             .lock()
-            .insert(sdist.name().clone(), Arc::new(build_environment));
+            .insert(sdist.artifact_name().clone(), Arc::new(build_environment));
 
         // Return the cached values
         return self
             .venv_cache
             .lock()
-            .get(sdist.name())
+            .get(&sdist.artifact_name())
             .cloned()
             .ok_or_else(|| WheelBuildError::Error("Could not get venv from cache".to_string()));
     }
@@ -228,14 +226,15 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
     /// Get the metadata for a given sdist by using the build_backend in a virtual env
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
-    #[tracing::instrument(skip_all, fields(name = %sdist.name().distribution.as_source_str(), version = %sdist.name().version))]
-    pub async fn get_sdist_metadata(
+
+    #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
+    pub async fn get_sdist_metadata<S: SourceArtifact>(
         &self,
-        sdist: &SDist,
+        sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         // See if we have a locally built wheel for this sdist
         // use that metadata instead
-        let key = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
+        let key: WheelCacheKey = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
             return wheel.metadata().map_err(|e| {
                 WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
@@ -252,19 +251,17 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         self.handle_build_failure(result, &build_environment)
     }
 
-    async fn get_sdist_metadata_internal(
+    async fn get_sdist_metadata_internal<S: SourceArtifact>(
         &self,
         build_environment: &Arc<BuildEnvironment<'db>>,
-        sdist: &SDist,
+        sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         let output = build_environment.run_command("WheelMetadata")?;
-
         if !output.status.success() {
             if output.status.code() == Some(50) {
                 tracing::warn!("SDist build backend does not support metadata generation");
                 // build wheel instead
                 let wheel = self.build_wheel(sdist).await?;
-
                 return wheel.metadata().map_err(|e| {
                     WheelBuildError::Error(format!("Could not parse wheel metadata: {}", e))
                 });
@@ -284,8 +281,11 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
     /// Build a wheel from an sdist by using the build_backend in a virtual env.
     /// This function uses the `build_wheel` entry point of the build backend.
-    #[tracing::instrument(skip_all, fields(name = %sdist.name().distribution.as_source_str(), version = %sdist.name().version))]
-    pub async fn build_wheel(&self, sdist: &SDist) -> Result<Wheel, WheelBuildError> {
+    #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
+    pub async fn build_wheel<S: SourceArtifact>(
+        &self,
+        sdist: &S,
+    ) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
         let key = WheelCacheKey::from_sdist(sdist, &self.python_version)?;
         if let Some(wheel) = self.package_db.local_wheel_cache().wheel_for_key(&key)? {
@@ -301,10 +301,10 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
         self.handle_build_failure(result, &build_environment)
     }
 
-    async fn build_wheel_internal(
+    async fn build_wheel_internal<S: SourceArtifact>(
         &self,
         build_environment: &Arc<BuildEnvironment<'db>>,
-        sdist: &SDist,
+        sdist: &S,
     ) -> Result<Wheel, WheelBuildError> {
         // Run the wheel stage
         let output = build_environment.run_command("Wheel")?;
@@ -322,7 +322,9 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
                 .into();
 
         // Get the name of the package
-        let package_name: NormalizedPackageName = sdist.name().distribution.clone().into();
+        let package_name: NormalizedPackageName = PackageName::from_str(&sdist.distribution_name())
+            .unwrap()
+            .into();
 
         // Save the wheel into the cache
         let key = WheelCacheKey::from_sdist(sdist, &self.python_version)?;

@@ -48,6 +48,21 @@ pub struct Wheel {
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
 }
 
+impl Artifact for Wheel {
+    type Name = WheelFilename;
+
+    fn name(&self) -> &Self::Name {
+        &self.name
+    }
+
+    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
+        Ok(Self {
+            name,
+            archive: Mutex::new(ZipArchive::new(bytes).into_diagnostic()?),
+        })
+    }
+}
+
 impl Wheel {
     /// Open a wheel by reading a file on disk.
     pub fn from_path(
@@ -63,24 +78,26 @@ impl Wheel {
         let file = fs::File::open(path).into_diagnostic()?;
         Self::new(wheel_name, Box::new(file))
     }
-}
 
-impl Artifact for Wheel {
-    type Name = WheelFilename;
+    /// Create a wheel from URL and content.
+    pub fn from_url_and_bytes(
+        url: &str,
+        normalized_package_name: &NormalizedPackageName,
+        bytes: Box<dyn ReadAndSeek + Send>,
+    ) -> miette::Result<Self> {
+        let url_path = PathBuf::from_str(url).into_diagnostic()?;
+        let file_name = url_path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or_else(|| {
+                miette::miette!("path {:?} does not contain a wheel filename", url_path)
+            })?;
+        let wheel_filename =
+            WheelFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
 
-    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
-        Ok(Self {
-            name,
-            archive: Mutex::new(ZipArchive::new(bytes).into_diagnostic()?),
-        })
+        Self::new(wheel_filename.clone(), Box::new(bytes))
     }
 
-    fn name(&self) -> &Self::Name {
-        &self.name
-    }
-}
-
-impl Wheel {
     /// A wheel file always contains a special directory that contains the metadata of the package.
     /// This function returns the name of that directory.
     fn find_special_wheel_dir<'a>(

@@ -1,16 +1,78 @@
-use crate::types::{Artifact, NormalizedPackageName, SDistFilename, SDistFormat};
+use crate::resolve::PypiVersion;
+use crate::types::{
+    Artifact, NormalizedPackageName, SDistFilename, SDistFormat, STreeFilename, SourceArtifactName,
+};
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
 use flate2::read::GzDecoder;
-use miette::IntoDiagnostic;
-use parking_lot::{Mutex, MutexGuard};
-
+use fs::read_dir;
 use fs_err as fs;
+use miette::IntoDiagnostic;
+use std::collections::hash_map::DefaultHasher;
 use std::ffi::OsStr;
+use std::hash::{Hash, Hasher};
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 use zip::ZipArchive;
+
+/// SDist or STree act as a SourceArtifact
+/// so we can use it in methods where we expect sdist
+/// to extract metadata
+pub trait SourceArtifact: Sync {
+    /// get bytes of an artifact
+    /// that will we be used for hashing
+    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
+
+    /// Distribution Name
+    fn distribution_name(&self) -> String;
+
+    /// Version ( URL or Version )
+    fn version(&self) -> PypiVersion;
+
+    /// Source artifact name
+    fn artifact_name(&self) -> SourceArtifactName;
+
+    /// Read the build system info from the pyproject.toml
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError>;
+
+    /// extract to a specific location
+    /// for sdist we unpack it
+    /// for stree we move it
+    /// as example this method is used by install_build_files
+    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
+}
+
+/// Represents a source tree which can be a simple directory on filesystem
+/// or something cloned from git
+pub struct STree {
+    /// Name of the source tree
+    pub name: STreeFilename,
+
+    /// Source tree location
+    pub location: parking_lot::Mutex<PathBuf>,
+}
+
+impl STree {
+    /// Get a lock on the inner data
+    pub fn lock_data(&self) -> parking_lot::MutexGuard<PathBuf> {
+        self.location.lock()
+    }
+    /// Copy source tree directory in specific location
+    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+        fs::create_dir_all(&dst)?;
+        for entry in fs::read_dir(src.as_ref())? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            if ty.is_dir() {
+                Self::copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            } else {
+                fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Represents a source distribution artifact.
 pub struct SDist {
@@ -18,7 +80,7 @@ pub struct SDist {
     name: SDistFilename,
 
     /// Source dist archive
-    file: Mutex<Box<dyn ReadAndSeek + Send>>,
+    file: parking_lot::Mutex<Box<dyn ReadAndSeek + Send>>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -114,8 +176,63 @@ impl SDist {
         }
     }
 
-    /// Read the build system info from the pyproject.toml
-    pub fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
+    /// Checks if this artifact implements PEP 643
+    /// and returns the metadata if it does
+    pub fn pep643_metadata(&self) -> Result<Option<(Vec<u8>, WheelCoreMetadata)>, SDistError> {
+        // Assume we have a PKG-INFO
+        let (bytes, metadata) = self.read_package_info()?;
+        if metadata.metadata_version.implements_pep643() {
+            Ok(Some((bytes, metadata)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get a lock on the inner data
+    pub fn lock_data(&self) -> parking_lot::MutexGuard<Box<dyn ReadAndSeek + Send>> {
+        self.file.lock()
+    }
+}
+
+impl Artifact for SDist {
+    type Name = SDistFilename;
+
+    fn name(&self) -> &Self::Name {
+        &self.name
+    }
+    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
+        Ok(Self {
+            name,
+            file: parking_lot::Mutex::new(bytes),
+        })
+    }
+}
+
+impl SourceArtifact for SDist {
+    fn distribution_name(&self) -> String {
+        self.name().distribution.as_source_str().to_owned()
+    }
+
+    fn version(&self) -> PypiVersion {
+        PypiVersion::Version {
+            version: self.name().version.clone(),
+            package_allows_prerelease: false,
+        }
+    }
+
+    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+        let mut vec = vec![];
+        let mut inner = self.lock_data();
+        inner.rewind()?;
+        inner.read_to_end(&mut vec)?;
+        Ok(vec)
+    }
+
+    fn artifact_name(&self) -> SourceArtifactName {
+        SourceArtifactName::SDist(self.name().to_owned())
+    }
+
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
         if let Some(bytes) = self.find_entry("pyproject.toml")? {
             let source = String::from_utf8(bytes).map_err(|e| {
                 SDistError::PyProjectTomlParseError(format!(
@@ -138,7 +255,7 @@ impl SDist {
     }
 
     /// Extract the contents of the sdist archive to the given directory
-    pub fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
+    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
         let mut lock = self.file.lock();
         let archives = generic_archive_reader(&mut lock, self.name.format)?;
         match archives {
@@ -152,37 +269,65 @@ impl SDist {
             }
         }
     }
-
-    /// Checks if this artifact implements PEP 643
-    /// and returns the metadata if it does
-    pub fn pep643_metadata(&self) -> Result<Option<(Vec<u8>, WheelCoreMetadata)>, SDistError> {
-        // Assume we have a PKG-INFO
-        let (bytes, metadata) = self.read_package_info()?;
-        if metadata.metadata_version.implements_pep643() {
-            Ok(Some((bytes, metadata)))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Get a lock on the inner data
-    pub fn lock_data(&self) -> MutexGuard<Box<dyn ReadAndSeek + Send>> {
-        self.file.lock()
-    }
 }
 
-impl Artifact for SDist {
-    type Name = SDistFilename;
+impl SourceArtifact for STree {
+    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+        let vec = vec![];
+        let inner = self.lock_data();
+        let mut dir_entry = read_dir(inner.as_path())?;
 
-    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
-        Ok(Self {
-            name,
-            file: Mutex::new(bytes),
-        })
+        let next_entry = dir_entry.next();
+        if let Some(Ok(root_folder)) = next_entry {
+            let modified = root_folder.metadata()?.modified()?;
+            let mut hasher = DefaultHasher::new();
+            modified.hash(&mut hasher);
+            let hash = hasher.finish().to_be_bytes().as_slice().to_owned();
+            return Ok(hash);
+        }
+
+        Ok(vec)
     }
 
-    fn name(&self) -> &Self::Name {
-        &self.name
+    fn distribution_name(&self) -> String {
+        self.name.distribution.as_source_str().to_owned()
+    }
+
+    fn version(&self) -> PypiVersion {
+        PypiVersion::Url(self.name.version.clone())
+    }
+
+    fn artifact_name(&self) -> SourceArtifactName {
+        SourceArtifactName::STree(self.name.clone())
+    }
+
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
+        let location = self.lock_data().join("pyproject.toml");
+
+        if let Ok(bytes) = fs::read(location) {
+            let source = String::from_utf8(bytes).map_err(|e| {
+                SDistError::PyProjectTomlParseError(format!(
+                    "could not parse pyproject.toml (bad encoding): {}",
+                    e
+                ))
+            })?;
+            let project = pyproject_toml::PyProjectToml::new(&source).map_err(|e| {
+                SDistError::PyProjectTomlParseError(format!(
+                    "could not parse pyproject.toml (bad toml): {}",
+                    e
+                ))
+            })?;
+            Ok(project
+                .build_system
+                .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
+        } else {
+            Err(SDistError::NoPyProjectTomlFound)
+        }
+    }
+    /// move all files to a specific directory
+    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
+        let src = self.lock_data();
+        Self::copy_dir_all(src.as_path(), work_dir)
     }
 }
 
@@ -230,10 +375,12 @@ fn generic_archive_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::SDist;
+    use crate::artifacts::{SDist, SourceArtifact};
     use crate::python_env::Pep508EnvMakers;
+    use crate::resolve::PypiVersion;
     use crate::resolve::SDistResolution;
     use crate::types::Extra;
+    use crate::types::PackageName;
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
@@ -244,6 +391,7 @@ mod tests {
     use std::path::Path;
     use std::str::FromStr;
     use tempfile::TempDir;
+    use url::Url;
 
     fn get_package_db() -> (PackageDb, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
@@ -313,7 +461,10 @@ mod tests {
         )
         .unwrap();
 
-        let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
+        let result = wheel_builder
+            .get_sdist_metadata::<SDist>(&sdist)
+            .await
+            .unwrap();
 
         assert_debug_snapshot!(result.1);
     }
@@ -584,5 +735,205 @@ mod tests {
         // hashset does not have a deterministic order
         metadata.extras = Default::default();
         assert_debug_snapshot!(metadata);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_sdist_as_source_dependency() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_sdist_but_without_metadata_in_path_as_source_dependency() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/sdists/rich_without_metadata_in_path.tar.gz");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_as_folder_as_source_dependency() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/stree/dev_folder_with_rich");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0].filename.as_stree().unwrap().distribution);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_http_reference_source_code() {
+        let url =
+            Url::parse("https://github.com/Textualize/rich/archive/refs/tags/v13.7.0.zip").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+
+        let artifact_info = content
+            .iter()
+            .flat_map(|(_, artifacts)| artifacts.iter())
+            .collect::<Vec<_>>();
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // assert_debug_snapshot!(wheel_metadata.0);
+        assert_debug_snapshot!(wheel_metadata.1);
+
+        // assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_git_reference_source_code() {
+        let url = Url::parse("git+https://github.com/Textualize/rich.git").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+        let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
+
+        assert_debug_snapshot!(artifact_info[0].filename);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_rich_git_reference_with_tag_source_code() {
+        // Let's checkout some old version that have different requirements as new one
+        let url = Url::parse("git+https://github.com/Textualize/rich.git@v1.0.0").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let resolve_options = ResolveOptions::default();
+        let wheel_builder = WheelBuilder::new(
+            &package_db.0,
+            &env_markers,
+            None,
+            &resolve_options,
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let content = package_db
+            .0
+            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .await
+            .unwrap();
+
+        let artifact_info = content
+            .iter()
+            .flat_map(|(_, artifacts)| artifacts.iter())
+            .collect::<Vec<_>>();
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_debug_snapshot!(wheel_metadata.1);
     }
 }

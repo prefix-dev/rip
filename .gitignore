@@ -5,4 +5,5 @@
 .DS_STORE
 # pixi environments
 .pixi
-
+# other venvs
+.venv*/

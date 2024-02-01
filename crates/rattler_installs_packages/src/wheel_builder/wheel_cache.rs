@@ -27,7 +27,7 @@
 //! So cacache stores the hashed wheel key and associated with this is with the content hash of the wheel
 //! This way multiple WheelCacheKeys can point to the same wheel.
 
-use crate::artifacts::{SDist, Wheel};
+use crate::artifacts::{SourceArtifact, Wheel};
 use crate::python_env::PythonInterpreterVersion;
 use crate::types::{Artifact, WheelFilename};
 use cacache::{Integrity, WriteOpts};
@@ -55,6 +55,14 @@ struct WheelKeyMetadata {
     integrity: String,
 }
 
+impl ToString for WheelCacheKey {
+    /// Get WheelKey string representation without suffix
+    fn to_string(&self) -> String {
+        let mut parts = self.0.split(':');
+        parts.nth(1).unwrap_or_default().to_owned()
+    }
+}
+
 impl WheelCacheKey {
     /// Create a wheel key from bytes, will become '{prefix}:{hash_hexadecimal}'
     pub fn from_bytes(prefix: impl AsRef<str>, bytes: impl AsRef<[u8]>) -> Self {
@@ -69,15 +77,10 @@ impl WheelCacheKey {
 
     /// Create a WheelCacheKey from an sdist and the python interpreter version
     pub fn from_sdist(
-        sdist: &SDist,
+        sdist: &impl SourceArtifact,
         python_interpreter_version: &PythonInterpreterVersion,
     ) -> Result<WheelCacheKey, std::io::Error> {
-        let mut hash = vec![];
-
-        // Hash content
-        let mut inner = sdist.lock_data();
-        inner.rewind()?;
-        inner.read_to_end(&mut hash)?;
+        let hash = sdist.try_get_bytes()?;
         let hash = rattler_digest::compute_bytes_digest::<Sha256>(&hash);
 
         // Hash python version

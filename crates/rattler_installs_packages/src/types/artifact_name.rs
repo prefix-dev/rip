@@ -1,5 +1,6 @@
 use super::{NormalizedPackageName, PackageName, ParsePackageNameError};
 use crate::python_env::WheelTag;
+use crate::resolve::PypiVersion;
 use crate::types::Version;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,7 @@ use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use thiserror::Error;
+use url::Url;
 
 /// The [`ArtifactName`] enum represents a package artifact name and the properties that can be
 /// derived simply from the name.
@@ -33,14 +35,23 @@ pub enum ArtifactName {
     Wheel(WheelFilename),
     /// Sdist artifact
     SDist(SDistFilename),
+    /// STree artifact
+    STree(STreeFilename),
 }
 
 impl ArtifactName {
     /// Returns the version of the artifact
-    pub fn version(&self) -> &Version {
+    pub fn version(&self) -> PypiVersion {
         match self {
-            ArtifactName::Wheel(name) => &name.version,
-            ArtifactName::SDist(name) => &name.version,
+            ArtifactName::Wheel(name) => PypiVersion::Version {
+                version: name.version.clone(),
+                package_allows_prerelease: name.version.any_prerelease(),
+            },
+            ArtifactName::SDist(name) => PypiVersion::Version {
+                version: name.version.clone(),
+                package_allows_prerelease: name.version.any_prerelease(),
+            },
+            ArtifactName::STree(name) => PypiVersion::Url(name.version.clone()),
         }
     }
 
@@ -49,6 +60,7 @@ impl ArtifactName {
         match self {
             ArtifactName::Wheel(wheel) => Some(wheel),
             ArtifactName::SDist(_) => None,
+            ArtifactName::STree(_) => None,
         }
     }
 
@@ -56,7 +68,17 @@ impl ArtifactName {
     pub fn as_sdist(&self) -> Option<&SDistFilename> {
         match self {
             ArtifactName::Wheel(_) => None,
+            ArtifactName::STree(_) => None,
             ArtifactName::SDist(sdist) => Some(sdist),
+        }
+    }
+
+    /// Returns this name as a source tree name
+    pub fn as_stree(&self) -> Option<&STreeFilename> {
+        match self {
+            ArtifactName::Wheel(_) => None,
+            ArtifactName::STree(name) => Some(name),
+            ArtifactName::SDist(_) => None,
         }
     }
 
@@ -71,6 +93,7 @@ impl Display for ArtifactName {
         match self {
             ArtifactName::Wheel(name) => write!(f, "{}", name),
             ArtifactName::SDist(name) => write!(f, "{}", name),
+            ArtifactName::STree(name) => write!(f, "{}", name),
         }
     }
 }
@@ -173,6 +196,34 @@ pub struct SDistFilename {
     pub format: SDistFormat,
 }
 
+/// Structure that contains the information that is contained in a source distribution name
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
+pub struct STreeFilename {
+    /// Distribution name, e.g. ‘django’, ‘pyramid’.
+    pub distribution: PackageName,
+
+    /// Direct reference
+    pub version: Url,
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
+/// SourceArtifactName
+pub enum SourceArtifactName {
+    /// SDIST
+    SDist(SDistFilename),
+    /// STREE
+    STree(STreeFilename),
+}
+
+impl Display for SourceArtifactName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceArtifactName::SDist(sdist) => write!(f, "{}", sdist),
+            SourceArtifactName::STree(stree) => write!(f, "{}", stree),
+        }
+    }
+}
+
 impl Display for SDistFilename {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -181,6 +232,17 @@ impl Display for SDistFilename {
             dist = self.distribution.as_source_str(),
             ver = self.version,
             format = self.format,
+        )
+    }
+}
+
+impl Display for STreeFilename {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{dist}-{ver}",
+            dist = self.distribution.as_source_str(),
+            ver = self.version,
         )
     }
 }
@@ -201,6 +263,27 @@ impl SDistFormat {
     /// In RIP we currently only support TarGz and Tar
     pub fn is_supported(&self) -> bool {
         matches!(self, Self::TarGz | Self::Tar | Self::Zip)
+    }
+
+    /// Get extension of SDist
+    pub fn get_extension(path: &str) -> Result<SDistFormat, ParseArtifactNameError> {
+        let format = if path.strip_suffix(".zip").is_some() {
+            SDistFormat::Zip
+        } else if path.strip_suffix(".tar.gz").is_some() {
+            SDistFormat::TarGz
+        } else if path.strip_suffix(".tar.bz2").is_some() {
+            SDistFormat::TarBz2
+        } else if path.strip_suffix(".tar.xz").is_some() {
+            SDistFormat::TarXz
+        } else if path.strip_suffix(".tar.Z").is_some() {
+            SDistFormat::TarZ
+        } else if path.strip_suffix(".tar").is_some() {
+            SDistFormat::Tar
+        } else {
+            return Err(ParseArtifactNameError::InvalidExtension(path.to_string()));
+        };
+
+        Ok(format)
     }
 }
 
