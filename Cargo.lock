@@ -3682,8 +3682,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "resolvo"
-version = "0.2.0"
-source = "git+https://github.com/mamba-org/resolvo.git?branch=main#53a14d5203d67e1404e3a9f094366bfefe63f7fe"
