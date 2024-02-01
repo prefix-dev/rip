@@ -2276,8 +2276,9 @@ dependencies = [
 
 [[package]]
 name = "resolvo"
-version = "0.2.0"
-source = "git+https://github.com/mamba-org/resolvo.git?branch=main#53a14d5203d67e1404e3a9f094366bfefe63f7fe"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acd163bc7df01195423c83a7a391fecf319ff41d3de899694a9ccb698e790b29"
 dependencies = [
  "bitvec",
  "elsa",
