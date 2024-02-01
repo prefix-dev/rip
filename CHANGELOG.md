@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2024-02-01
+
+### ✨ Highlights
+
+This release adds support for pre-releases, improved error messages when building sdists, in tree build support, lots of fixes, and more!
+
+### 📃 Details
+
+#### Added
+- Add zip support for sdists
+- Adds ability to write `direct_url.json` file during wheel unpacking
+
+#### Changed
+- Move PythonInterpreterVersion to the public API
+- Better error reporting when env creation fails for wheel building
+- Enable in tree builds of sdists
+- Improve logging level of wheel build failures
+- Changes logging level of a Requires-Dist cant be parsed
+- Select pre-releases like pip does
+- Cancel on metadata failure
+- Now uses miette error for the cancellation of resolvo
+
+#### Fixed
+- Parsing an `a` tag with empty python version requirement
+- Fixes locked packages being passed in from pixi and using WheelTags from correct interpreter
 
 ## [0.4.0] - 2024-01-18
 ### ✨ Highlights
