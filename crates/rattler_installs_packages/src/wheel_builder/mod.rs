@@ -30,21 +30,21 @@ use crate::{
     types::{WheelCoreMetaDataError, WheelCoreMetadata},
 };
 
-type BuildCache<'db> = Mutex<HashMap<SourceArtifactName, Arc<BuildEnvironment<'db>>>>;
+type BuildCache = Mutex<HashMap<SourceArtifactName, Arc<BuildEnvironment>>>;
 
 /// A builder for wheels
-pub struct WheelBuilder<'db, 'i> {
+pub struct WheelBuilder {
     /// A cache for virtualenvs that might be reused later in the process
-    venv_cache: BuildCache<'db>,
+    venv_cache: BuildCache,
 
     /// The package database to use
-    package_db: &'db PackageDb,
+    package_db: Arc<PackageDb>,
 
     /// The env markers to use when resolving
-    env_markers: &'i MarkerEnvironment,
+    env_markers: Arc<MarkerEnvironment>,
 
     /// The configured wheel tags to use when resolving
-    wheel_tags: Option<&'i WheelTags>,
+    wheel_tags: Option<Arc<WheelTags>>,
 
     /// The resolve options. Note that we change the sdist resolution to normal if it's set to
     /// only sdists, because otherwise we run into a chicken & egg problem where a sdist is required
@@ -112,13 +112,13 @@ pub enum WheelBuildError {
     CouldNotJoinPath(#[from] std::env::JoinPathsError),
 }
 
-impl<'db, 'i> WheelBuilder<'db, 'i> {
+impl WheelBuilder {
     /// Create a new wheel builder
     pub fn new(
-        package_db: &'db PackageDb,
-        env_markers: &'i MarkerEnvironment,
-        wheel_tags: Option<&'i WheelTags>,
-        resolve_options: &ResolveOptions,
+        package_db: Arc<PackageDb>,
+        env_markers: Arc<MarkerEnvironment>,
+        wheel_tags: Option<Arc<WheelTags>>,
+        resolve_options: ResolveOptions,
         env_variables: HashMap<String, String>,
     ) -> Result<Self, ParsePythonInterpreterVersionError> {
         let resolve_options = resolve_options.clone();
@@ -147,7 +147,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
     async fn setup_build_venv(
         &self,
         sdist: &impl SourceArtifact,
-    ) -> Result<Arc<BuildEnvironment<'db>>, WheelBuildError> {
+    ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
         if let Some(venv) = self.venv_cache.lock().get(&sdist.artifact_name()) {
             tracing::debug!(
                 "using cached virtual env for: {:?}",
@@ -158,27 +158,12 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
         tracing::debug!("creating virtual env for: {:?}", sdist.distribution_name());
 
-        let mut build_environment = BuildEnvironment::setup(
-            sdist,
-            self,
-            self.env_markers,
-            self.wheel_tags,
-            &self.resolve_options,
-            self.env_variables.clone(),
-        )
-        .await?;
+        let mut build_environment = BuildEnvironment::setup(sdist, self).await?;
 
         build_environment.install_build_files(sdist)?;
 
         // Install extra requirements if any
-        build_environment
-            .install_extra_requirements(
-                self,
-                self.env_markers,
-                self.wheel_tags,
-                &self.resolve_options,
-            )
-            .await?;
+        build_environment.install_extra_requirements(self).await?;
 
         // Insert into the venv cache
         self.venv_cache
@@ -253,7 +238,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
     async fn get_sdist_metadata_internal<S: SourceArtifact>(
         &self,
-        build_environment: &Arc<BuildEnvironment<'db>>,
+        build_environment: &BuildEnvironment,
         sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         let output = build_environment.run_command("WheelMetadata")?;
@@ -303,7 +288,7 @@ impl<'db, 'i> WheelBuilder<'db, 'i> {
 
     async fn build_wheel_internal<S: SourceArtifact>(
         &self,
-        build_environment: &Arc<BuildEnvironment<'db>>,
+        build_environment: &BuildEnvironment,
         sdist: &S,
     ) -> Result<Wheel, WheelBuildError> {
         // Run the wheel stage
@@ -366,20 +351,24 @@ mod tests {
     use crate::wheel_builder::WheelBuilder;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
+    use std::collections::HashMap;
     use std::path::Path;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
-    fn get_package_db() -> (PackageDb, TempDir) {
+    fn get_package_db() -> (Arc<PackageDb>, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
         let client = ClientWithMiddleware::from(Client::new());
 
         (
-            PackageDb::new(
-                client,
-                &[url::Url::parse("https://pypi.org/simple/").unwrap()],
-                tempdir.path(),
-            )
-            .unwrap(),
+            Arc::new(
+                PackageDb::new(
+                    client,
+                    &[url::Url::parse("https://pypi.org/simple/").unwrap()],
+                    tempdir.path(),
+                )
+                .unwrap(),
+            ),
             tempdir,
         )
     }
@@ -392,14 +381,13 @@ mod tests {
         let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
-            Default::default(),
+            ResolveOptions::default(),
+            HashMap::default(),
         )
         .unwrap();
 
@@ -434,17 +422,17 @@ mod tests {
         let sdist = SDist::from_path(&path, &"tampered-rich".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let resolve_options = ResolveOptions {
             on_wheel_build_failure: crate::resolve::OnWheelBuildFailure::SaveBuildEnv,
             ..Default::default()
         };
 
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            resolve_options,
             Default::default(),
         )
         .unwrap();
