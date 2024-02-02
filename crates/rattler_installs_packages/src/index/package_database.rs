@@ -1,20 +1,14 @@
-use super::git::git_clone;
-use super::git::GitSource;
-use crate::artifacts::{SDist, STree, Wheel};
+use crate::artifacts::{SDist, Wheel};
 use crate::index::file_store::FileStore;
-use crate::index::git::ParsedUrl;
+
 use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::resolve::PypiVersion;
-use crate::types::{
-    ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, PackageName, ProjectInfo,
-    SDistFilename, SDistFormat, STreeFilename, WheelCoreMetadata, Yanked,
-};
-use crate::utils::ReadAndSeek;
-use crate::wheel_builder::{WheelBuildError, WheelBuilder, WheelCache};
+use crate::types::{ArtifactInfo, ProjectInfo, WheelCoreMetadata};
+
+use crate::wheel_builder::{WheelBuilder, WheelCache};
 use crate::{
-    types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName, types::Version,
-    types::WheelFilename,
+    types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName, types::WheelFilename,
 };
 use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
 use async_recursion::async_recursion;
@@ -23,21 +17,17 @@ use futures::{pin_mut, stream, StreamExt};
 use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
-use parking_lot::Mutex;
-use rattler_digest::{compute_bytes_digest, Sha256};
+
 use reqwest::{header::CACHE_CONTROL, StatusCode};
 use reqwest_middleware::ClientWithMiddleware;
 use std::borrow::Borrow;
-use std::fs::File;
-use std::io::Seek;
+
 use std::path::PathBuf;
-use std::str::FromStr;
+
 use std::sync::Arc;
 use std::{fmt::Display, io::Read, path::Path};
-use tempfile::tempdir;
-use url::Url;
 
-use super::parse_hash;
+use url::Url;
 
 type VersionArtifacts = IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>;
 
@@ -59,6 +49,27 @@ pub struct PackageDb {
 
     /// Reference to the cache directory for all caches
     cache_dir: PathBuf,
+}
+
+/// Type of request to get from the `available_artifacts` function.
+pub enum ArtifactRequest<'wb> {
+    /// Get the available artifacts from the index.
+    FromIndex(NormalizedPackageName),
+    /// Get the artifact from a direct URL.
+    DirectUrl {
+        /// The name of the package
+        name: NormalizedPackageName,
+        /// The URL of the artifact
+        url: Url,
+        /// The wheel builder to use to build the artifact if its an SDist or STree
+        wheel_builder: &'wb WheelBuilder,
+    },
+}
+
+pub(crate) struct DirectUrlArtifactResponse {
+    pub(crate) artifact_info: Arc<ArtifactInfo>,
+    pub(crate) artifact_versions: VersionArtifacts,
+    pub(crate) metadata_bytes: Vec<u8>,
 }
 
 impl PackageDb {
@@ -88,419 +99,67 @@ impl PackageDb {
         &self.local_wheel_cache
     }
 
-    /// Downloads and caches information about available artifiacts of a package from the index.
-    pub async fn available_artifacts<P: Into<NormalizedPackageName>>(
+    /// Downloads and caches information about available artifacts of a package from the index.
+    pub async fn available_artifacts<'wb>(
         &self,
-        p: P,
+        request: ArtifactRequest<'wb>,
     ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
-        let p = p.into();
-        if let Some(cached) = self.artifacts.get(&p) {
-            Ok(cached)
-        } else {
-            // Start downloading the information for each url.
-            let http = self.http.clone();
-            let request_iter = stream::iter(self.index_urls.iter())
-                .map(|url| url.join(&format!("{}/", p.as_str())).expect("invalid url"))
-                .map(|url| fetch_simple_api(&http, url))
-                .buffer_unordered(10)
-                .filter_map(|result| async { result.transpose() });
-
-            pin_mut!(request_iter);
-
-            // Add all the incoming results to the set of results
-            let mut result = VersionArtifacts::default();
-            while let Some(response) = request_iter.next().await {
-                for artifact in response?.files {
-                    result
-                        .entry(PypiVersion::Version {
-                            version: artifact.filename.version().clone(),
-                            package_allows_prerelease: artifact.filename.version().any_prerelease(),
-                        })
-                        .or_default()
-                        .push(Arc::new(artifact));
+        match request {
+            ArtifactRequest::FromIndex(p) => {
+                if let Some(cached) = self.artifacts.get(&p) {
+                    return Ok(cached);
                 }
+                // Start downloading the information for each url.
+                let http = self.http.clone();
+                let request_iter = stream::iter(self.index_urls.iter())
+                    .map(|url| url.join(&format!("{}/", p.as_str())).expect("invalid url"))
+                    .map(|url| fetch_simple_api(&http, url))
+                    .buffer_unordered(10)
+                    .filter_map(|result| async { result.transpose() });
+
+                pin_mut!(request_iter);
+
+                // Add all the incoming results to the set of results
+                let mut result = VersionArtifacts::default();
+                while let Some(response) = request_iter.next().await {
+                    for artifact in response?.files {
+                        result
+                            .entry(PypiVersion::Version {
+                                version: artifact.filename.version().clone(),
+                                package_allows_prerelease: artifact
+                                    .filename
+                                    .version()
+                                    .any_prerelease(),
+                            })
+                            .or_default()
+                            .push(Arc::new(artifact));
+                    }
+                }
+
+                // Sort the artifact infos by name, this is just to have a consistent order and make
+                // the resolution output consistent.
+                for artifact_infos in result.values_mut() {
+                    artifact_infos.sort_by(|a, b| a.filename.cmp(&b.filename));
+                }
+
+                // Sort in descending order by version
+                result.sort_unstable_by(|v1, _, v2, _| v2.cmp(v1));
+
+                Ok(self.artifacts.insert(p.clone(), Box::new(result)))
             }
-
-            // Sort the artifact infos by name, this is just to have a consistent order and make
-            // the resolution output consistent.
-            for artifact_infos in result.values_mut() {
-                artifact_infos.sort_by(|a, b| a.filename.cmp(&b.filename));
+            ArtifactRequest::DirectUrl {
+                name,
+                url,
+                wheel_builder,
+            } => {
+                self.get_artifact_by_direct_url(name, url, wheel_builder)
+                    .await
             }
-
-            // Sort in descending order by version
-            result.sort_unstable_by(|v1, _, v2, _| v2.cmp(v1));
-
-            Ok(self.artifacts.insert(p.clone(), Box::new(result)))
         }
     }
 
-    /// Return an sdist from file path
-    pub async fn get_sdist_from_file_path(
-        &self,
-        normalized_package_name: &NormalizedPackageName,
-        path: &PathBuf,
-        wheel_builder: &WheelBuilder,
-    ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
-        let distribution = PackageName::from(normalized_package_name.clone());
-
-        let path_str = if let Some(path_str) = path.as_os_str().to_str() {
-            path_str
-        } else {
-            return Err(WheelBuildError::Error(format!(
-                "Could not convert path in utf-8 str {}",
-                path.to_string_lossy()
-            )))
-            .into_diagnostic();
-        };
-        let format = SDistFormat::get_extension(path_str).into_diagnostic()?;
-        let dummy_version =
-            Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
-
-        let dummy_sdist_file_name = SDistFilename {
-            distribution,
-            version: dummy_version,
-            format,
-        };
-
-        let file = File::open(path).into_diagnostic()?;
-
-        let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(file))?;
-
-        let wheel_metadata = wheel_builder
-            .get_sdist_metadata(&dummy_sdist)
-            .await
-            .into_diagnostic()?;
-
-        // construct a real sdist filename
-        let sdist_filename = SDistFilename {
-            distribution: wheel_metadata.1.name.clone(),
-            version: wheel_metadata.1.version.clone(),
-            format,
-        };
-
-        let filename = ArtifactName::SDist(sdist_filename.clone());
-
-        Ok((wheel_metadata, filename))
-    }
-
-    /// Return an stree from file path
-    pub async fn get_stree_from_file_path(
-        &self,
-        normalized_package_name: &NormalizedPackageName,
-        url: Url,
-        path: Option<PathBuf>,
-        wheel_builder: &WheelBuilder,
-    ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
-        let distribution = PackageName::from(normalized_package_name.clone());
-        let path = match path {
-            None => PathBuf::from_str(url.path()).into_diagnostic()?,
-            Some(path) => path,
-        };
-
-        let dummy_version =
-            Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
-
-        let stree_file_name = STreeFilename {
-            distribution,
-            version: dummy_version,
-            url: url.clone(),
-        };
-
-        let stree = STree {
-            name: stree_file_name,
-            location: Mutex::new(path),
-        };
-
-        let wheel_metadata = wheel_builder
-            .get_sdist_metadata(&stree)
-            .await
-            .into_diagnostic()?;
-
-        let stree_file_name = STreeFilename {
-            distribution: wheel_metadata.1.name.clone(),
-            version: wheel_metadata.1.version.clone(),
-            url: url.clone(),
-        };
-
-        Ok((wheel_metadata, ArtifactName::STree(stree_file_name)))
-    }
-
-    /// Get artifact by file URL
-    pub async fn get_file_artifact<P: Into<NormalizedPackageName>>(
-        &self,
-        p: P,
-        url: Url,
-        wheel_builder: &WheelBuilder,
-    ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
-        let path = if let Ok(path) = url.to_file_path() {
-            path
-        } else {
-            return Err(WheelBuildError::Error(format!(
-                "Could not build wheel from path {}",
-                url
-            )))
-            .into_diagnostic();
-        };
-        let str_name = url.path();
-
-        let normalized_package_name = p.into();
-
-        let (metadata_bytes, metadata, artifact_name) =
-            if path.is_file() && str_name.ends_with(".whl") {
-                let wheel = Wheel::from_path(&path, &normalized_package_name)
-                    .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))
-                    .into_diagnostic()?;
-
-                let (data_bytes, metadata) = wheel.metadata()?;
-                (
-                    data_bytes,
-                    metadata,
-                    ArtifactName::Wheel(wheel.name().clone()),
-                )
-            } else if path.is_file() {
-                let (wheel_metadata, name) = self
-                    .get_sdist_from_file_path(&normalized_package_name, &path, wheel_builder)
-                    .await?;
-                (wheel_metadata.0, wheel_metadata.1, name)
-            } else {
-                let (wheel_metadata, name) = self
-                    .get_stree_from_file_path(
-                        &normalized_package_name,
-                        url.clone(),
-                        Some(path),
-                        wheel_builder,
-                    )
-                    .await?;
-                (wheel_metadata.0, wheel_metadata.1, name)
-            };
-
-        let artifact_hash = {
-            ArtifactHashes {
-                sha256: Some(rattler_digest::compute_bytes_digest::<Sha256>(
-                    metadata_bytes.clone(),
-                )),
-            }
-        };
-
-        let artifact_info = Arc::new(ArtifactInfo {
-            filename: artifact_name,
-            url: url.clone(),
-            hashes: Some(artifact_hash),
-            requires_python: metadata.requires_python,
-            dist_info_metadata: DistInfoMetadata::default(),
-            yanked: Yanked::default(),
-        });
-
-        let mut result = IndexMap::default();
-        result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
-
-        self.put_metadata_in_cache(&artifact_info, &metadata_bytes)
-            .await?;
-
-        Ok(self
-            .artifacts
-            .insert(normalized_package_name.clone(), Box::new(result)))
-    }
-
-    /// Return an sdist from file path
-    pub async fn get_sdist_from_http(
-        &self,
-        normalized_package_name: &NormalizedPackageName,
-        url: Url,
-        bytes: Box<dyn ReadAndSeek + Send>,
-        wheel_builder: &WheelBuilder,
-    ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
-        // it's probably an sdist
-        let distribution = PackageName::from(normalized_package_name.clone());
-        let version = Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
-        let format = SDistFormat::get_extension(url.path()).into_diagnostic()?;
-
-        let dummy_sdist_file_name = SDistFilename {
-            distribution,
-            version,
-            format,
-        };
-
-        // when we receive a direct file or http url
-        // we don't know the version for artifact until we extract the actual metadata
-        // so we create a plain sdist object aka dummy
-        // and populate it with correct metadata after calling `get_sdist_metadata`
-        let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
-
-        let wheel_metadata = wheel_builder
-            .get_sdist_metadata(&dummy_sdist)
-            .await
-            .into_diagnostic()?;
-
-        // construct a real sdist filename
-        let sdist_filename = SDistFilename {
-            distribution: wheel_metadata.1.name.clone(),
-            version: wheel_metadata.1.version.clone(),
-            format,
-        };
-        let filename = ArtifactName::SDist(sdist_filename.clone());
-
-        Ok((wheel_metadata, filename))
-    }
-
-    /// Get artifact by file URL
-    pub async fn get_direct_http_url_artifact<P: Into<NormalizedPackageName>>(
-        &self,
-        p: P,
-        url: Url,
-        wheel_builder: &WheelBuilder,
-    ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
-        let str_name = url.path();
-        let url_hash = url.fragment().and_then(parse_hash);
-
-        let normalized_package_name = p.into();
-
-        // Get the contents of the artifact
-        let artifact_bytes = self
-            .http
-            .request(
-                url.clone(),
-                Method::GET,
-                HeaderMap::default(),
-                CacheMode::Default,
-            )
-            .await?;
-
-        let mut bytes = artifact_bytes
-            .into_body()
-            .into_local()
-            .await
-            .into_diagnostic()?;
-
-        let artifact_hash = {
-            let mut bytes_for_hash = vec![];
-            bytes.rewind().into_diagnostic()?;
-            bytes.read_to_end(&mut bytes_for_hash).into_diagnostic()?;
-            bytes.rewind().into_diagnostic()?;
-            ArtifactHashes {
-                sha256: Some(rattler_digest::compute_bytes_digest::<Sha256>(
-                    bytes_for_hash,
-                )),
-            }
-        };
-
-        if let Some(hash) = url_hash.clone() {
-            assert_eq!(hash, artifact_hash);
-        };
-
-        let (filename, data_bytes, metadata) = if str_name.ends_with(".whl") {
-            let wheel = Wheel::from_url_and_bytes(url.path(), &normalized_package_name, bytes)?;
-
-            let filename = ArtifactName::Wheel(wheel.name().clone());
-            let (data_bytes, metadata) = wheel.metadata()?;
-
-            (filename, data_bytes, metadata)
-        } else {
-            let (wheel_metadata, filename) = self
-                .get_sdist_from_http(&normalized_package_name, url.clone(), bytes, wheel_builder)
-                .await?;
-
-            (filename, wheel_metadata.0, wheel_metadata.1)
-        };
-
-        let artifact_info = Arc::new(ArtifactInfo {
-            filename,
-            url: url.clone(),
-            hashes: Some(artifact_hash),
-            requires_python: metadata.requires_python,
-            dist_info_metadata: DistInfoMetadata::default(),
-            yanked: Yanked::default(),
-        });
-
-        let mut result = IndexMap::default();
-        result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
-
-        self.put_metadata_in_cache(&artifact_info, &data_bytes)
-            .await?;
-
-        Ok(self
-            .artifacts
-            .insert(normalized_package_name.clone(), Box::new(result)))
-    }
-
-    /// Get artifact by git reference
-    pub async fn get_git_artifact<P: Into<NormalizedPackageName>>(
-        &self,
-        p: P,
-        url: Url,
-        wheel_builder: &WheelBuilder,
-    ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
-        let normalized_package_name = p.into();
-
-        let parsed_url = ParsedUrl::new(&url)?;
-
-        let git_source = GitSource {
-            url: parsed_url.git_url,
-            rev: parsed_url.revision,
-        };
-
-        let temp_dir = tempdir().unwrap();
-
-        let mut location = git_clone(&git_source, &temp_dir).into_diagnostic()?;
-
-        if let Some(subdirectory) = parsed_url.subdirectory {
-            location.push(&subdirectory);
-            if !location.exists() {
-                return Err(miette::miette!(
-                    "Requested subdirectory fragment {:?} can't be located at following url {:?}",
-                    subdirectory,
-                    url
-                ));
-            }
-        };
-
-        let (wheel_metadata, filename) = self
-            .get_stree_from_file_path(
-                &normalized_package_name,
-                url.clone(),
-                Some(location),
-                wheel_builder,
-            )
-            .await?;
-
-        let requires_python = wheel_metadata.1.requires_python;
-
-        let dist_info_metadata = DistInfoMetadata {
-            available: false,
-            hashes: ArtifactHashes::default(),
-        };
-
-        let yanked = Yanked {
-            yanked: false,
-            reason: None,
-        };
-
-        let project_hash = ArtifactHashes {
-            sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
-        };
-
-        let artifact_info = Arc::new(ArtifactInfo {
-            filename,
-            url: url.clone(),
-            hashes: Some(project_hash),
-            requires_python,
-            dist_info_metadata,
-            yanked,
-        });
-
-        let mut result = IndexMap::default();
-        result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
-
-        self.put_metadata_in_cache(&artifact_info, &wheel_metadata.0)
-            .await?;
-
-        Ok(self
-            .artifacts
-            .insert(normalized_package_name.clone(), Box::new(result)))
-    }
-
     /// Get artifact directly from file, vcs, or url
-    pub async fn get_artifact_by_direct_url<P: Into<NormalizedPackageName>>(
+    async fn get_artifact_by_direct_url<P: Into<NormalizedPackageName>>(
         &self,
         p: P,
         url: Url,
@@ -509,20 +168,37 @@ impl PackageDb {
         let p = p.into();
 
         if let Some(cached) = self.artifacts.get(&p) {
-            Ok(cached)
-        } else if url.scheme() == "file" {
-            self.get_file_artifact(p, url, wheel_builder).await
+            return Ok(cached);
+        }
+
+        let response = if url.scheme() == "file" {
+            // This can result in a Wheel, Sdist or STree
+            super::direct_url::file::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
         } else if url.scheme() == "https" {
-            self.get_direct_http_url_artifact(p, url, wheel_builder)
-                .await
+            // This can be a Wheel or SDist artifact
+            super::direct_url::http::get_artifacts_and_metadata(
+                &self.http,
+                p.clone(),
+                url,
+                wheel_builder,
+            )
+            .await
         } else if url.scheme() == "git+https" || url.scheme() == "git+file" {
-            self.get_git_artifact(p, url, wheel_builder).await
+            // This can be a STree artifact
+            super::direct_url::git::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
         } else {
             Err(miette::miette!(
                 "Usage of insecure protocol or unsupported scheme {:?}",
                 url.scheme()
             ))
-        }
+        }?;
+
+        self.put_metadata_in_cache(&response.artifact_info, &response.metadata_bytes)
+            .await?;
+
+        Ok(self
+            .artifacts
+            .insert(p, Box::new(response.artifact_versions)))
     }
 
     /// Reads the metadata for the given artifact from the cache or return `None` if the metadata
@@ -717,6 +393,16 @@ impl PackageDb {
             }
         }
 
+        // If there are any STree artifacts we expect the metadata to be available in the cache
+        // So we should have returned by now, this is an error
+        // We should change this behavior later so it is more generic
+        let any_stree = artifacts
+            .iter()
+            .any(|a| a.borrow().filename.as_stree().is_some());
+        if any_stree {
+            miette::bail!("STree Artifacts should have metadata available in the cache, this is an error in the code");
+        }
+
         // Apparently we dont have any metadata cached yet.
         // Next up check if we have downloaded any artifacts but do not have the metadata stored yet
         // In this case we can just return it
@@ -840,12 +526,16 @@ impl PackageDb {
         cache_mode: CacheMode,
     ) -> miette::Result<A> {
         // Check if the artifact is the same type as the info.
-        let name = A::Name::try_as(&artifact_info.filename).unwrap_or_else(|| {
-            panic!(
-                "the specified artifact '{}' does not refer to type requested to read",
-                artifact_info.filename
-            )
-        });
+        dbg!(&artifact_info.filename);
+        let name = artifact_info
+            .filename
+            .as_inner::<A::Name>()
+            .unwrap_or_else(|| {
+                panic!(
+                    "the specified artifact '{}' does not refer to type requested to read",
+                    artifact_info.filename
+                )
+            });
 
         // Get the contents of the artifact
         let artifact_bytes = self
@@ -875,6 +565,11 @@ impl PackageDb {
         artifact_info: &ArtifactInfo,
         builder: Option<&'async_recursion WheelBuilder>,
     ) -> miette::Result<Wheel> {
+        // TODO: add support for this currently there are not saved
+        if artifact_info.filename.as_stree().is_some() {
+            miette::bail!("STree artifacts are not supported");
+        }
+
         // Try to build the wheel for this SDist if possible
         if artifact_info.is::<SDist>() {
             if let Some(builder) = builder {
@@ -956,16 +651,18 @@ mod test {
         )
         .unwrap();
 
+        let name = "scikit-learn".parse::<PackageName>().unwrap();
+
         // Get all the artifacts
         let artifacts = package_db
-            .available_artifacts("scikit-learn".parse::<PackageName>().unwrap())
+            .available_artifacts(ArtifactRequest::FromIndex(name.into()))
             .await
             .unwrap();
 
         // Get the first wheel artifact
         let artifact_info = artifacts
             .iter()
-            .flat_map(|(_, artifacts)| artifacts.into_iter().cloned())
+            .flat_map(|(_, artifacts)| artifacts.iter().cloned())
             .collect::<Vec<_>>();
 
         let (_artifact, _metadata) = package_db
@@ -985,9 +682,10 @@ mod test {
         )
         .unwrap();
 
+        let name = "scikit-learn".parse::<PackageName>().unwrap();
         // Get all the artifacts
         let artifacts = package_db
-            .available_artifacts("numpy".parse::<PackageName>().unwrap())
+            .available_artifacts(ArtifactRequest::FromIndex(name.into()))
             .await
             .unwrap();
 

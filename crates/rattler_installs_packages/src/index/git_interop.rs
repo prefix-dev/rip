@@ -141,8 +141,8 @@ impl ParsedUrl {
     fn extract_revision_from_git_url(url: &str) -> Option<String> {
         // Split the string at '@' and take the second part
         let rev = if url.contains('@') {
-            let splitted: Vec<&str> = url.split('@').collect();
-            if let Some((rev, _)) = splitted.split_last() {
+            let split: Vec<&str> = url.split('@').collect();
+            if let Some((rev, _)) = split.split_last() {
                 Some(String::from(*rev))
             } else {
                 None

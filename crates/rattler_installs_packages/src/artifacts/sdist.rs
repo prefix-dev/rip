@@ -376,6 +376,7 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::artifacts::{SDist, SourceArtifact};
+    use crate::index::ArtifactRequest;
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
     use crate::resolve::SDistResolution;
@@ -757,7 +758,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: &wheel_builder,
+            })
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -786,7 +791,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: &wheel_builder,
+            })
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -817,7 +826,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: &wheel_builder,
+            })
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -844,7 +857,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: &wheel_builder,
+            })
             .await
             .unwrap();
 
@@ -884,7 +901,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: &wheel_builder,
+            })
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -911,7 +932,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: &wheel_builder,
+            })
             .await
             .unwrap();
 
