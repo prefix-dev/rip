@@ -22,6 +22,7 @@ use elsa::sync::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
 use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
+use itertools::Itertools;
 use miette::{self, Diagnostic, IntoDiagnostic};
 use parking_lot::Mutex;
 use rattler_digest::{compute_bytes_digest, Sha256};
@@ -99,11 +100,15 @@ impl PackageDb {
         } else {
             // Start downloading the information for each url.
             let http = self.http.clone();
-            let request_iter = stream::iter(self.index_urls.iter())
-                .map(|url| url.join(&format!("{}/", p.as_str())).expect("invalid url"))
-                .map(|url| fetch_simple_api(&http, url))
-                .buffer_unordered(10)
-                .filter_map(|result| async { result.transpose() });
+            let request_iter = stream::iter(
+                self.index_urls
+                    .iter()
+                    .map(|url| url.join(&format!("{}/", p.as_str())).expect("invalid url"))
+                    .collect_vec(),
+            )
+            .map(|url| fetch_simple_api(&http, url))
+            .buffer_unordered(10)
+            .filter_map(|result| async { result.transpose() });
 
             pin_mut!(request_iter);
 

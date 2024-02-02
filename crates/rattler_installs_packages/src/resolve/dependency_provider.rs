@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
@@ -214,6 +215,9 @@ pub(crate) struct PypiDependencyProvider {
 
     options: ResolveOptions,
     should_cancel_with_value: Mutex<Option<MetadataError>>,
+
+    concurrent_metadata_fetches: AtomicUsize,
+    concurrent_candidate_fetches: AtomicUsize,
 }
 
 impl PypiDependencyProvider {
@@ -254,6 +258,8 @@ impl PypiDependencyProvider {
             name_to_url,
             options,
             should_cancel_with_value: Default::default(),
+            concurrent_metadata_fetches: AtomicUsize::new(0),
+            concurrent_candidate_fetches: AtomicUsize::new(0),
         })
     }
 
@@ -466,15 +472,38 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         // check if we have URL variant for this name
         let url_version = self.name_to_url.get(package_name.base());
 
+        let concurrency_count = self
+            .concurrent_candidate_fetches
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        tracing::info!("requesting candidates #{}", concurrency_count);
+
         let base_name = package_name.base().clone();
         let result: miette::Result<_> = if let Some(url) = url_version {
-            let url = Url::from_str(url).expect("cannot parse back url");
-            self.package_db
-                .get_artifact_by_direct_url(base_name, url, &self.wheel_builder)
-                .await
+            tokio::spawn({
+                let url = Url::from_str(url).expect("cannot parse back url");
+                let package_db = self.package_db.clone();
+                let wheel_builder = self.wheel_builder.clone();
+                async move {
+                    Ok(package_db
+                        .get_artifact_by_direct_url(base_name, url, &wheel_builder)
+                        .await?
+                        .clone())
+                }
+            })
+            .await
+            .expect("cancelled")
         } else {
-            self.package_db.available_artifacts(base_name).await
+            tokio::spawn({
+                let package_db = self.package_db.clone();
+                async move { Ok(package_db.available_artifacts(base_name).await?.clone()) }
+            })
+            .await
+            .expect("cancelled")
         };
+
+        tracing::info!("DONE requesting candidates #{}", concurrency_count);
+        self.concurrent_candidate_fetches
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
         let artifacts = match result {
             Ok(artifacts) => artifacts,
@@ -661,10 +690,30 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             return Dependencies::Unknown(error);
         }
 
-        let result = self
-            .package_db
-            .get_metadata(artifacts, Some(&self.wheel_builder))
-            .await;
+        let concurrency_count = self
+            .concurrent_metadata_fetches
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        tracing::info!("fetching metadata #{}", concurrency_count);
+        let result: miette::Result<_> = tokio::spawn({
+            let package_db = self.package_db.clone();
+            let wheel_builder = self.wheel_builder.clone();
+            let artifacts = artifacts.to_vec();
+            async move {
+                if let Some((ai, metadata)) = package_db
+                    .get_metadata(&artifacts, Some(&wheel_builder))
+                    .await?
+                {
+                    Ok(Some((ai.clone(), metadata)))
+                } else {
+                    Ok(None)
+                }
+            }
+        })
+        .await
+        .expect("cancelled");
+        tracing::info!("DONE fetching metadata #{}", concurrency_count);
+        self.concurrent_metadata_fetches
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
         let metadata = match result {
             // We have retrieved a value without error

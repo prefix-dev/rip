@@ -358,7 +358,7 @@ fn resolve_inner<'r>(
     )?;
 
     // Invoke the solver to get a solution to the requirements
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_time()
         .enable_io()
         .build()
