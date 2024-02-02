@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.6.0] - 2024-02-02
+### ✨ Highlights
+
+This release adds support for file, http and git references. This was still the biggest missing packages sources that pypi supports.
+
+### 📃 Details
+
+#### Added
+- Add support for file, http and git reference
+
+#### Changed
+- Move wheel_builder error type as it was growing large
+
+#### Removed
+- Remove all lifetimes from PackageDb and WheelBuilder to simplify code
+
 ## [0.5.0] - 2024-02-01
 
 ### ✨ Highlights
