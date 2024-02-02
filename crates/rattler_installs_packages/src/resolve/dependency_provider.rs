@@ -30,8 +30,6 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::runtime::Handle;
-use tokio::task;
 use url::Url;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -468,23 +466,14 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         // check if we have URL variant for this name
         let url_version = self.name_to_url.get(package_name.base());
 
-        let result = if let Some(url) = url_version {
-            task::block_in_place(move || {
-                let url = Url::from_str(url).expect("cannot parse back url");
-                Handle::current().block_on(self.package_db.get_artifact_by_direct_url(
-                    package_name.base().clone(),
-                    url,
-                    &self.wheel_builder,
-                ))
-            })
+        let base_name = package_name.base().clone();
+        let result: miette::Result<_> = if let Some(url) = url_version {
+            let url = Url::from_str(url).expect("cannot parse back url");
+            self.package_db
+                .get_artifact_by_direct_url(base_name, url, &self.wheel_builder)
+                .await
         } else {
-            // Get all the metadata for this package
-            task::block_in_place(move || {
-                Handle::current().block_on(
-                    self.package_db
-                        .available_artifacts(package_name.base().clone()),
-                )
-            })
+            self.package_db.available_artifacts(base_name).await
         };
 
         let artifacts = match result {
@@ -672,13 +661,10 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             return Dependencies::Unknown(error);
         }
 
-        let result = task::block_in_place(|| {
-            // First try getting wheels
-            Handle::current().block_on(
-                self.package_db
-                    .get_metadata(artifacts, Some(&self.wheel_builder)),
-            )
-        });
+        let result = self
+            .package_db
+            .get_metadata(artifacts, Some(&self.wheel_builder))
+            .await;
 
         let metadata = match result {
             // We have retrieved a value without error

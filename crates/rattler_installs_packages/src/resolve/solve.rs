@@ -14,6 +14,7 @@ use std::str::FromStr;
 use url::Url;
 
 use std::collections::HashSet;
+use std::convert::identity;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -265,6 +266,40 @@ pub async fn resolve(
     options: ResolveOptions,
     env_variables: HashMap<String, String>,
 ) -> miette::Result<Vec<PinnedPackage>> {
+    let requirements: Vec<_> = requirements.into_iter().cloned().collect();
+    tokio::task::spawn_blocking(move || {
+        resolve_inner(
+            package_db,
+            &requirements,
+            env_markers,
+            compatible_tags,
+            locked_packages,
+            favored_packages,
+            options,
+            env_variables,
+        )
+    })
+    .await
+    .map_or_else(
+        |e| match e.try_into_panic() {
+            Ok(panic) => std::panic::resume_unwind(panic),
+            Err(_) => Err(miette::miette!("the operation was cancelled")),
+        },
+        identity,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_inner<'r>(
+    package_db: Arc<PackageDb>,
+    requirements: impl IntoIterator<Item = &'r Requirement>,
+    env_markers: Arc<MarkerEnvironment>,
+    compatible_tags: Option<Arc<WheelTags>>,
+    locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    options: ResolveOptions,
+    env_variables: HashMap<String, String>,
+) -> miette::Result<Vec<PinnedPackage>> {
     // Construct the pool
     let pool = Pool::new();
 
@@ -323,7 +358,13 @@ pub async fn resolve(
     )?;
 
     // Invoke the solver to get a solution to the requirements
-    let mut solver = Solver::new_with_default_runtime(&provider);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .enable_io()
+        .build()
+        .unwrap();
+
+    let mut solver = Solver::new(&provider, runtime);
     let solvables = match solver.solve(root_requirements) {
         Ok(solvables) => solvables,
         Err(e) => {
