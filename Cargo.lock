@@ -2284,13 +2284,14 @@ dependencies = [
 [[package]]
 name = "resolvo"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acd163bc7df01195423c83a7a391fecf319ff41d3de899694a9ccb698e790b29"
+source = "git+https://github.com/aochagavia/resolvo.git?branch=concurrent-metadata-fetching#6e264327c0585b1514a2f9fcb23e7e23c56675be"
 dependencies = [
  "bitvec",
  "elsa",
+ "futures",
  "itertools 0.11.0",
  "petgraph",
+ "tokio",
  "tracing",
 ]
 

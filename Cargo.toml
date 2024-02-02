@@ -21,3 +21,4 @@ consolidate-commits = true
 tag-prefix = ""
 
 [patch.crates-io]
+resolvo = { git = "https://github.com/aochagavia/resolvo.git", branch = "concurrent-metadata-fetching" }

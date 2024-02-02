@@ -323,7 +323,7 @@ pub async fn resolve(
     )?;
 
     // Invoke the solver to get a solution to the requirements
-    let mut solver = Solver::new(&provider);
+    let mut solver = Solver::new_with_default_runtime(&provider);
     let solvables = match solver.solve(root_requirements) {
         Ok(solvables) => solvables,
         Err(e) => {
@@ -331,7 +331,11 @@ pub async fn resolve(
                 UnsolvableOrCancelled::Unsolvable(problem) => Err(miette::miette!(
                     "{}",
                     problem
-                        .display_user_friendly(&solver, &DefaultSolvableDisplay)
+                        .display_user_friendly(
+                            &solver,
+                            solver.pool.clone(),
+                            &DefaultSolvableDisplay
+                        )
                         .to_string()
                         .trim()
                 )),
@@ -345,9 +349,8 @@ pub async fn resolve(
     };
     let mut result: HashMap<NormalizedPackageName, PinnedPackage> = HashMap::new();
     for solvable_id in solvables {
-        let pool = solver.pool();
-        let solvable = pool.resolve_solvable(solvable_id);
-        let name = pool.resolve_package_name(solvable.name_id());
+        let solvable = solver.pool.resolve_solvable(solvable_id);
+        let name = solver.pool.resolve_package_name(solvable.name_id());
         let version = solvable.inner();
 
         let artifacts: Vec<_> = provider

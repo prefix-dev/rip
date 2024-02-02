@@ -26,6 +26,7 @@ use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
@@ -201,7 +202,7 @@ impl Display for PypiPackageName {
 
 /// This is a [`DependencyProvider`] for PyPI packages
 pub(crate) struct PypiDependencyProvider {
-    pub pool: Pool<PypiVersionSet, PypiPackageName>,
+    pub pool: Rc<Pool<PypiVersionSet, PypiPackageName>>,
     package_db: Arc<PackageDb>,
     wheel_builder: Arc<WheelBuilder>,
     markers: Arc<MarkerEnvironment>,
@@ -244,7 +245,7 @@ impl PypiDependencyProvider {
         );
 
         Ok(Self {
-            pool,
+            pool: Rc::new(pool),
             package_db,
             wheel_builder,
             markers,
@@ -400,8 +401,8 @@ pub(crate) enum MetadataError {
 }
 
 impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDependencyProvider {
-    fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
-        &self.pool
+    fn pool(&self) -> Rc<Pool<PypiVersionSet, PypiPackageName>> {
+        self.pool.clone()
     }
 
     fn should_cancel_with_value(&self) -> Option<Box<dyn Any>> {
@@ -414,7 +415,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
 
     fn sort_candidates(
         &self,
-        solver: &SolverCache<PypiVersionSet, PypiPackageName, Self>,
+        _: &SolverCache<PypiVersionSet, PypiPackageName, Self>,
         solvables: &mut [SolvableId],
     ) {
         solvables.sort_by(|&a, &b| {
@@ -439,8 +440,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
                 }
             }
 
-            let solvable_a = solver.pool().resolve_solvable(a);
-            let solvable_b = solver.pool().resolve_solvable(b);
+            let solvable_a = self.pool.resolve_solvable(a);
+            let solvable_b = self.pool.resolve_solvable(b);
 
             match (&solvable_a.inner(), &solvable_b.inner()) {
                 // Sort Urls alphabetically
@@ -460,7 +461,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         })
     }
 
-    fn get_candidates(&self, name: NameId) -> Option<Candidates> {
+    async fn get_candidates(&self, name: NameId) -> Option<Candidates> {
         let package_name = self.pool.resolve_package_name(name);
         tracing::info!("collecting {}", package_name);
 
@@ -600,7 +601,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         Some(candidates)
     }
 
-    fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
+    async fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
         let solvable = self.pool.resolve_solvable(solvable_id);
         let package_name = self.pool.resolve_package_name(solvable.name_id());
         let package_version = solvable.inner();
