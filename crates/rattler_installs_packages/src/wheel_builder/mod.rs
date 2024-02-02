@@ -1,6 +1,7 @@
 //! Turn an sdist into a wheel by creating a virtualenv and building the sdist in it
 
 mod build_environment;
+mod error;
 mod wheel_cache;
 
 use fs_err as fs;
@@ -12,23 +13,16 @@ use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 
 use parking_lot::Mutex;
-use pep508_rs::{MarkerEnvironment, Requirement};
+use pep508_rs::MarkerEnvironment;
 
 use crate::artifacts::SourceArtifact;
-use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion, VEnvError};
+use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion};
 use crate::resolve::{OnWheelBuildFailure, ResolveOptions};
-use crate::types::{
-    NormalizedPackageName, PackageName, ParseArtifactNameError, SourceArtifactName, WheelFilename,
-};
+use crate::types::{NormalizedPackageName, PackageName, SourceArtifactName, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelCacheKey};
-use crate::{
-    artifacts::wheel::UnpackError,
-    artifacts::Wheel,
-    index::PackageDb,
-    python_env::WheelTags,
-    types::{WheelCoreMetaDataError, WheelCoreMetadata},
-};
+use crate::{artifacts::Wheel, index::PackageDb, python_env::WheelTags, types::WheelCoreMetadata};
+pub use error::WheelBuildError;
 
 type BuildCache = Mutex<HashMap<SourceArtifactName, Arc<BuildEnvironment>>>;
 
@@ -61,55 +55,6 @@ pub struct WheelBuilder {
 
     /// Python interpreter version
     python_version: PythonInterpreterVersion,
-}
-
-/// An error that can occur while building a wheel
-#[allow(missing_docs)]
-#[derive(thiserror::Error, Debug)]
-pub enum WheelBuildError {
-    #[error("could not build wheel: {0}")]
-    Error(String),
-
-    #[error("could not install artifact in virtual environment: {0}")]
-    UnpackError(#[from] UnpackError),
-
-    #[error("could not build wheel: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("could not run command {0} to build wheel: {1}")]
-    CouldNotRunCommand(String, std::io::Error),
-
-    #[error("could not resolve environment for wheel building: {1:?}")]
-    CouldNotResolveEnvironment(Vec<Requirement>, miette::Report),
-
-    #[error("error parsing JSON from extra_requirements.json: {0}")]
-    JSONError(#[from] serde_json::Error),
-
-    #[error("could not parse generated wheel metadata: {0}")]
-    WheelCoreMetadataError(#[from] WheelCoreMetaDataError),
-
-    #[error("could not get artifact: {0}")]
-    CouldNotGetArtifact(miette::Report),
-
-    #[error("could not get artifact from cache: {0}")]
-    CacheError(#[from] wheel_cache::WheelCacheError),
-
-    #[error("error parsing artifact name: {0}")]
-    ArtifactError(#[from] ParseArtifactNameError),
-
-    #[error("error creating venv: {0}")]
-    VEnvError(#[from] VEnvError),
-
-    #[error("backend path in pyproject.toml not relative: {0}")]
-    BackendPathNotRelative(PathBuf),
-
-    #[error(
-        "backend path in pyproject.toml not resolving to a path in the package directory: {0}"
-    )]
-    BackendPathNotInPackageDir(PathBuf),
-
-    #[error("could not join path: {0}")]
-    CouldNotJoinPath(#[from] std::env::JoinPathsError),
 }
 
 impl WheelBuilder {
