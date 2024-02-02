@@ -1,6 +1,5 @@
 use super::{NormalizedPackageName, PackageName, ParsePackageNameError};
 use crate::python_env::WheelTag;
-use crate::resolve::PypiVersion;
 use crate::types::Version;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -41,17 +40,11 @@ pub enum ArtifactName {
 
 impl ArtifactName {
     /// Returns the version of the artifact
-    pub fn version(&self) -> PypiVersion {
+    pub fn version(&self) -> Version {
         match self {
-            ArtifactName::Wheel(name) => PypiVersion::Version {
-                version: name.version.clone(),
-                package_allows_prerelease: name.version.any_prerelease(),
-            },
-            ArtifactName::SDist(name) => PypiVersion::Version {
-                version: name.version.clone(),
-                package_allows_prerelease: name.version.any_prerelease(),
-            },
-            ArtifactName::STree(name) => PypiVersion::Url(name.version.clone()),
+            ArtifactName::Wheel(name) => name.version.clone(),
+            ArtifactName::SDist(name) => name.version.clone(),
+            ArtifactName::STree(name) => name.version.clone(),
         }
     }
 
@@ -202,8 +195,11 @@ pub struct STreeFilename {
     /// Distribution name, e.g. ‘django’, ‘pyramid’.
     pub distribution: PackageName,
 
+    /// Resolved version of source tree
+    pub version: Version,
+
     /// Direct reference
-    pub version: Url,
+    pub url: Url,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]

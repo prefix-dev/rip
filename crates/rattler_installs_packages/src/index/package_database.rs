@@ -108,12 +108,15 @@ impl PackageDb {
             pin_mut!(request_iter);
 
             // Add all the incoming results to the set of results
-            let mut result = IndexMap::default();
+            let mut result = VersionArtifacts::default();
             while let Some(response) = request_iter.next().await {
                 for artifact in response?.files {
                     result
-                        .entry(artifact.filename.version().clone())
-                        .or_insert_with(Vec::new)
+                        .entry(PypiVersion::Version {
+                            version: artifact.filename.version().clone(),
+                            package_allows_prerelease: artifact.filename.version().any_prerelease(),
+                        })
+                        .or_default()
                         .push(Arc::new(artifact));
                 }
             }
@@ -194,9 +197,13 @@ impl PackageDb {
             Some(path) => path,
         };
 
+        let dummy_version =
+            Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
+
         let stree_file_name = STreeFilename {
             distribution,
-            version: url.clone(),
+            version: dummy_version,
+            url: url.clone(),
         };
 
         let stree = STree {
@@ -211,7 +218,8 @@ impl PackageDb {
 
         let stree_file_name = STreeFilename {
             distribution: wheel_metadata.1.name.clone(),
-            version: url.clone(),
+            version: wheel_metadata.1.version.clone(),
+            url: url.clone(),
         };
 
         Ok((wheel_metadata, ArtifactName::STree(stree_file_name)))
