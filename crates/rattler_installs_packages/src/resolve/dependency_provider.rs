@@ -2,7 +2,7 @@ use super::solve::PreReleaseResolution;
 use super::SDistResolution;
 use crate::artifacts::SDist;
 use crate::artifacts::Wheel;
-use crate::index::PackageDb;
+use crate::index::{ArtifactRequest, PackageDb};
 use crate::python_env::WheelTags;
 use crate::resolve::{PinnedPackage, ResolveOptions};
 use crate::types::{
@@ -467,24 +467,18 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         // check if we have URL variant for this name
         let url_version = self.name_to_url.get(package_name.base());
 
-        let result = if let Some(url) = url_version {
-            task::block_in_place(move || {
-                let url = Url::from_str(url).expect("cannot parse back url");
-                Handle::current().block_on(self.package_db.get_artifact_by_direct_url(
-                    package_name.base().clone(),
-                    url,
-                    &self.wheel_builder,
-                ))
-            })
+        let request = if let Some(url) = url_version {
+            ArtifactRequest::DirectUrl {
+                name: package_name.base().clone(),
+                url: Url::from_str(url).expect("cannot parse back url"),
+                wheel_builder: &self.wheel_builder,
+            }
         } else {
-            // Get all the metadata for this package
-            task::block_in_place(move || {
-                Handle::current().block_on(
-                    self.package_db
-                        .available_artifacts(package_name.base().clone()),
-                )
-            })
+            ArtifactRequest::FromIndex(package_name.base().clone())
         };
+        let result = task::block_in_place(move || {
+            Handle::current().block_on(self.package_db.available_artifacts(request))
+        });
 
         let artifacts = match result {
             Ok(artifacts) => artifacts,
@@ -671,8 +665,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             return Dependencies::Unknown(error);
         }
 
+        // Retrieve the metadata for the artifacts
         let result = task::block_in_place(|| {
-            // First try getting wheels
             Handle::current().block_on(
                 self.package_db
                     .get_metadata(artifacts, Some(&self.wheel_builder)),

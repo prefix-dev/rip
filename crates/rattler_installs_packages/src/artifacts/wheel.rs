@@ -1399,7 +1399,7 @@ mod test {
             "b2df2c373e85871086bd55271c929670cd4e1dba63e94a08d442db830646203b").unwrap();
 
         let python_path = system_python_executable().unwrap();
-        let compiler = ByteCodeCompiler::new(&python_path).unwrap();
+        let compiler = ByteCodeCompiler::new(python_path).unwrap();
         let unpacked = unpack_wheel(&package_path, &"debugpy".parse().unwrap(), Some(&compiler));
 
         // Determine the location where we would expect the RECORD file to exist

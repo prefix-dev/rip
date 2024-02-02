@@ -273,7 +273,7 @@ mod test {
             .unwrap();
 
         // Spawn a compiler and compile the compilation host source code.
-        let compiler = ByteCodeCompiler::new(&python_path).unwrap();
+        let compiler = ByteCodeCompiler::new(python_path).unwrap();
         let pyc_file = compiler.compile_and_wait(compiler_source.path()).unwrap();
 
         // Make sure the compiled file exists
@@ -292,7 +292,7 @@ mod test {
         compiler_source.write_all(b"$").unwrap();
 
         // Spawn a compiler and compile the compilation host source code.
-        let compiler = ByteCodeCompiler::new(&python_path).unwrap();
+        let compiler = ByteCodeCompiler::new(python_path).unwrap();
         compiler
             .compile_and_wait(compiler_source.path())
             .unwrap_err();
