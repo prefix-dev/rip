@@ -27,15 +27,19 @@ use parking_lot::Mutex;
 use rattler_digest::{compute_bytes_digest, Sha256};
 use reqwest::{header::CACHE_CONTROL, StatusCode};
 use reqwest_middleware::ClientWithMiddleware;
+use std::borrow::Borrow;
 use std::fs::File;
 use std::io::Seek;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::{fmt::Display, io::Read, path::Path};
 use tempfile::tempdir;
 use url::Url;
 
 use super::parse_hash;
+
+type VersionArtifacts = IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>;
 
 /// Cache of the available packages, artifacts and their metadata.
 pub struct PackageDb {
@@ -48,7 +52,7 @@ pub struct PackageDb {
     metadata_cache: FileStore,
 
     /// A cache of package name to version to artifacts.
-    artifacts: FrozenMap<NormalizedPackageName, Box<IndexMap<PypiVersion, Vec<ArtifactInfo>>>>,
+    artifacts: FrozenMap<NormalizedPackageName, Box<VersionArtifacts>>,
 
     /// Cache to locally built wheels
     local_wheel_cache: WheelCache,
@@ -88,7 +92,7 @@ impl PackageDb {
     pub async fn available_artifacts<P: Into<NormalizedPackageName>>(
         &self,
         p: P,
-    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
         let p = p.into();
         if let Some(cached) = self.artifacts.get(&p) {
             Ok(cached)
@@ -104,7 +108,7 @@ impl PackageDb {
             pin_mut!(request_iter);
 
             // Add all the incoming results to the set of results
-            let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
+            let mut result = VersionArtifacts::default();
             while let Some(response) = request_iter.next().await {
                 for artifact in response?.files {
                     result
@@ -113,7 +117,7 @@ impl PackageDb {
                             package_allows_prerelease: artifact.filename.version().any_prerelease(),
                         })
                         .or_default()
-                        .push(artifact);
+                        .push(Arc::new(artifact));
                 }
             }
 
@@ -131,11 +135,11 @@ impl PackageDb {
     }
 
     /// Return an sdist from file path
-    pub async fn get_sdist_from_file_path<'a, 'i>(
+    pub async fn get_sdist_from_file_path(
         &self,
         normalized_package_name: &NormalizedPackageName,
         path: &PathBuf,
-        wheel_builder: &WheelBuilder<'a, 'i>,
+        wheel_builder: &WheelBuilder,
     ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
         let distribution = PackageName::from(normalized_package_name.clone());
 
@@ -180,12 +184,12 @@ impl PackageDb {
     }
 
     /// Return an stree from file path
-    pub async fn get_stree_from_file_path<'a, 'i>(
+    pub async fn get_stree_from_file_path(
         &self,
         normalized_package_name: &NormalizedPackageName,
         url: Url,
         path: Option<PathBuf>,
-        wheel_builder: &WheelBuilder<'a, 'i>,
+        wheel_builder: &WheelBuilder,
     ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
         let distribution = PackageName::from(normalized_package_name.clone());
         let path = match path {
@@ -222,12 +226,12 @@ impl PackageDb {
     }
 
     /// Get artifact by file URL
-    pub async fn get_file_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
+    pub async fn get_file_artifact<P: Into<NormalizedPackageName>>(
         &self,
         p: P,
         url: Url,
-        wheel_builder: &WheelBuilder<'a, 'i>,
-    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
+        wheel_builder: &WheelBuilder,
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
         let path = if let Ok(path) = url.to_file_path() {
             path
         } else {
@@ -278,21 +282,17 @@ impl PackageDb {
             }
         };
 
-        let artifact_info = ArtifactInfo {
+        let artifact_info = Arc::new(ArtifactInfo {
             filename: artifact_name,
             url: url.clone(),
             hashes: Some(artifact_hash),
             requires_python: metadata.requires_python,
             dist_info_metadata: DistInfoMetadata::default(),
             yanked: Yanked::default(),
-        };
+        });
 
-        let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
-
-        result
-            .entry(PypiVersion::Url(url))
-            .or_default()
-            .push(artifact_info.clone());
+        let mut result = IndexMap::default();
+        result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
 
         self.put_metadata_in_cache(&artifact_info, &metadata_bytes)
             .await?;
@@ -303,12 +303,12 @@ impl PackageDb {
     }
 
     /// Return an sdist from file path
-    pub async fn get_sdist_from_http<'a, 'i>(
+    pub async fn get_sdist_from_http(
         &self,
         normalized_package_name: &NormalizedPackageName,
         url: Url,
         bytes: Box<dyn ReadAndSeek + Send>,
-        wheel_builder: &WheelBuilder<'a, 'i>,
+        wheel_builder: &WheelBuilder,
     ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
         // it's probably an sdist
         let distribution = PackageName::from(normalized_package_name.clone());
@@ -344,12 +344,12 @@ impl PackageDb {
     }
 
     /// Get artifact by file URL
-    pub async fn get_direct_http_url_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
+    pub async fn get_direct_http_url_artifact<P: Into<NormalizedPackageName>>(
         &self,
         p: P,
         url: Url,
-        wheel_builder: &WheelBuilder<'a, 'i>,
-    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
+        wheel_builder: &WheelBuilder,
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
         let str_name = url.path();
         let url_hash = url.fragment().and_then(parse_hash);
 
@@ -403,20 +403,17 @@ impl PackageDb {
             (filename, wheel_metadata.0, wheel_metadata.1)
         };
 
-        let artifact_info = ArtifactInfo {
+        let artifact_info = Arc::new(ArtifactInfo {
             filename,
             url: url.clone(),
             hashes: Some(artifact_hash),
             requires_python: metadata.requires_python,
             dist_info_metadata: DistInfoMetadata::default(),
             yanked: Yanked::default(),
-        };
+        });
 
-        let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
-        result
-            .entry(PypiVersion::Url(url))
-            .or_default()
-            .push(artifact_info.clone());
+        let mut result = IndexMap::default();
+        result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
 
         self.put_metadata_in_cache(&artifact_info, &data_bytes)
             .await?;
@@ -427,12 +424,12 @@ impl PackageDb {
     }
 
     /// Get artifact by git reference
-    pub async fn get_git_artifact<'a, 'i, P: Into<NormalizedPackageName>>(
+    pub async fn get_git_artifact<P: Into<NormalizedPackageName>>(
         &self,
         p: P,
         url: Url,
-        wheel_builder: &WheelBuilder<'a, 'i>,
-    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
+        wheel_builder: &WheelBuilder,
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
         let normalized_package_name = p.into();
 
         let parsed_url = ParsedUrl::new(&url)?;
@@ -482,20 +479,17 @@ impl PackageDb {
             sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
         };
 
-        let artifact_info = ArtifactInfo {
+        let artifact_info = Arc::new(ArtifactInfo {
             filename,
             url: url.clone(),
             hashes: Some(project_hash),
             requires_python,
             dist_info_metadata,
             yanked,
-        };
+        });
 
-        let mut result: IndexMap<PypiVersion, Vec<ArtifactInfo>> = Default::default();
-        result
-            .entry(PypiVersion::Url(url))
-            .or_default()
-            .push(artifact_info.clone());
+        let mut result = IndexMap::default();
+        result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
 
         self.put_metadata_in_cache(&artifact_info, &wheel_metadata.0)
             .await?;
@@ -506,13 +500,12 @@ impl PackageDb {
     }
 
     /// Get artifact directly from file, vcs, or url
-    pub async fn get_artifact_by_direct_url<'a, 'i, P: Into<NormalizedPackageName>>(
+    pub async fn get_artifact_by_direct_url<P: Into<NormalizedPackageName>>(
         &self,
         p: P,
         url: Url,
-        wheel_builder: &WheelBuilder<'a, 'i>,
-    ) -> miette::Result<&IndexMap<PypiVersion, Vec<ArtifactInfo>>> {
-        //conver to str
+        wheel_builder: &WheelBuilder,
+    ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
         let p = p.into();
 
         if let Some(cached) = self.artifacts.get(&p) {
@@ -526,7 +519,7 @@ impl PackageDb {
             self.get_git_artifact(p, url, wheel_builder).await
         } else {
             Err(miette::miette!(
-                "Usage of unsecure protocol or unsupported scheme {:?}",
+                "Usage of insecure protocol or unsupported scheme {:?}",
                 url.scheme()
             ))
         }
@@ -556,14 +549,15 @@ impl PackageDb {
     /// Check if we already have one of the artifacts cached. Only do this if we have more than
     /// one artifact because otherwise, we'll do a request anyway if we dont have the file
     /// cached.
-    async fn metadata_for_cached_artifacts<'a>(
+    async fn metadata_for_cached_artifacts<'a, A: Borrow<ArtifactInfo>>(
         &self,
-        artifacts: &[&'a ArtifactInfo],
-    ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
-        for &artifact_info in artifacts.iter() {
-            if artifact_info.is::<Wheel>() {
+        artifacts: &'a [A],
+    ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
+        for artifact_info in artifacts.iter() {
+            let artifact_info_ref = artifact_info.borrow();
+            if artifact_info_ref.is::<Wheel>() {
                 let result = self
-                    .get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::OnlyIfCached)
+                    .get_artifact_with_cache::<Wheel>(artifact_info_ref, CacheMode::OnlyIfCached)
                     .await;
                 match result {
                     Ok(artifact) => {
@@ -572,13 +566,13 @@ impl PackageDb {
                         let metadata = artifact.metadata();
                         match metadata {
                             Ok((blob, metadata)) => {
-                                self.put_metadata_in_cache(artifact_info, &blob).await?;
+                                self.put_metadata_in_cache(artifact_info_ref, &blob).await?;
                                 return Ok(Some((artifact_info, metadata)));
                             }
                             Err(err) => {
                                 tracing::warn!(
                                     "Error reading metadata from artifact '{}' skipping ({:?})",
-                                    artifact_info.filename,
+                                    artifact_info_ref.filename,
                                     err
                                 );
                                 continue;
@@ -594,7 +588,7 @@ impl PackageDb {
             // We know that it is an sdist
             else {
                 let result = self
-                    .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::OnlyIfCached)
+                    .get_artifact_with_cache::<SDist>(artifact_info_ref, CacheMode::OnlyIfCached)
                     .await;
 
                 match result {
@@ -602,7 +596,8 @@ impl PackageDb {
                         // Save the pep643 metadata in the cache if it is available
                         let metadata = sdist.pep643_metadata().into_diagnostic()?;
                         if let Some((bytes, _)) = metadata {
-                            self.put_metadata_in_cache(artifact_info, &bytes).await?;
+                            self.put_metadata_in_cache(artifact_info_ref, &bytes)
+                                .await?;
                         }
                     }
                     Err(err) => match err.downcast_ref::<HttpRequestError>() {
@@ -615,43 +610,44 @@ impl PackageDb {
         Ok(None)
     }
 
-    async fn get_metadata_wheels<'a>(
+    async fn get_metadata_wheels<'a, A: Borrow<ArtifactInfo>>(
         &self,
-        artifacts: &[&'a ArtifactInfo],
-    ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
+        artifacts: &'a [A],
+    ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let wheels = artifacts
             .iter()
-            .copied()
-            .filter(|artifact_info| artifact_info.is::<Wheel>());
+            .filter(|artifact_info| (*artifact_info).borrow().is::<Wheel>());
 
         // Get the information from the first artifact. We assume the metadata is consistent across
         // all matching artifacts
         for artifact_info in wheels {
+            let ai = artifact_info.borrow();
+
             // Retrieve the metadata instead of the entire wheel
             // If the dist-info is available separately, we can use that instead
-            if artifact_info.dist_info_metadata.available {
+            if ai.dist_info_metadata.available {
                 return Ok(Some(self.get_pep658_metadata(artifact_info).await?));
             }
 
             // Try to load the data by sparsely reading the artifact (if supported)
-            if let Some(metadata) = self.get_lazy_metadata_wheel(artifact_info).await? {
+            if let Some(metadata) = self.get_lazy_metadata_wheel(ai).await? {
                 return Ok(Some((artifact_info, metadata)));
             }
 
             // Otherwise download the entire artifact
             let artifact = self
-                .get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::Default)
+                .get_artifact_with_cache::<Wheel>(ai, CacheMode::Default)
                 .await?;
             let metadata = artifact.metadata();
             match metadata {
                 Ok((blob, metadata)) => {
-                    self.put_metadata_in_cache(artifact_info, &blob).await?;
+                    self.put_metadata_in_cache(ai, &blob).await?;
                     return Ok(Some((artifact_info, metadata)));
                 }
                 Err(err) => {
                     tracing::warn!(
                         "Error reading metadata from artifact '{}' skipping ({:?})",
-                        artifact_info.filename,
+                        ai.filename,
                         err
                     );
                     continue;
@@ -661,20 +657,20 @@ impl PackageDb {
         Ok(None)
     }
 
-    async fn get_metadata_sdists<'a, 'i>(
+    async fn get_metadata_sdists<'a, A: Borrow<ArtifactInfo>>(
         &self,
-        artifacts: &[&'a ArtifactInfo],
-        wheel_builder: &WheelBuilder<'a, 'i>,
-    ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
+        artifacts: &'a [A],
+        wheel_builder: &WheelBuilder,
+    ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let sdists = artifacts
             .iter()
-            .copied()
-            .filter(|artifact_info| artifact_info.is::<SDist>());
+            .filter(|artifact_info| (*artifact_info).borrow().is::<SDist>());
 
         // Keep track of errors
         // only print these if we have not been able to find any metadata
         let mut errors = Vec::new();
-        for artifact_info in sdists {
+        for ai in sdists {
+            let artifact_info = ai.borrow();
             let artifact = self
                 .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
                 .await?;
@@ -682,7 +678,7 @@ impl PackageDb {
             match metadata {
                 Ok((blob, metadata)) => {
                     self.put_metadata_in_cache(artifact_info, &blob).await?;
-                    return Ok(Some((artifact_info, metadata)));
+                    return Ok(Some((ai, metadata)));
                 }
                 Err(err) => {
                     errors.push(format!(
@@ -705,15 +701,15 @@ impl PackageDb {
 
     /// Returns the metadata from a set of artifacts. This function assumes that metadata is
     /// consistent for all artifacts of a single version.
-    pub async fn get_metadata<'a, 'i>(
+    pub async fn get_metadata<'a, A: Borrow<ArtifactInfo>>(
         &self,
-        artifacts: &[&'a ArtifactInfo],
-        wheel_builder: Option<&WheelBuilder<'a, 'i>>,
-    ) -> miette::Result<Option<(&'a ArtifactInfo, WheelCoreMetadata)>> {
+        artifacts: &'a [A],
+        wheel_builder: Option<&WheelBuilder>,
+    ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         // Check if we already have information about any of the artifacts cached.
         // Return if we do
-        for artifact_info in artifacts.iter().copied() {
-            if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info).await {
+        for artifact_info in artifacts.iter() {
+            if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info.borrow()).await {
                 return Ok(Some((
                     artifact_info,
                     WheelCoreMetadata::try_from(metadata_bytes.as_slice()).into_diagnostic()?,
@@ -785,16 +781,18 @@ impl PackageDb {
     /// Retrieve the PEP658 metadata for the given artifact.
     /// This assumes that the metadata is available in the repository
     /// This can be checked with the ArtifactInfo
-    async fn get_pep658_metadata<'a>(
+    async fn get_pep658_metadata<'a, A: Borrow<ArtifactInfo>>(
         &self,
-        artifact_info: &'a ArtifactInfo,
-    ) -> miette::Result<(&'a ArtifactInfo, WheelCoreMetadata)> {
+        artifact_info: &'a A,
+    ) -> miette::Result<(&'a A, WheelCoreMetadata)> {
+        let ai = artifact_info.borrow();
+
         // Check if the artifact is the same type as the info.
-        WheelFilename::try_as(&artifact_info.filename)
+        WheelFilename::try_as(&ai.filename)
             .expect("the specified artifact does not refer to type requested to read");
 
         // Turn into PEP658 compliant URL
-        let mut url = artifact_info.url.clone();
+        let mut url = ai.url.clone();
         url.set_path(&url.path().replace(".whl", ".whl.metadata"));
 
         let mut bytes = Vec::new();
@@ -807,7 +805,7 @@ impl PackageDb {
             .into_diagnostic()?;
 
         let metadata = WheelCoreMetadata::try_from(bytes.as_slice()).into_diagnostic()?;
-        self.put_metadata_in_cache(artifact_info, &bytes).await?;
+        self.put_metadata_in_cache(ai, &bytes).await?;
         Ok((artifact_info, metadata))
     }
 
@@ -872,10 +870,10 @@ impl PackageDb {
     /// Opens the specified artifact info. Downloads the artifact data from the remote location if
     /// the information is not already cached.
     #[async_recursion]
-    pub async fn get_wheel<'db, 'i>(
+    pub async fn get_wheel(
         &self,
         artifact_info: &ArtifactInfo,
-        builder: Option<&'async_recursion WheelBuilder<'db, 'i>>,
+        builder: Option<&'async_recursion WheelBuilder>,
     ) -> miette::Result<Wheel> {
         // Try to build the wheel for this SDist if possible
         if artifact_info.is::<SDist>() {
@@ -967,7 +965,7 @@ mod test {
         // Get the first wheel artifact
         let artifact_info = artifacts
             .iter()
-            .flat_map(|(_, artifacts)| artifacts.iter())
+            .flat_map(|(_, artifacts)| artifacts.into_iter().cloned())
             .collect::<Vec<_>>();
 
         let (_artifact, _metadata) = package_db

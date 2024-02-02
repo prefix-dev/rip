@@ -22,10 +22,12 @@ use resolvo::{
 use serde::Deserialize;
 use serde::Serialize;
 use std::any::Any;
+use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::runtime::Handle;
 use tokio::task;
@@ -198,41 +200,48 @@ impl Display for PypiPackageName {
 }
 
 /// This is a [`DependencyProvider`] for PyPI packages
-pub(crate) struct PypiDependencyProvider<'db, 'i> {
+pub(crate) struct PypiDependencyProvider {
     pub pool: Pool<PypiVersionSet, PypiPackageName>,
-    package_db: &'db PackageDb,
-    wheel_builder: WheelBuilder<'db, 'i>,
-    markers: &'i MarkerEnvironment,
-    compatible_tags: Option<&'i WheelTags>,
+    package_db: Arc<PackageDb>,
+    wheel_builder: Arc<WheelBuilder>,
+    markers: Arc<MarkerEnvironment>,
+    compatible_tags: Option<Arc<WheelTags>>,
 
-    pub cached_artifacts: FrozenMap<SolvableId, Vec<&'db ArtifactInfo>>,
+    pub cached_artifacts: FrozenMap<SolvableId, Vec<Arc<ArtifactInfo>>>,
 
-    favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
-    locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+    favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
     pub name_to_url: FrozenMap<NormalizedPackageName, String>,
 
-    options: &'i ResolveOptions,
+    options: ResolveOptions,
     should_cancel_with_value: Mutex<Option<MetadataError>>,
 }
 
-impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
+impl PypiDependencyProvider {
     /// Creates a new PypiDependencyProvider
     /// for use with the [`resolvo`] crate
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: Pool<PypiVersionSet, PypiPackageName>,
-        package_db: &'db PackageDb,
-        markers: &'i MarkerEnvironment,
-        compatible_tags: Option<&'i WheelTags>,
-        locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
-        favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
+        package_db: Arc<PackageDb>,
+        markers: Arc<MarkerEnvironment>,
+        compatible_tags: Option<Arc<WheelTags>>,
+        locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+        favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
         name_to_url: FrozenMap<NormalizedPackageName, String>,
-        options: &'i ResolveOptions,
+        options: ResolveOptions,
         env_variables: HashMap<String, String>,
     ) -> miette::Result<Self> {
-        let wheel_builder =
-            WheelBuilder::new(package_db, markers, compatible_tags, options, env_variables)
-                .into_diagnostic()?;
+        let wheel_builder = Arc::new(
+            WheelBuilder::new(
+                package_db.clone(),
+                markers.clone(),
+                compatible_tags.clone(),
+                options.clone(),
+                env_variables,
+            )
+            .into_diagnostic()?,
+        );
 
         Ok(Self {
             pool,
@@ -249,10 +258,10 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         })
     }
 
-    fn filter_candidates<'a>(
+    fn filter_candidates<'a, A: Borrow<ArtifactInfo>>(
         &self,
-        artifacts: &'a [ArtifactInfo],
-    ) -> Result<Vec<&'a ArtifactInfo>, &'static str> {
+        artifacts: &'a [A],
+    ) -> Result<Vec<&'a A>, &'static str> {
         // Filter only artifacts we can work with
         if artifacts.is_empty() {
             // If there are no wheel artifacts, we're just gonna skip it
@@ -261,7 +270,7 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
 
         let mut artifacts = artifacts.iter().collect::<Vec<_>>();
         // Filter yanked artifacts
-        artifacts.retain(|a| !a.yanked.yanked);
+        artifacts.retain(|a| !(*a).borrow().yanked.yanked);
 
         if artifacts.is_empty() {
             return Err("it is yanked");
@@ -271,8 +280,8 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         let mut wheels = if self.options.sdist_resolution.allow_wheels() {
             let wheels = artifacts
                 .iter()
-                .filter(|a| a.is::<Wheel>())
-                .cloned()
+                .copied()
+                .filter(|a| (*a).borrow().is::<Wheel>())
                 .collect::<Vec<_>>();
 
             if !self.options.sdist_resolution.allow_sdists() && wheels.is_empty() {
@@ -288,8 +297,10 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
         let mut sdists = if self.options.sdist_resolution.allow_sdists() {
             let mut sdists = artifacts
                 .iter()
-                .filter(|a| a.is::<SDist>() || a.filename.as_stree().is_some())
-                .cloned()
+                .copied()
+                .filter(|a| {
+                    (*a).borrow().is::<SDist>() || (*a).borrow().filename.as_stree().is_some()
+                })
                 .collect::<Vec<_>>();
 
             if wheels.is_empty() && sdists.is_empty() {
@@ -301,10 +312,11 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
             }
 
             sdists.retain(|a| {
-                a.filename
+                let ai = (*a).borrow();
+                ai.filename
                     .as_sdist()
                     .is_some_and(|f| f.format.is_supported())
-                    || a.filename.as_stree().is_some()
+                    || ai.filename.as_stree().is_some()
             });
 
             if wheels.is_empty() && sdists.is_empty() {
@@ -318,8 +330,8 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
 
         // Filter based on compatibility
         if self.options.sdist_resolution.allow_wheels() {
-            if let Some(compatible_tags) = self.compatible_tags {
-                wheels.retain(|artifact| match &artifact.filename {
+            if let Some(compatible_tags) = &self.compatible_tags {
+                wheels.retain(|artifact| match &(*artifact).borrow().filename {
                     ArtifactName::Wheel(wheel_name) => wheel_name
                         .all_tags_iter()
                         .any(|t| compatible_tags.is_compatible(&t)),
@@ -331,7 +343,9 @@ impl<'db, 'i> PypiDependencyProvider<'db, 'i> {
                 // check the most compatible artifacts for dependencies first.
                 // this only needs to be done for wheels
                 wheels.sort_by_cached_key(|a| {
-                    -a.filename
+                    -(*a)
+                        .borrow()
+                        .filename
                         .as_wheel()
                         .expect("only wheels are considered")
                         .all_tags_iter()
@@ -385,9 +399,7 @@ pub(crate) enum MetadataError {
     },
 }
 
-impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
-    for &'p PypiDependencyProvider<'_, '_>
-{
+impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDependencyProvider {
     fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
         &self.pool
     }
@@ -540,7 +552,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
             // Determine the candidates
             match self.filter_candidates(artifacts) {
                 Ok(artifacts) => {
-                    self.cached_artifacts.insert(solvable_id, artifacts);
+                    self.cached_artifacts
+                        .insert(solvable_id, artifacts.into_iter().cloned().collect());
                 }
                 Err(reason) => {
                     candidates
@@ -734,7 +747,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName>
         for requirement in metadata.requires_dist {
             // Evaluate environment markers
             if let Some(markers) = requirement.marker.as_ref() {
-                if !markers.evaluate(self.markers, &extras) {
+                if !markers.evaluate(&self.markers, &extras) {
                     continue;
                 }
             }

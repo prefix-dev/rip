@@ -26,7 +26,7 @@ console = { version = "0.15.7", features = ["windows-console-colors"] }
 dirs = "5.0.1"
 indexmap = "2.0.1"
 indicatif = "0.17.7"
-itertools = "0.11.0"
+itertools = "0.12.1"
 miette = { version = "5.10.0", features = ["fancy"] }
 rattler_installs_packages = { path = "../rattler_installs_packages", default-features = false }
 reqwest = { version = "0.11.20", default-features = false }

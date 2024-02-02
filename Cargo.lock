@@ -177,13 +177,14 @@ dependencies = [
 
 [[package]]
 name = "async_http_range_reader"
-version = "0.4.0"
-source = "git+https://github.com/mamba-org/rattler?rev=b002f38fa9c9d855d450519ccccc1b7c491ee140#b002f38fa9c9d855d450519ccccc1b7c491ee140"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "809a79b508f86b02136fc5aab935ef777d03e5d377dda04e6736a081add9287c"
 dependencies = [
  "bisection",
  "futures",
  "http-content-range",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "memmap2 0.9.4",
  "reqwest",
  "reqwest-middleware",
@@ -1376,6 +1377,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2047,7 +2057,7 @@ dependencies = [
 
 [[package]]
 name = "rattler_installs_packages"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-once-cell",
  "async-recursion",
@@ -2074,7 +2084,7 @@ dependencies = [
  "include_dir",
  "indexmap 2.1.0",
  "insta",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "miette",
  "mime",
  "once_cell",
@@ -2273,8 +2283,9 @@ dependencies = [
 
 [[package]]
 name = "resolvo"
-version = "0.2.0"
-source = "git+https://github.com/mamba-org/resolvo.git?branch=main#53a14d5203d67e1404e3a9f094366bfefe63f7fe"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acd163bc7df01195423c83a7a391fecf319ff41d3de899694a9ccb698e790b29"
 dependencies = [
  "bitvec",
  "elsa",
@@ -2299,7 +2310,7 @@ dependencies = [
 
 [[package]]
 name = "rip_bin"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "console",
@@ -2307,7 +2318,7 @@ dependencies = [
  "fs-err",
  "indexmap 2.1.0",
  "indicatif",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "miette",
  "rand",
  "rattler_installs_packages",
@@ -2831,7 +2842,7 @@ dependencies = [
 
 [[package]]
 name = "test-utils"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "data-encoding",
  "dirs",

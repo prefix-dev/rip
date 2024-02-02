@@ -390,20 +390,23 @@ mod tests {
     use std::env;
     use std::path::Path;
     use std::str::FromStr;
+    use std::sync::Arc;
     use tempfile::TempDir;
     use url::Url;
 
-    fn get_package_db() -> (PackageDb, TempDir) {
+    fn get_package_db() -> (Arc<PackageDb>, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
         let client = ClientWithMiddleware::from(Client::new());
 
         (
-            PackageDb::new(
-                client,
-                &[url::Url::parse("https://pypi.org/simple/").unwrap()],
-                tempdir.path(),
-            )
-            .unwrap(),
+            Arc::new(
+                PackageDb::new(
+                    client,
+                    &[url::Url::parse("https://pypi.org/simple/").unwrap()],
+                    tempdir.path(),
+                )
+                .unwrap(),
+            ),
             tempdir,
         )
     }
@@ -450,13 +453,12 @@ mod tests {
         let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -477,13 +479,12 @@ mod tests {
         let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -503,13 +504,12 @@ mod tests {
         let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -529,7 +529,7 @@ mod tests {
         let sdist = SDist::from_path(&path, &"env_package".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let resolve_options = ResolveOptions {
             ..Default::default()
         };
@@ -540,10 +540,10 @@ mod tests {
         mandatory_env.insert("MY_ENV_VAR".to_string(), "SOME_VALUE".to_string());
 
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            resolve_options,
             mandatory_env,
         )
         .unwrap();
@@ -567,7 +567,7 @@ mod tests {
         let sdist = SDist::from_path(&path, &"env_package".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let resolve_options = ResolveOptions {
             clean_env: true,
             ..Default::default()
@@ -579,10 +579,10 @@ mod tests {
         mandatory_env.insert(String::from("MY_ENV_VAR"), String::from("SOME_VALUE"));
 
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            resolve_options,
             mandatory_env,
         )
         .unwrap();
@@ -603,7 +603,7 @@ mod tests {
         let sdist = SDist::from_path(&path, &"env_package".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let resolve_options = ResolveOptions {
             clean_env: true,
             ..Default::default()
@@ -614,10 +614,10 @@ mod tests {
         let mandatory_env = HashMap::new();
 
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            resolve_options,
             mandatory_env,
         )
         .unwrap();
@@ -638,13 +638,12 @@ mod tests {
         let sdist = SDist::from_path(&path, &"filterpy".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         );
 
@@ -703,17 +702,17 @@ mod tests {
         let sdist = SDist::from_path(&path, &"setuptools".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let resolve_options = ResolveOptions {
             sdist_resolution: SDistResolution::OnlySDists,
             ..Default::default()
         };
 
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0,
+            env_markers,
             None,
-            &resolve_options,
+            resolve_options,
             HashMap::default(),
         )
         .unwrap();
@@ -745,13 +744,12 @@ mod tests {
         let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0.clone(),
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -775,13 +773,12 @@ mod tests {
         let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0.clone(),
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -807,13 +804,12 @@ mod tests {
         // let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0.clone(),
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -835,13 +831,12 @@ mod tests {
             Url::parse("https://github.com/Textualize/rich/archive/refs/tags/v13.7.0.zip").unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0.clone(),
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -855,7 +850,7 @@ mod tests {
 
         let artifact_info = content
             .iter()
-            .flat_map(|(_, artifacts)| artifacts.iter())
+            .flat_map(|(_, artifacts)| artifacts.iter().cloned())
             .collect::<Vec<_>>();
 
         let wheel_metadata = package_db
@@ -876,13 +871,12 @@ mod tests {
         let url = Url::parse("git+https://github.com/Textualize/rich.git").unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0.clone(),
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -904,13 +898,12 @@ mod tests {
         let url = Url::parse("git+https://github.com/Textualize/rich.git@v1.0.0").unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Pep508EnvMakers::from_env().await.unwrap();
-        let resolve_options = ResolveOptions::default();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder = WheelBuilder::new(
-            &package_db.0,
-            &env_markers,
+            package_db.0.clone(),
+            env_markers,
             None,
-            &resolve_options,
+            ResolveOptions::default(),
             HashMap::default(),
         )
         .unwrap();
@@ -924,7 +917,7 @@ mod tests {
 
         let artifact_info = content
             .iter()
-            .flat_map(|(_, artifacts)| artifacts.iter())
+            .flat_map(|(_, artifacts)| artifacts.iter().cloned())
             .collect::<Vec<_>>();
 
         let wheel_metadata = package_db

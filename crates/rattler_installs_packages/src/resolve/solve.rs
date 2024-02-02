@@ -15,10 +15,11 @@ use url::Url;
 
 use std::collections::HashSet;
 use std::ops::Deref;
+use std::sync::Arc;
 
 /// Represents a single locked down distribution (python package) after calling [`resolve`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PinnedPackage<'db> {
+pub struct PinnedPackage {
     /// The name of the package
     pub name: NormalizedPackageName,
 
@@ -35,7 +36,7 @@ pub struct PinnedPackage<'db> {
     /// `compatible_tags` have been provided to the solver.
     ///
     /// This list may be empty if the package was locked or favored.
-    pub artifacts: Vec<&'db ArtifactInfo>,
+    pub artifacts: Vec<Arc<ArtifactInfo>>,
 }
 
 /// Defines how to handle sdists during resolution.
@@ -254,16 +255,16 @@ pub struct ResolveOptions {
 /// artifacts are not filtered at all
 // TODO: refactor this into an input type of sorts later
 #[allow(clippy::too_many_arguments)]
-pub async fn resolve<'db>(
-    package_db: &'db PackageDb,
+pub async fn resolve(
+    package_db: Arc<PackageDb>,
     requirements: impl IntoIterator<Item = &Requirement>,
-    env_markers: &MarkerEnvironment,
-    compatible_tags: Option<&WheelTags>,
-    locked_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
-    favored_packages: HashMap<NormalizedPackageName, PinnedPackage<'db>>,
-    options: &ResolveOptions,
+    env_markers: Arc<MarkerEnvironment>,
+    compatible_tags: Option<Arc<WheelTags>>,
+    locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    options: ResolveOptions,
     env_variables: HashMap<String, String>,
-) -> miette::Result<Vec<PinnedPackage<'db>>> {
+) -> miette::Result<Vec<PinnedPackage>> {
     // Construct the pool
     let pool = Pool::new();
 
@@ -342,7 +343,7 @@ pub async fn resolve<'db>(
             };
         }
     };
-    let mut result: HashMap<NormalizedPackageName, PinnedPackage<'_>> = HashMap::new();
+    let mut result: HashMap<NormalizedPackageName, PinnedPackage> = HashMap::new();
     for solvable_id in solvables {
         let pool = solver.pool();
         let solvable = pool.resolve_solvable(solvable_id);
@@ -354,14 +355,16 @@ pub async fn resolve<'db>(
             .get(&solvable_id)
             .into_iter()
             .flatten()
-            .copied()
+            .cloned()
             .collect();
 
         let (version, url) = match version {
             PypiVersion::Version { version, .. } => (version.clone(), None),
             PypiVersion::Url(url) => {
-                // artifacts get by url have only one artifact and one possible version
-                let info = artifacts[0];
+                // artifacts retrieved by url have only one artifact and one possible version
+                let info = artifacts
+                    .first()
+                    .expect("no artifacts found for direct_url artifact");
                 (info.filename.version(), Some(url.clone()))
             }
         };

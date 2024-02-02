@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use clap::Parser;
 use itertools::Itertools;
@@ -133,21 +134,23 @@ async fn actual_main() -> miette::Result<()> {
 
     // Construct a package database
     let client = ClientWithMiddleware::from(Client::new());
-    let package_db = rattler_installs_packages::index::PackageDb::new(
-        client,
-        &[normalize_index_url(args.index_url.clone())],
-        &cache_dir,
-    )
-    .into_diagnostic()
-    .wrap_err_with(|| {
-        format!(
-            "failed to construct package database for index {}",
-            args.index_url
+    let package_db = Arc::new(
+        rattler_installs_packages::index::PackageDb::new(
+            client,
+            &[normalize_index_url(args.index_url.clone())],
+            &cache_dir,
         )
-    })?;
+        .into_diagnostic()
+        .wrap_err_with(|| {
+            format!(
+                "failed to construct package database for index {}",
+                args.index_url
+            )
+        })?,
+    );
 
     // Determine the environment markers for the current machine
-    let env_markers = match args.python_interpreter {
+    let env_markers = Arc::new(match args.python_interpreter {
         Some(ref python) => {
             let python = fs::canonicalize(python).into_diagnostic()?;
             Pep508EnvMakers::from_python(&python).await.into_diagnostic()
@@ -162,7 +165,7 @@ async fn actual_main() -> miette::Result<()> {
             .wrap_err_with(|| {
                 "failed to determine environment markers for the current machine (could not run Python)"
             })?,
-    };
+    }.0);
     tracing::debug!(
         "extracted the following environment markers from the system python interpreter:\n{:#?}",
         env_markers
@@ -176,7 +179,8 @@ async fn actual_main() -> miette::Result<()> {
     let compatible_tags =
         WheelTags::from_python(python_location.executable().into_diagnostic()?.as_path())
             .await
-            .into_diagnostic()?;
+            .into_diagnostic()
+            .map(Arc::new)?;
     tracing::debug!(
         "extracted the following compatible wheel tags from the system python interpreter: {}",
         compatible_tags.tags().format(", ")
@@ -204,13 +208,13 @@ async fn actual_main() -> miette::Result<()> {
 
     // Solve the environment
     let blueprint = match resolve(
-        &package_db,
+        package_db.clone(),
         &args.specs,
-        &env_markers,
-        Some(&compatible_tags),
+        env_markers.clone(),
+        Some(compatible_tags.clone()),
         HashMap::default(),
         HashMap::default(),
-        &resolve_opts,
+        resolve_opts.clone(),
         HashMap::default(),
     )
     .await
@@ -278,10 +282,10 @@ async fn actual_main() -> miette::Result<()> {
         let venv = rattler_installs_packages::python_env::VEnv::create(&install, python_location)
             .into_diagnostic()?;
         let wheel_builder = WheelBuilder::new(
-            &package_db,
-            &env_markers,
-            Some(&compatible_tags),
-            &resolve_opts,
+            package_db.clone(),
+            env_markers,
+            Some(compatible_tags),
+            resolve_opts,
             Default::default(),
         )
         .into_diagnostic()?;
