@@ -1799,13 +1799,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "pep508_rs"
-version = "0.2.3"
+name = "pep440_rs"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4516b53d9ea6112ebb38b4af08d5707d30b994fb7f98ff133c5dcf7ed8fa854"
+checksum = "e0c29f9c43de378b4e4e0cd7dbcce0e5cfb80443de8c05620368b2948bc936a1"
 dependencies = [
  "once_cell",
- "pep440_rs",
+ "regex",
+ "serde",
+ "unicode-width",
+]
+
+[[package]]
+name = "pep508_rs"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa9d1320b78f4a5715b3ec914f32b5e85a50287ad923730e3cbf0255259432eb"
+dependencies = [
+ "once_cell",
+ "pep440_rs 0.4.0",
  "regex",
  "serde",
  "thiserror",
@@ -1975,7 +1987,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46d4a5e69187f23a29f8aa0ea57491d104ba541bc55f76552c2a74962aa20e04"
 dependencies = [
  "indexmap 2.1.0",
- "pep440_rs",
+ "pep440_rs 0.3.12",
  "pep508_rs",
  "serde",
  "toml",
@@ -2091,7 +2103,7 @@ dependencies = [
  "parking_lot",
  "pathdiff",
  "peg",
- "pep440_rs",
+ "pep440_rs 0.4.0",
  "pep508_rs",
  "pin-project-lite",
  "pyproject-toml",
