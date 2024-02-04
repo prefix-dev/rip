@@ -17,7 +17,10 @@ mod byte_code_compiler;
 pub use tags::{WheelTag, WheelTags};
 
 pub use byte_code_compiler::{ByteCodeCompiler, CompilationError, SpawnCompilerError};
-pub use distribution_finder::{find_distributions_in_venv, Distribution, FindDistributionError};
+pub use distribution_finder::{
+    find_distributions_in_directory, find_distributions_in_venv, Distribution,
+    FindDistributionError,
+};
 pub use env_markers::Pep508EnvMakers;
 pub(crate) use system_python::{system_python_executable, FindPythonError};
 pub use system_python::{ParsePythonInterpreterVersionError, PythonInterpreterVersion};

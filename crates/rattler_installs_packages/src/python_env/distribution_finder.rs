@@ -55,6 +55,31 @@ pub enum FindDistributionError {
     FailedToParseWheelTag(String),
 }
 
+/// Locates the python distributions (packages) that have been installed in the specified directory.
+///
+/// When packages are installed in a venv they are installed in specific directories. Use the
+/// [`find_distributions_in_venv`] if you don't want to deal with determining the proper directory.
+///
+/// Any path in the results is relative to `dir`.
+pub fn find_distributions_in_directory(
+    dir: &Path,
+) -> Result<Vec<Distribution>, FindDistributionError> {
+    let mut result = Vec::new();
+    for entry in dir.read_dir()? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            if let Some(dist) = analyze_distribution(entry.path())? {
+                result.push(Distribution {
+                    dist_info: pathdiff::diff_paths(&dist.dist_info, dir).unwrap_or(dist.dist_info),
+                    ..dist
+                })
+            }
+        }
+    }
+
+    Ok(result)
+}
+
 /// Locates the python distributions (packages) that have been installed in the virtualenv rooted at
 /// `root`.
 pub fn find_distributions_in_venv(
@@ -66,27 +91,20 @@ pub fn find_distributions_in_venv(
         .into_iter()
         .map(|p| root.join(p))
         .unique()
-        .filter(|p| p.is_dir())
-        .collect_vec();
+        .filter(|p| p.is_dir());
 
-    // Iterate over all the entries in the in the locations and look for .dist-info entries.
-    let mut result = Vec::new();
-    for location in locations {
-        for entry in location.read_dir()? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                if let Some(dist) = analyze_distribution(entry.path())? {
-                    result.push(Distribution {
-                        dist_info: pathdiff::diff_paths(&dist.dist_info, root)
-                            .unwrap_or(dist.dist_info),
-                        ..dist
-                    })
-                }
-            }
-        }
+    let mut results = Vec::new();
+    for dir in locations {
+        let dir_relative_path = pathdiff::diff_paths(&dir, root).unwrap_or_else(|| dir.clone());
+        let distributions = find_distributions_in_directory(&dir)?;
+        results.extend(distributions.into_iter().map(|dist| Distribution {
+            // Make the paths relative to the root
+            dist_info: dir_relative_path.join(dist.dist_info),
+            ..dist
+        }));
     }
 
-    Ok(result)
+    Ok(results)
 }
 
 /// Analyzes a `.dist-info` directory to see if it actually contains a python distribution (package).
