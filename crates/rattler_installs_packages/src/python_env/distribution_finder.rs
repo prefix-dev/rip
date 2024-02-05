@@ -60,17 +60,18 @@ pub enum FindDistributionError {
 /// When packages are installed in a venv they are installed in specific directories. Use the
 /// [`find_distributions_in_venv`] if you don't want to deal with determining the proper directory.
 ///
-/// Any path in the results is relative to `dir`.
+/// Any path in the results is relative to `search_dir`.
 pub fn find_distributions_in_directory(
-    dir: &Path,
+    search_dir: &Path,
 ) -> Result<Vec<Distribution>, FindDistributionError> {
     let mut result = Vec::new();
-    for entry in dir.read_dir()? {
+    for entry in search_dir.read_dir()? {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
             if let Some(dist) = analyze_distribution(entry.path())? {
                 result.push(Distribution {
-                    dist_info: pathdiff::diff_paths(&dist.dist_info, dir).unwrap_or(dist.dist_info),
+                    dist_info: pathdiff::diff_paths(&dist.dist_info, search_dir)
+                        .unwrap_or(dist.dist_info),
                     ..dist
                 })
             }
@@ -95,8 +96,12 @@ pub fn find_distributions_in_venv(
 
     let mut results = Vec::new();
     for dir in locations {
-        let dir_relative_path = pathdiff::diff_paths(&dir, root).unwrap_or_else(|| dir.clone());
+        // Find distributions in the directory.
         let distributions = find_distributions_in_directory(&dir)?;
+
+        // Modify the paths in the result to be relative to the root of the environment instead of
+        // to the search directory.
+        let dir_relative_path = pathdiff::diff_paths(&dir, root).unwrap_or_else(|| dir.clone());
         results.extend(distributions.into_iter().map(|dist| Distribution {
             // Make the paths relative to the root
             dist_info: dir_relative_path.join(dist.dist_info),
