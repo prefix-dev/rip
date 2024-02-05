@@ -69,7 +69,7 @@ pub enum ArtifactRequest<'wb> {
 pub(crate) struct DirectUrlArtifactResponse {
     pub(crate) artifact_info: Arc<ArtifactInfo>,
     pub(crate) artifact_versions: VersionArtifacts,
-    pub(crate) metadata_bytes: Vec<u8>,
+    pub(crate) metadata: (Vec<u8>, WheelCoreMetadata),
 }
 
 impl PackageDb {
@@ -186,14 +186,6 @@ impl PackageDb {
             }
         }
 
-        // If there are any STree artifacts we expect the metadata to be available in the cache
-        // So we should have returned by now, this is an error
-        // TODO: we should change this behavior so that the metadata is retrieved when this function is called
-        let any_stree = artifacts.iter().any(|a| a.borrow().is::<STree>());
-        if any_stree {
-            miette::bail!("STree Artifacts should have metadata available in the cache, this is an error in the code");
-        }
-
         // Apparently we dont have any metadata cached yet.
         // Next up check if we have downloaded any artifacts but do not have the metadata stored yet
         // In this case we can just return it
@@ -214,9 +206,14 @@ impl PackageDb {
         // No wheels found with metadata, try to get metadata from sdists
         // by building them or using the appropriate hooks
         if let Some(wheel_builder) = wheel_builder {
-            let result = self.get_metadata_sdists(artifacts, wheel_builder).await?;
-            if result.is_some() {
-                return Ok(result);
+            let sdist = self.get_metadata_sdists(artifacts, wheel_builder).await?;
+            if sdist.is_some() {
+                return Ok(sdist);
+            }
+
+            let stree = self.get_metadata_stree(artifacts, wheel_builder).await?;
+            if stree.is_some() {
+                return Ok(stree);
             }
         }
 
@@ -268,6 +265,27 @@ impl PackageDb {
             return Ok(cached);
         }
 
+        let response = self
+            .get_artifact_and_metadata_by_direct_url(p.clone(), url, wheel_builder)
+            .await?;
+
+        self.put_metadata_in_cache(&response.artifact_info, &response.metadata.0)
+            .await?;
+
+        Ok(self
+            .artifacts
+            .insert(p, Box::new(response.artifact_versions)))
+    }
+
+    /// Get artifact directly from file, vcs, or url
+    async fn get_artifact_and_metadata_by_direct_url<P: Into<NormalizedPackageName>>(
+        &self,
+        p: P,
+        url: Url,
+        wheel_builder: &WheelBuilder,
+    ) -> miette::Result<DirectUrlArtifactResponse> {
+        let p = p.into();
+
         let response = if url.scheme() == "file" {
             // This can result in a Wheel, Sdist or STree
             super::direct_url::file::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
@@ -290,12 +308,7 @@ impl PackageDb {
             ))
         }?;
 
-        self.put_metadata_in_cache(&response.artifact_info, &response.metadata_bytes)
-            .await?;
-
-        Ok(self
-            .artifacts
-            .insert(p, Box::new(response.artifact_versions)))
+        Ok(response)
     }
 
     /// Reads the metadata for the given artifact from the cache or return `None` if the metadata
@@ -467,6 +480,54 @@ impl PackageDb {
         if !errors.is_empty() {
             tracing::warn!("errors while processing source distributions:");
             miette::bail!("{}", errors.join("\n"));
+        }
+
+        Ok(None)
+    }
+
+    async fn get_metadata_stree<'a, A: Borrow<ArtifactInfo>>(
+        &self,
+        artifacts: &'a [A],
+        wheel_builder: &WheelBuilder,
+    ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
+        let stree = artifacts
+            .iter()
+            .filter(|artifact_info| (*artifact_info).borrow().is::<STree>());
+
+        // Keep track of errors
+        // only print these if we have not been able to find any metadata
+        let mut errors = Vec::new();
+        for ai in stree {
+            let artifact_info: &ArtifactInfo = ai.borrow();
+            let stree_name = artifact_info.filename.as_stree().unwrap_or_else(|| {
+                panic!(
+                    "the specified artifact '{}' does not refer to type requested to read",
+                    artifact_info.filename
+                )
+            });
+            let response = self
+                .get_artifact_and_metadata_by_direct_url(
+                    stree_name.distribution.clone(),
+                    artifact_info.url.clone(),
+                    wheel_builder,
+                )
+                .await;
+
+            match response {
+                Ok(direct_response) => {
+                    let metadata_and_bytes = direct_response.metadata;
+                    self.put_metadata_in_cache(artifact_info, &metadata_and_bytes.0)
+                        .await?;
+                    return Ok(Some((ai, metadata_and_bytes.1)));
+                }
+                Err(err) => {
+                    errors.push(format!(
+                        "error while processing source tree '{}': \n {}",
+                        artifact_info.filename, err
+                    ));
+                    continue;
+                }
+            }
         }
 
         Ok(None)

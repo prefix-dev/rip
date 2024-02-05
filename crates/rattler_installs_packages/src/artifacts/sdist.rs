@@ -292,11 +292,14 @@ mod tests {
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
     use crate::resolve::SDistResolution;
-    use crate::types::Extra;
     use crate::types::PackageName;
+    use crate::types::{
+        ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, STreeFilename, Yanked,
+    };
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
+    use pep440_rs::Version;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
     use std::collections::{HashMap, HashSet};
@@ -856,6 +859,50 @@ mod tests {
         let wheel_metadata = package_db
             .0
             .get_metadata(artifact_info.as_slice(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_debug_snapshot!(wheel_metadata.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn get_only_metadata_for_local_stree_rich_without_calling_available_artifacts() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/stree/dev_folder_with_rich");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let stree_file_name = STreeFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            url: url.clone(),
+        };
+
+        let artifact_info = vec![ArtifactInfo {
+            filename: ArtifactName::STree(stree_file_name),
+            url: url,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        }];
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
             .await
             .unwrap()
             .unwrap();
