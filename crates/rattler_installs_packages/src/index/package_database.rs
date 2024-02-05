@@ -5,7 +5,7 @@ use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::index::package_sources::PackageSources;
 use crate::resolve::PypiVersion;
-use crate::types::{ArtifactInfo, ProjectInfo, WheelCoreMetadata};
+use crate::types::{ArtifactInfo, ProjectInfo, STreeFilename, WheelCoreMetadata};
 
 use crate::wheel_builder::{WheelBuilder, WheelCache};
 use crate::{
@@ -266,9 +266,9 @@ impl PackageDb {
             return Ok(cached);
         }
 
-        let response = self
-            .get_artifact_and_metadata_by_direct_url(p.clone(), url, wheel_builder)
-            .await?;
+        let response =
+            fetch_artifact_and_metadata_by_direct_url(&self.http, p.clone(), url, wheel_builder)
+                .await?;
 
         self.put_metadata_in_cache(&response.artifact_info, &response.metadata.0)
             .await?;
@@ -276,40 +276,6 @@ impl PackageDb {
         Ok(self
             .artifacts
             .insert(p, Box::new(response.artifact_versions)))
-    }
-
-    /// Get artifact directly from file, vcs, or url
-    async fn get_artifact_and_metadata_by_direct_url<P: Into<NormalizedPackageName>>(
-        &self,
-        p: P,
-        url: Url,
-        wheel_builder: &WheelBuilder,
-    ) -> miette::Result<DirectUrlArtifactResponse> {
-        let p = p.into();
-
-        let response = if url.scheme() == "file" {
-            // This can result in a Wheel, Sdist or STree
-            super::direct_url::file::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
-        } else if url.scheme() == "https" {
-            // This can be a Wheel or SDist artifact
-            super::direct_url::http::get_artifacts_and_metadata(
-                &self.http,
-                p.clone(),
-                url,
-                wheel_builder,
-            )
-            .await
-        } else if url.scheme() == "git+https" || url.scheme() == "git+file" {
-            // This can be a STree artifact
-            super::direct_url::git::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
-        } else {
-            Err(miette::miette!(
-                "Usage of insecure protocol or unsupported scheme {:?}",
-                url.scheme()
-            ))
-        }?;
-
-        Ok(response)
     }
 
     /// Reads the metadata for the given artifact from the cache or return `None` if the metadata
@@ -500,19 +466,22 @@ impl PackageDb {
         let mut errors = Vec::new();
         for ai in stree {
             let artifact_info: &ArtifactInfo = ai.borrow();
-            let stree_name = artifact_info.filename.as_stree().unwrap_or_else(|| {
-                panic!(
-                    "the specified artifact '{}' does not refer to type requested to read",
-                    artifact_info.filename
-                )
-            });
-            let response = self
-                .get_artifact_and_metadata_by_direct_url(
-                    stree_name.distribution.clone(),
-                    artifact_info.url.clone(),
-                    wheel_builder,
-                )
-                .await;
+            let stree_name = artifact_info
+                .filename
+                .as_inner::<STreeFilename>()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the specified artifact '{}' does not refer to type requested to read",
+                        artifact_info.filename
+                    )
+                });
+            let response = fetch_artifact_and_metadata_by_direct_url(
+                &self.http,
+                stree_name.distribution.clone(),
+                artifact_info.url.clone(),
+                wheel_builder,
+            )
+            .await;
 
             match response {
                 Ok(direct_response) => {
@@ -652,6 +621,35 @@ impl PackageDb {
             .into_diagnostic()?;
         A::from_bytes(name.clone(), bytes)
     }
+}
+
+/// Get artifact directly from file, vcs, or url
+async fn fetch_artifact_and_metadata_by_direct_url<P: Into<NormalizedPackageName>>(
+    http: &Http,
+    p: P,
+    url: Url,
+    wheel_builder: &WheelBuilder,
+) -> miette::Result<DirectUrlArtifactResponse> {
+    let p = p.into();
+
+    let response = if url.scheme() == "file" {
+        // This can result in a Wheel, Sdist or STree
+        super::direct_url::file::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
+    } else if url.scheme() == "https" {
+        // This can be a Wheel or SDist artifact
+        super::direct_url::http::get_artifacts_and_metadata(http, p.clone(), url, wheel_builder)
+            .await
+    } else if url.scheme() == "git+https" || url.scheme() == "git+file" {
+        // This can be a STree artifact
+        super::direct_url::git::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
+    } else {
+        Err(miette::miette!(
+            "Usage of insecure protocol or unsupported scheme {:?}",
+            url.scheme()
+        ))
+    }?;
+
+    Ok(response)
 }
 
 async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<ProjectInfo>> {
