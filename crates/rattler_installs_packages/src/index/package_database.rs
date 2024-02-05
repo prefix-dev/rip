@@ -369,14 +369,6 @@ impl PackageDb {
                     },
                 }
             }
-            // else if artifact_info_ref.is::<STree>() {
-            //     // We should have the metadata available in the cache
-            //     // If we dont, this is an error
-            //     let metadata = self.metadata_from_cache(artifact_info_ref).await;
-            //     if metadata.is_none() {
-            //         miette::bail!("STree Artifacts should have metadata available in the cache, this is an error in the code");
-            //     }
-            // }
         }
         Ok(None)
     }
