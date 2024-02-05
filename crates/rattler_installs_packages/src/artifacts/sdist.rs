@@ -260,13 +260,13 @@ fn generic_archive_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::{SDist, SourceArtifact};
+    use crate::artifacts::SDist;
     use crate::index::{ArtifactRequest, PackageSourcesBuilder};
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
     use crate::resolve::SDistResolution;
-    use crate::types::Extra;
     use crate::types::PackageName;
+    use crate::types::{ArtifactFromSource, Extra};
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
