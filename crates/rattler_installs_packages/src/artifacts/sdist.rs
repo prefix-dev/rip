@@ -267,7 +267,8 @@ mod tests {
     use crate::resolve::SDistResolution;
     use crate::types::PackageName;
     use crate::types::{
-        ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, STreeFilename, Yanked,
+        ArtifactFromSource, ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, STreeFilename,
+        Yanked,
     };
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
