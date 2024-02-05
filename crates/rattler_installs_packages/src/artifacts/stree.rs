@@ -1,9 +1,8 @@
-use crate::artifacts::sdist::SDistError;
-use crate::artifacts::SourceArtifact;
 use crate::resolve::PypiVersion;
+use crate::types::ArtifactFromSource;
+use crate::types::ReadPyProjectError;
 use crate::types::{HasArtifactName, STreeFilename, SourceArtifactName};
 use fs_err as fs;
-use fs_err::read_dir;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::ErrorKind;
@@ -49,11 +48,11 @@ impl HasArtifactName for STree {
     }
 }
 
-impl SourceArtifact for STree {
+impl ArtifactFromSource for STree {
     fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
         let vec = vec![];
         let inner = self.lock_data();
-        let mut dir_entry = read_dir(inner.as_path())?;
+        let mut dir_entry = fs::read_dir(inner.as_path())?;
 
         let next_entry = dir_entry.next();
         if let Some(Ok(root_folder)) = next_entry {
@@ -79,18 +78,18 @@ impl SourceArtifact for STree {
         SourceArtifactName::STree(self.name.clone())
     }
 
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, ReadPyProjectError> {
         let location = self.lock_data().join("pyproject.toml");
 
         if let Ok(bytes) = fs::read(location) {
             let source = String::from_utf8(bytes).map_err(|e| {
-                SDistError::PyProjectTomlParseError(format!(
+                ReadPyProjectError::PyProjectTomlParseError(format!(
                     "could not parse pyproject.toml (bad encoding): {}",
                     e
                 ))
             })?;
             let project = pyproject_toml::PyProjectToml::new(&source).map_err(|e| {
-                SDistError::PyProjectTomlParseError(format!(
+                ReadPyProjectError::PyProjectTomlParseError(format!(
                     "could not parse pyproject.toml (bad toml): {}",
                     e
                 ))
@@ -99,7 +98,7 @@ impl SourceArtifact for STree {
                 .build_system
                 .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
         } else {
-            Err(SDistError::NoPyProjectTomlFound)
+            Err(ReadPyProjectError::NoPyProjectTomlFound)
         }
     }
     /// move all files to a specific directory

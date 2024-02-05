@@ -6,7 +6,7 @@ use crate::index::{ArtifactRequest, PackageDb};
 use crate::python_env::WheelTags;
 use crate::resolve::{PinnedPackage, ResolveOptions};
 use crate::types::{
-    Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
+    ArtifactFromBytes, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
 };
 use crate::wheel_builder::WheelBuilder;
 use elsa::FrozenMap;
@@ -377,7 +377,7 @@ impl PypiDependencyProvider {
         Ok(artifacts)
     }
 
-    fn solvable_has_artifact_type<S: Artifact>(&self, solvable_id: SolvableId) -> bool {
+    fn solvable_has_artifact_type<S: ArtifactFromBytes>(&self, solvable_id: SolvableId) -> bool {
         self.cached_artifacts
             .get(&solvable_id)
             .unwrap_or(&[])
