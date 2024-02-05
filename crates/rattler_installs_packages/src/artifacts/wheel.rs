@@ -1,5 +1,5 @@
 use crate::python_env::{ByteCodeCompiler, CompilationError};
-use crate::types::DirectUrlJson;
+use crate::types::{DirectUrlJson, HasArtifactName};
 use crate::{
     python_env::PythonInterpreterVersion,
     types::Artifact,
@@ -48,13 +48,15 @@ pub struct Wheel {
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
 }
 
-impl Artifact for Wheel {
+impl HasArtifactName for Wheel {
     type Name = WheelFilename;
 
     fn name(&self) -> &Self::Name {
         &self.name
     }
+}
 
+impl Artifact for Wheel {
     fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
             name,
