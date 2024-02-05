@@ -2,7 +2,7 @@ use super::artifact_name::InnerAsArtifactName;
 use crate::utils::ReadAndSeek;
 
 /// Trait to implement if it is a type that has an [`super::artifact_name::ArtifactName`]
-/// this is then used by the [`crate::index::package_database::PackageDatabase`] to make a difference
+/// this is then used by the [`crate::index::PackageDatabase`] to make a difference
 /// between the different types of artifacts.
 pub trait HasArtifactName {
     /// The name of the artifact which describes the artifact.
