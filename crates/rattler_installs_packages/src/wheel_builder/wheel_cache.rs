@@ -26,10 +26,10 @@
 //!
 //! So cacache stores the hashed wheel key and associated with this is with the content hash of the wheel
 //! This way multiple WheelCacheKeys can point to the same wheel.
-
-use crate::artifacts::{SourceArtifact, Wheel};
+use crate::artifacts::Wheel;
 use crate::python_env::PythonInterpreterVersion;
-use crate::types::{Artifact, WheelFilename};
+use crate::types::ArtifactFromSource;
+use crate::types::{ArtifactFromBytes, WheelFilename};
 use cacache::{Integrity, WriteOpts};
 use rattler_digest::Sha256;
 use serde::{Deserialize, Serialize};
@@ -77,7 +77,7 @@ impl WheelCacheKey {
 
     /// Create a WheelCacheKey from an sdist and the python interpreter version
     pub fn from_sdist(
-        sdist: &impl SourceArtifact,
+        sdist: &impl ArtifactFromSource,
         python_interpreter_version: &PythonInterpreterVersion,
     ) -> Result<WheelCacheKey, std::io::Error> {
         let hash = sdist.try_get_bytes()?;
@@ -173,7 +173,7 @@ impl WheelCache {
 
             // Find wheel associated with integrity
             let bytes = Cursor::new(cacache::read_hash_sync(&self.path, &integrity)?);
-            let wheel = Wheel::new(value.wheel_filename, Box::new(bytes));
+            let wheel = Wheel::from_bytes(value.wheel_filename, Box::new(bytes));
 
             // Need to do this to get out of miette::Result
             // TODO: change artifact to not use miette::Result?
