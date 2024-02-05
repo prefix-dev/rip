@@ -3,6 +3,7 @@ use crate::index::file_store::FileStore;
 
 use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
+use crate::index::package_sources::PackageSources;
 use crate::resolve::PypiVersion;
 use crate::types::{ArtifactInfo, ProjectInfo, WheelCoreMetadata};
 
@@ -35,8 +36,7 @@ type VersionArtifacts = IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>;
 pub struct PackageDb {
     http: Http,
 
-    /// Index URLS to query
-    index_urls: Vec<Url>,
+    sources: PackageSources,
 
     /// A file store that stores metadata by hashes
     metadata_cache: FileStore,
@@ -75,16 +75,24 @@ pub(crate) struct DirectUrlArtifactResponse {
 impl PackageDb {
     /// Constructs a new [`PackageDb`] that reads information from the specified URLs.
     pub fn new(
+        package_sources: PackageSources,
         client: ClientWithMiddleware,
-        index_urls: &[Url],
         cache_dir: &Path,
-    ) -> std::io::Result<Self> {
+    ) -> miette::Result<Self> {
+        let http = Http::new(
+            client,
+            FileStore::new(&cache_dir.join("http")).into_diagnostic()?,
+        );
+
+        let metadata_cache = FileStore::new(&cache_dir.join("metadata")).into_diagnostic()?;
+        let local_wheel_cache = WheelCache::new(cache_dir.join("local_wheels"));
+
         Ok(Self {
-            http: Http::new(client, FileStore::new(&cache_dir.join("http"))?),
-            index_urls: index_urls.into(),
-            metadata_cache: FileStore::new(&cache_dir.join("metadata"))?,
+            http,
+            sources: package_sources,
+            metadata_cache,
             artifacts: Default::default(),
-            local_wheel_cache: WheelCache::new(cache_dir.join("local_wheels")),
+            local_wheel_cache,
             cache_dir: cache_dir.to_owned(),
         })
     }
@@ -111,7 +119,9 @@ impl PackageDb {
                 }
                 // Start downloading the information for each url.
                 let http = self.http.clone();
-                let request_iter = stream::iter(self.index_urls.iter())
+                let index_urls = self.sources.index_url(&p);
+
+                let request_iter = stream::iter(&index_urls)
                     .map(|url| url.join(&format!("{}/", p.as_str())).expect("invalid url"))
                     .map(|url| fetch_simple_api(&http, url))
                     .buffer_unordered(10)
@@ -526,25 +536,21 @@ impl PackageDb {
 
     /// Get all package names in the index.
     pub async fn get_package_names(&self) -> miette::Result<Vec<String>> {
-        let index_url = self.index_urls.first();
-        if let Some(url) = index_url {
-            let response = self
-                .http
-                .request(
-                    url.clone(),
-                    Method::GET,
-                    HeaderMap::default(),
-                    CacheMode::Default,
-                )
-                .await?;
+        let index_url = self.sources.default_index_url();
+        let response = self
+            .http
+            .request(
+                index_url,
+                Method::GET,
+                HeaderMap::default(),
+                CacheMode::Default,
+            )
+            .await?;
 
-            let mut bytes = response.into_body().into_local().await.into_diagnostic()?;
-            let mut source = String::new();
-            bytes.read_to_string(&mut source).into_diagnostic()?;
-            parse_package_names_html(&source)
-        } else {
-            Ok(vec![])
-        }
+        let mut bytes = response.into_body().into_local().await.into_diagnostic()?;
+        let mut source = String::new();
+        bytes.read_to_string(&mut source).into_diagnostic()?;
+        parse_package_names_html(&source)
     }
 
     /// Opens the specified artifact info. Depending on the specified `cache_mode`, downloads the
@@ -638,16 +644,88 @@ mod test {
     use reqwest::Client;
     use tempfile::TempDir;
 
-    #[tokio::test]
-    async fn test_available_packages() {
+    use crate::index::package_sources::PackageSourcesBuilder;
+    use axum::response::{Html, IntoResponse};
+    use axum::routing::get;
+    use axum::Router;
+    use insta::assert_debug_snapshot;
+    use std::net::{SocketAddr, TcpListener};
+    use tower_http::add_extension::AddExtensionLayer;
+
+    async fn get_index(
+        axum::Extension(served_package): axum::Extension<String>,
+    ) -> impl IntoResponse {
+        // Return the HTML response with the list of packages
+        let package_list = format!(
+            r#"
+            <a href="/{served_package}">{served_package}</a>
+        "#
+        );
+
+        let html = format!("<html><body>{}</body></html>", package_list);
+        Html(html)
+    }
+
+    async fn get_package(
+        axum::Extension(served_package): axum::Extension<String>,
+        axum::extract::Path(requested_package): axum::extract::Path<String>,
+    ) -> impl IntoResponse {
+        if served_package == requested_package {
+            let wheel_name = format!("{}-1.0-py3-none-any.whl", served_package);
+            let link_list = format!(
+                r#"
+                <a href="/files/{wheel_name}">{wheel_name}</a>
+            "#
+            );
+
+            let html = format!("<html><body>{}</body></html>", link_list);
+            Html(html).into_response()
+        } else {
+            StatusCode::NOT_FOUND.into_response()
+        }
+    }
+
+    async fn make_simple_server(
+        package_name: &str,
+    ) -> anyhow::Result<(Url, tokio::task::JoinHandle<()>)> {
+        let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+        let address = listener.local_addr()?;
+
+        let router = Router::new()
+            .route("/simple", get(get_index))
+            .route("/simple/:package/", get(get_package))
+            .layer(AddExtensionLayer::new(package_name.to_string()));
+
+        let listener = listener.try_into()?;
+        let server = tokio::spawn(async move {
+            axum::Server::from_tcp(listener)
+                .unwrap()
+                .serve(router.into_make_service())
+                .await
+                .unwrap()
+        });
+
+        let url = format!("http://{}/simple/", address).parse()?;
+        Ok((url, server))
+    }
+
+    fn make_package_db() -> (TempDir, PackageDb) {
+        let url = Url::parse("https://pypi.org/simple/").unwrap();
+
         let cache_dir = TempDir::new().unwrap();
         let package_db = PackageDb::new(
+            url.into(),
             ClientWithMiddleware::from(Client::new()),
-            &[Url::parse("https://pypi.org/simple/").unwrap()],
             cache_dir.path(),
         )
         .unwrap();
 
+        (cache_dir, package_db)
+    }
+
+    #[tokio::test]
+    async fn test_available_packages() {
+        let (_cache_dir, package_db) = make_package_db();
         let name = "scikit-learn".parse::<PackageName>().unwrap();
 
         // Get all the artifacts
@@ -670,16 +748,82 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_pep658() {
-        let cache_dir = TempDir::new().unwrap();
+    async fn test_index_mapping() -> anyhow::Result<()> {
+        // just a random UUID
+        let package_name = "c99d774d1a5a4a7fa2c2820bae6688e7".to_string();
+
+        let (test_index, _server) = make_simple_server(&package_name).await?;
+        let pypi_index = Url::parse("https://pypi.org/simple/")?;
+
+        let index_alias = "test-index".to_string();
+
+        let package_name = package_name.parse::<PackageName>()?;
+        let normalized_name = NormalizedPackageName::from(package_name);
+
+        let cache_dir = TempDir::new()?;
+        let sources = PackageSourcesBuilder::new(pypi_index)
+            .with_index(&index_alias, &test_index)
+            // Exists in pypi but not in our index
+            .with_override("pytest".parse()?, &index_alias)
+            // Doesn't exist in pypi (hopefully), should exist in our index
+            .with_override(normalized_name.clone(), &index_alias)
+            .build()
+            .unwrap();
+
         let package_db = PackageDb::new(
+            sources,
             ClientWithMiddleware::from(Client::new()),
-            &[Url::parse("https://pypi.org/simple/").unwrap()],
             cache_dir.path(),
         )
         .unwrap();
 
+        let pytest_name = "pytest".parse::<PackageName>()?;
+        let pytest_result = package_db
+            .available_artifacts(ArtifactRequest::FromIndex(pytest_name.into()))
+            .await;
+
+        // Should fail because pytest is associated with test index
+        assert!(pytest_result.is_err());
+        match pytest_result
+            .unwrap_err()
+            .downcast_ref::<HttpRequestError>()
+        {
+            Some(HttpRequestError::HttpError(e)) if e.status() == Some(StatusCode::NOT_FOUND) => (),
+            _ => panic!("unexpected error type"),
+        };
+
+        let test_package_result = package_db
+            .available_artifacts(ArtifactRequest::FromIndex(normalized_name))
+            .await
+            .unwrap();
+
+        assert_debug_snapshot!(test_package_result.keys(), @r###"
+        [
+            Version {
+                version: Version {
+                    epoch: 0,
+                    release: [
+                        1,
+                        0,
+                    ],
+                    pre: None,
+                    post: None,
+                    dev: None,
+                    local: None,
+                },
+                package_allows_prerelease: false,
+            },
+        ]
+        "###);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_pep658() {
+        let (_cache_dir, package_db) = make_package_db();
         let name = "scikit-learn".parse::<PackageName>().unwrap();
+
         // Get all the artifacts
         let artifacts = package_db
             .available_artifacts(ArtifactRequest::FromIndex(name.into()))
