@@ -9,7 +9,8 @@ use crate::types::{ArtifactInfo, ProjectInfo, WheelCoreMetadata};
 
 use crate::wheel_builder::{WheelBuilder, WheelCache};
 use crate::{
-    types::Artifact, types::InnerAsArtifactName, types::NormalizedPackageName, types::WheelFilename,
+    types::ArtifactFromBytes, types::InnerAsArtifactName, types::NormalizedPackageName,
+    types::WheelFilename,
 };
 use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
 use async_recursion::async_recursion;
@@ -616,7 +617,7 @@ impl PackageDb {
 
     /// Opens the specified artifact info. Depending on the specified `cache_mode`, downloads the
     /// artifact data from the remote location if the information is not already cached.
-    async fn get_cached_artifact<A: Artifact>(
+    async fn get_cached_artifact<A: ArtifactFromBytes>(
         &self,
         artifact_info: &ArtifactInfo,
         cache_mode: CacheMode,
@@ -649,7 +650,7 @@ impl PackageDb {
             .into_local()
             .await
             .into_diagnostic()?;
-        A::new(name.clone(), bytes)
+        A::from_bytes(name.clone(), bytes)
     }
 }
 

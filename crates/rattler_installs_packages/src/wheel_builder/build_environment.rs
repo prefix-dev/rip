@@ -1,5 +1,5 @@
 use crate::artifacts::wheel::UnpackWheelOptions;
-use crate::artifacts::SourceArtifact;
+use crate::types::ArtifactFromSource;
 
 use crate::python_env::{PythonLocation, VEnv};
 use crate::resolve::{resolve, PinnedPackage};
@@ -131,7 +131,7 @@ impl BuildEnvironment {
     /// Extract the wheel and write the build_frontend.py to the work folder
     pub(crate) fn install_build_files(
         &mut self,
-        sdist: &(impl SourceArtifact + ?Sized),
+        sdist: &(impl ArtifactFromSource + ?Sized),
     ) -> std::io::Result<()> {
         // Extract the sdist to the work folder
         // extract to a specific package dir
@@ -349,7 +349,7 @@ impl BuildEnvironment {
 
     /// Setup the build environment so that we can build a wheel from an sdist
     pub(crate) async fn setup(
-        sdist: &impl SourceArtifact,
+        sdist: &impl ArtifactFromSource,
         wheel_builder: &WheelBuilder,
     ) -> Result<BuildEnvironment, WheelBuildError> {
         // Setup a work directory and a new env dir

@@ -3,8 +3,9 @@ use crate::index::http::Http;
 use crate::index::{parse_hash, CacheMode};
 use crate::resolve::PypiVersion;
 use crate::types::{
-    Artifact, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, HasArtifactName,
-    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, WheelCoreMetadata, Yanked,
+    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata,
+    HasArtifactName, NormalizedPackageName, PackageName, SDistFilename, SDistFormat,
+    WheelCoreMetadata, Yanked,
 };
 use crate::utils::ReadAndSeek;
 use crate::wheel_builder::WheelBuilder;
@@ -117,7 +118,7 @@ async fn get_sdist_from_bytes(
     // we don't know the version for artifact until we extract the actual metadata
     // so we create a plain sdist object aka dummy
     // and populate it with correct metadata after calling `get_sdist_metadata`
-    let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(bytes))?;
+    let dummy_sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(bytes))?;
 
     let wheel_metadata = wheel_builder
         .get_sdist_metadata(&dummy_sdist)

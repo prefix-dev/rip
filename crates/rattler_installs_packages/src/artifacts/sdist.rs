@@ -1,7 +1,7 @@
 use crate::resolve::PypiVersion;
 use crate::types::{
-    Artifact, HasArtifactName, NormalizedPackageName, SDistFilename, SDistFormat,
-    SourceArtifactName,
+    ArtifactFromBytes, ArtifactFromSource, HasArtifactName, NormalizedPackageName,
+    ReadPyProjectError, SDistFilename, SDistFormat, SourceArtifactName,
 };
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
@@ -16,33 +16,6 @@ use std::path::{Path, PathBuf};
 use tar::Archive;
 use zip::ZipArchive;
 
-/// SDist or STree act as a SourceArtifact
-/// so we can use it in methods where we expect sdist
-/// to extract metadata
-pub trait SourceArtifact: Sync {
-    /// get bytes of an artifact
-    /// that will we be used for hashing
-    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
-
-    /// Distribution Name
-    fn distribution_name(&self) -> String;
-
-    /// Version ( URL or Version )
-    fn version(&self) -> PypiVersion;
-
-    /// Source artifact name
-    fn artifact_name(&self) -> SourceArtifactName;
-
-    /// Read the build system info from the pyproject.toml
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError>;
-
-    /// extract to a specific location
-    /// for sdist we unpack it
-    /// for stree we move it
-    /// as example this method is used by install_build_files
-    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
-}
-
 /// Represents a source distribution artifact.
 pub struct SDist {
     /// Name of the source distribution
@@ -54,17 +27,14 @@ pub struct SDist {
 
 #[derive(thiserror::Error, Debug)]
 pub enum SDistError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("IO error while reading PKG-INFO: {0}")]
+    PkgInfoIOError(#[source] std::io::Error),
 
     #[error("No PKG-INFO found in archive")]
     NoPkgInfoFound,
 
-    #[error("No pyproject.toml found in archive")]
-    NoPyProjectTomlFound,
-
-    #[error("Could not parse pyproject.toml")]
-    PyProjectTomlParseError(String),
+    #[error(transparent)]
+    PyProjectTomlError(#[from] ReadPyProjectError),
 
     #[error("Could not parse metadata")]
     WheelCoreMetaDataError(#[from] WheelCoreMetaDataError),
@@ -84,7 +54,7 @@ impl SDist {
         let name =
             SDistFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
         let bytes = fs::File::open(path).into_diagnostic()?;
-        Self::new(name, Box::new(bytes))
+        Self::from_bytes(name, Box::new(bytes))
     }
 
     /// Find entry in tar archive
@@ -136,7 +106,10 @@ impl SDist {
 
     /// Read .PKG-INFO from the archive
     pub fn read_package_info(&self) -> Result<(Vec<u8>, WheelCoreMetadata), SDistError> {
-        if let Some(bytes) = self.find_entry("PKG-INFO")? {
+        if let Some(bytes) = self
+            .find_entry("PKG-INFO")
+            .map_err(SDistError::PkgInfoIOError)?
+        {
             let metadata = WheelCoreMetadata::try_from(bytes.as_slice())?;
 
             Ok((bytes, metadata))
@@ -171,8 +144,8 @@ impl HasArtifactName for SDist {
     }
 }
 
-impl Artifact for SDist {
-    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
+impl ArtifactFromBytes for SDist {
+    fn from_bytes(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
             name,
             file: parking_lot::Mutex::new(bytes),
@@ -180,7 +153,15 @@ impl Artifact for SDist {
     }
 }
 
-impl SourceArtifact for SDist {
+impl ArtifactFromSource for SDist {
+    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+        let mut vec = vec![];
+        let mut inner = self.lock_data();
+        inner.rewind()?;
+        inner.read_to_end(&mut vec)?;
+        Ok(vec)
+    }
+
     fn distribution_name(&self) -> String {
         self.name().distribution.as_source_str().to_owned()
     }
@@ -192,28 +173,20 @@ impl SourceArtifact for SDist {
         }
     }
 
-    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
-        let mut vec = vec![];
-        let mut inner = self.lock_data();
-        inner.rewind()?;
-        inner.read_to_end(&mut vec)?;
-        Ok(vec)
-    }
-
     fn artifact_name(&self) -> SourceArtifactName {
         SourceArtifactName::SDist(self.name().to_owned())
     }
 
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, ReadPyProjectError> {
         if let Some(bytes) = self.find_entry("pyproject.toml")? {
             let source = String::from_utf8(bytes).map_err(|e| {
-                SDistError::PyProjectTomlParseError(format!(
+                ReadPyProjectError::PyProjectTomlParseError(format!(
                     "could not parse pyproject.toml (bad encoding): {}",
                     e
                 ))
             })?;
             let project = pyproject_toml::PyProjectToml::new(&source).map_err(|e| {
-                SDistError::PyProjectTomlParseError(format!(
+                ReadPyProjectError::PyProjectTomlParseError(format!(
                     "could not parse pyproject.toml (bad toml): {}",
                     e
                 ))
@@ -222,7 +195,7 @@ impl SourceArtifact for SDist {
                 .build_system
                 .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
         } else {
-            Err(SDistError::NoPyProjectTomlFound)
+            Err(ReadPyProjectError::NoPyProjectTomlFound)
         }
     }
 
@@ -287,7 +260,7 @@ fn generic_archive_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::{SDist, SourceArtifact};
+    use crate::artifacts::SDist;
     use crate::index::{ArtifactRequest, PackageSourcesBuilder};
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;

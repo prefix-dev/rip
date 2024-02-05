@@ -2,8 +2,8 @@ use crate::artifacts::{SDist, STree, Wheel};
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::resolve::PypiVersion;
 use crate::types::{
-    Artifact, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, HasArtifactName,
-    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, STreeFilename,
+    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata,
+    HasArtifactName, NormalizedPackageName, PackageName, SDistFilename, SDistFormat, STreeFilename,
     WheelCoreMetadata, Yanked,
 };
 use crate::wheel_builder::{WheelBuildError, WheelBuilder};
@@ -47,7 +47,7 @@ pub(crate) async fn get_sdist_from_file_path(
 
     let file = File::open(path).into_diagnostic()?;
 
-    let dummy_sdist = SDist::new(dummy_sdist_file_name, Box::new(file))?;
+    let dummy_sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(file))?;
 
     let wheel_metadata = wheel_builder
         .get_sdist_metadata(&dummy_sdist)
