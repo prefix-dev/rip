@@ -526,7 +526,6 @@ impl InnerAsArtifactName for SDistFilename {
 
 impl InnerAsArtifactName for STreeFilename {
     fn try_as(name: &ArtifactName) -> Option<&Self> {
-        dbg!("get name");
         name.as_stree()
     }
 }

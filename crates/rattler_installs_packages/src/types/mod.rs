@@ -19,7 +19,7 @@ mod project_info;
 mod direct_url_json;
 mod rfc822ish;
 
-pub use artifact::Artifact;
+pub use artifact::{Artifact, HasArtifactName};
 
 pub use artifact_name::{
     ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFilename,

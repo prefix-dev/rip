@@ -3,8 +3,8 @@ use crate::index::http::Http;
 use crate::index::{parse_hash, CacheMode};
 use crate::resolve::PypiVersion;
 use crate::types::{
-    Artifact, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, NormalizedPackageName,
-    PackageName, SDistFilename, SDistFormat, WheelCoreMetadata, Yanked,
+    Artifact, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, HasArtifactName,
+    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, WheelCoreMetadata, Yanked,
 };
 use crate::utils::ReadAndSeek;
 use crate::wheel_builder::WheelBuilder;

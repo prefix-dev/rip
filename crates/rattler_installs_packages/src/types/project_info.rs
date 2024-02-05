@@ -1,7 +1,7 @@
 //! Structs that represent the response from the Simple API when using JSON (PEP 691).
 
-use crate::types::Artifact;
 use crate::types::ArtifactName;
+use crate::types::HasArtifactName;
 use pep440_rs::VersionSpecifiers;
 use rattler_digest::{serde::SerializableHash, Sha256};
 use serde::{Deserialize, Serialize};
@@ -44,7 +44,7 @@ pub struct ArtifactInfo {
 
 impl ArtifactInfo {
     /// Returns true if this artifact describes an instance of `T`.
-    pub fn is<T: Artifact>(&self) -> bool {
+    pub fn is<T: HasArtifactName>(&self) -> bool {
         self.filename.as_inner::<T::Name>().is_some()
     }
 }

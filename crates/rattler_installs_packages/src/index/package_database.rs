@@ -1,4 +1,4 @@
-use crate::artifacts::{SDist, Wheel};
+use crate::artifacts::{SDist, STree, Wheel};
 use crate::index::file_store::FileStore;
 
 use crate::index::html::{parse_package_names_html, parse_project_info_html};
@@ -158,6 +158,93 @@ impl PackageDb {
         }
     }
 
+    /// Returns the metadata from a set of artifacts. This function assumes that metadata is
+    /// consistent for all artifacts of a single version.
+    pub async fn get_metadata<'a, A: Borrow<ArtifactInfo>>(
+        &self,
+        artifacts: &'a [A],
+        wheel_builder: Option<&WheelBuilder>,
+    ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
+        // Check if we already have information about any of the artifacts cached.
+        // Return if we do
+        for artifact_info in artifacts.iter() {
+            if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info.borrow()).await {
+                return Ok(Some((
+                    artifact_info,
+                    WheelCoreMetadata::try_from(metadata_bytes.as_slice()).into_diagnostic()?,
+                )));
+            }
+        }
+
+        // If there are any STree artifacts we expect the metadata to be available in the cache
+        // So we should have returned by now, this is an error
+        // TODO: we should change this behavior so that the metadata is retrieved when this function is called
+        let any_stree = artifacts.iter().any(|a| a.borrow().is::<STree>());
+        if any_stree {
+            miette::bail!("STree Artifacts should have metadata available in the cache, this is an error in the code");
+        }
+
+        // Apparently we dont have any metadata cached yet.
+        // Next up check if we have downloaded any artifacts but do not have the metadata stored yet
+        // In this case we can just return it
+        let result = self.metadata_for_cached_artifacts(artifacts).await?;
+        if result.is_some() {
+            return Ok(result);
+        }
+
+        // We have exhausted all options to read the metadata from the cache. We'll have to hit the
+        // network to get to the information.
+        // Let's try to get information for any wheels that we have
+        // first
+        let result = self.get_metadata_wheels(artifacts).await?;
+        if result.is_some() {
+            return Ok(result);
+        }
+
+        // No wheels found with metadata, try to get metadata from sdists
+        // by building them or using the appropriate hooks
+        if let Some(wheel_builder) = wheel_builder {
+            let result = self.get_metadata_sdists(artifacts, wheel_builder).await?;
+            if result.is_some() {
+                return Ok(result);
+            }
+        }
+
+        // Ok literally nothing seems to work, so we'll just return None
+        Ok(None)
+    }
+
+    /// Opens the specified artifact info. Downloads the artifact data from the remote location if
+    /// the information is not already cached.
+    #[async_recursion]
+    pub async fn get_wheel(
+        &self,
+        artifact_info: &ArtifactInfo,
+        builder: Option<&'async_recursion WheelBuilder>,
+    ) -> miette::Result<Wheel> {
+        // TODO: add support for this currently there are not saved
+        if artifact_info.is::<STree>() {
+            miette::bail!("STree artifacts are not supported");
+        }
+
+        // Try to build the wheel for this SDist if possible
+        if artifact_info.is::<SDist>() {
+            if let Some(builder) = builder {
+                let sdist = self
+                    .get_cached_artifact::<SDist>(artifact_info, CacheMode::Default)
+                    .await?;
+
+                return builder.build_wheel(&sdist).await.into_diagnostic();
+            } else {
+                miette::bail!("cannot build wheel without a wheel builder");
+            }
+        }
+
+        // Otherwise just retrieve the wheel
+        self.get_cached_artifact::<Wheel>(artifact_info, CacheMode::Default)
+            .await
+    }
+
     /// Get artifact directly from file, vcs, or url
     async fn get_artifact_by_direct_url<P: Into<NormalizedPackageName>>(
         &self,
@@ -233,7 +320,7 @@ impl PackageDb {
             let artifact_info_ref = artifact_info.borrow();
             if artifact_info_ref.is::<Wheel>() {
                 let result = self
-                    .get_artifact_with_cache::<Wheel>(artifact_info_ref, CacheMode::OnlyIfCached)
+                    .get_cached_artifact::<Wheel>(artifact_info_ref, CacheMode::OnlyIfCached)
                     .await;
                 match result {
                     Ok(artifact) => {
@@ -262,9 +349,9 @@ impl PackageDb {
                 }
             }
             // We know that it is an sdist
-            else {
+            else if artifact_info_ref.is::<SDist>() {
                 let result = self
-                    .get_artifact_with_cache::<SDist>(artifact_info_ref, CacheMode::OnlyIfCached)
+                    .get_cached_artifact::<SDist>(artifact_info_ref, CacheMode::OnlyIfCached)
                     .await;
 
                 match result {
@@ -312,7 +399,7 @@ impl PackageDb {
 
             // Otherwise download the entire artifact
             let artifact = self
-                .get_artifact_with_cache::<Wheel>(ai, CacheMode::Default)
+                .get_cached_artifact::<Wheel>(ai, CacheMode::Default)
                 .await?;
             let metadata = artifact.metadata();
             match metadata {
@@ -348,7 +435,7 @@ impl PackageDb {
         for ai in sdists {
             let artifact_info = ai.borrow();
             let artifact = self
-                .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
+                .get_cached_artifact::<SDist>(artifact_info, CacheMode::Default)
                 .await?;
             let metadata = wheel_builder.get_sdist_metadata(&artifact).await;
             match metadata {
@@ -372,64 +459,6 @@ impl PackageDb {
             miette::bail!("{}", errors.join("\n"));
         }
 
-        Ok(None)
-    }
-
-    /// Returns the metadata from a set of artifacts. This function assumes that metadata is
-    /// consistent for all artifacts of a single version.
-    pub async fn get_metadata<'a, A: Borrow<ArtifactInfo>>(
-        &self,
-        artifacts: &'a [A],
-        wheel_builder: Option<&WheelBuilder>,
-    ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
-        // Check if we already have information about any of the artifacts cached.
-        // Return if we do
-        for artifact_info in artifacts.iter() {
-            if let Some(metadata_bytes) = self.metadata_from_cache(artifact_info.borrow()).await {
-                return Ok(Some((
-                    artifact_info,
-                    WheelCoreMetadata::try_from(metadata_bytes.as_slice()).into_diagnostic()?,
-                )));
-            }
-        }
-
-        // If there are any STree artifacts we expect the metadata to be available in the cache
-        // So we should have returned by now, this is an error
-        // We should change this behavior later so it is more generic
-        let any_stree = artifacts
-            .iter()
-            .any(|a| a.borrow().filename.as_stree().is_some());
-        if any_stree {
-            miette::bail!("STree Artifacts should have metadata available in the cache, this is an error in the code");
-        }
-
-        // Apparently we dont have any metadata cached yet.
-        // Next up check if we have downloaded any artifacts but do not have the metadata stored yet
-        // In this case we can just return it
-        let result = self.metadata_for_cached_artifacts(artifacts).await?;
-        if result.is_some() {
-            return Ok(result);
-        }
-
-        // We have exhausted all options to read the metadata from the cache. We'll have to hit the
-        // network to get to the information.
-        // Let's try to get information for any wheels that we have
-        // first
-        let result = self.get_metadata_wheels(artifacts).await?;
-        if result.is_some() {
-            return Ok(result);
-        }
-
-        // No wheels found with metadata, try to get metadata from sdists
-        // by building them or using the appropriate hooks
-        if let Some(wheel_builder) = wheel_builder {
-            let result = self.get_metadata_sdists(artifacts, wheel_builder).await?;
-            if result.is_some() {
-                return Ok(result);
-            }
-        }
-
-        // Ok literally nothing seems to work, so we'll just return None
         Ok(None)
     }
 
@@ -520,13 +549,12 @@ impl PackageDb {
 
     /// Opens the specified artifact info. Depending on the specified `cache_mode`, downloads the
     /// artifact data from the remote location if the information is not already cached.
-    async fn get_artifact_with_cache<A: Artifact>(
+    async fn get_cached_artifact<A: Artifact>(
         &self,
         artifact_info: &ArtifactInfo,
         cache_mode: CacheMode,
     ) -> miette::Result<A> {
         // Check if the artifact is the same type as the info.
-        dbg!(&artifact_info.filename);
         let name = artifact_info
             .filename
             .as_inner::<A::Name>()
@@ -555,37 +583,6 @@ impl PackageDb {
             .await
             .into_diagnostic()?;
         A::new(name.clone(), bytes)
-    }
-
-    /// Opens the specified artifact info. Downloads the artifact data from the remote location if
-    /// the information is not already cached.
-    #[async_recursion]
-    pub async fn get_wheel(
-        &self,
-        artifact_info: &ArtifactInfo,
-        builder: Option<&'async_recursion WheelBuilder>,
-    ) -> miette::Result<Wheel> {
-        // TODO: add support for this currently there are not saved
-        if artifact_info.filename.as_stree().is_some() {
-            miette::bail!("STree artifacts are not supported");
-        }
-
-        // Try to build the wheel for this SDist if possible
-        if artifact_info.is::<SDist>() {
-            if let Some(builder) = builder {
-                let sdist = self
-                    .get_artifact_with_cache::<SDist>(artifact_info, CacheMode::Default)
-                    .await?;
-
-                return builder.build_wheel(&sdist).await.into_diagnostic();
-            } else {
-                miette::bail!("cannot build wheel without a wheel builder");
-            }
-        }
-
-        // Otherwise just retrieve the wheel
-        self.get_artifact_with_cache::<Wheel>(artifact_info, CacheMode::Default)
-            .await
     }
 }
 

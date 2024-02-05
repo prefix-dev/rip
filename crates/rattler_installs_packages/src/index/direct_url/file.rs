@@ -2,8 +2,9 @@ use crate::artifacts::{SDist, STree, Wheel};
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::resolve::PypiVersion;
 use crate::types::{
-    Artifact, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, NormalizedPackageName,
-    PackageName, SDistFilename, SDistFormat, STreeFilename, WheelCoreMetadata, Yanked,
+    Artifact, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata, HasArtifactName,
+    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, STreeFilename,
+    WheelCoreMetadata, Yanked,
 };
 use crate::wheel_builder::{WheelBuildError, WheelBuilder};
 use indexmap::IndexMap;
