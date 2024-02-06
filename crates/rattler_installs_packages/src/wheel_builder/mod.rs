@@ -15,9 +15,9 @@ use std::{collections::HashMap, path::PathBuf};
 use parking_lot::Mutex;
 use pep508_rs::MarkerEnvironment;
 
-use crate::artifacts::SourceArtifact;
 use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion};
 use crate::resolve::{OnWheelBuildFailure, ResolveOptions};
+use crate::types::ArtifactFromSource;
 use crate::types::{NormalizedPackageName, PackageName, SourceArtifactName, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelCacheKey};
@@ -91,7 +91,7 @@ impl WheelBuilder {
     /// This function also caches the virtualenvs, so that they can be reused later.
     async fn setup_build_venv(
         &self,
-        sdist: &impl SourceArtifact,
+        sdist: &impl ArtifactFromSource,
     ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
         if let Some(venv) = self.venv_cache.lock().get(&sdist.artifact_name()) {
             tracing::debug!(
@@ -158,7 +158,7 @@ impl WheelBuilder {
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
 
     #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
-    pub async fn get_sdist_metadata<S: SourceArtifact>(
+    pub async fn get_sdist_metadata<S: ArtifactFromSource>(
         &self,
         sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
@@ -181,7 +181,7 @@ impl WheelBuilder {
         self.handle_build_failure(result, &build_environment)
     }
 
-    async fn get_sdist_metadata_internal<S: SourceArtifact>(
+    async fn get_sdist_metadata_internal<S: ArtifactFromSource>(
         &self,
         build_environment: &BuildEnvironment,
         sdist: &S,
@@ -212,7 +212,7 @@ impl WheelBuilder {
     /// Build a wheel from an sdist by using the build_backend in a virtual env.
     /// This function uses the `build_wheel` entry point of the build backend.
     #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
-    pub async fn build_wheel<S: SourceArtifact>(
+    pub async fn build_wheel<S: ArtifactFromSource>(
         &self,
         sdist: &S,
     ) -> Result<Wheel, WheelBuildError> {
@@ -231,7 +231,7 @@ impl WheelBuilder {
         self.handle_build_failure(result, &build_environment)
     }
 
-    async fn build_wheel_internal<S: SourceArtifact>(
+    async fn build_wheel_internal<S: ArtifactFromSource>(
         &self,
         build_environment: &BuildEnvironment,
         sdist: &S,
@@ -289,7 +289,7 @@ impl WheelBuilder {
 #[cfg(test)]
 mod tests {
     use crate::artifacts::SDist;
-    use crate::index::PackageDb;
+    use crate::index::{PackageDb, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
     use crate::resolve::ResolveOptions;
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
@@ -305,15 +305,11 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let client = ClientWithMiddleware::from(Client::new());
 
+        let url = url::Url::parse("https://pypi.org/simple/").unwrap();
+        let sources = PackageSourcesBuilder::new(url).build().unwrap();
+
         (
-            Arc::new(
-                PackageDb::new(
-                    client,
-                    &[url::Url::parse("https://pypi.org/simple/").unwrap()],
-                    tempdir.path(),
-                )
-                .unwrap(),
-            ),
+            Arc::new(PackageDb::new(sources, client, tempdir.path()).unwrap()),
             tempdir,
         )
     }

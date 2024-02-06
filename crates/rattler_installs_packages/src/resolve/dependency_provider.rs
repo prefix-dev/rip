@@ -2,11 +2,11 @@ use super::solve::PreReleaseResolution;
 use super::SDistResolution;
 use crate::artifacts::SDist;
 use crate::artifacts::Wheel;
-use crate::index::PackageDb;
+use crate::index::{ArtifactRequest, PackageDb};
 use crate::python_env::WheelTags;
 use crate::resolve::{PinnedPackage, ResolveOptions};
 use crate::types::{
-    Artifact, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
+    ArtifactFromBytes, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
 };
 use crate::wheel_builder::WheelBuilder;
 use elsa::FrozenMap;
@@ -382,7 +382,7 @@ impl PypiDependencyProvider {
         Ok(artifacts)
     }
 
-    fn solvable_has_artifact_type<S: Artifact>(&self, solvable_id: SolvableId) -> bool {
+    fn solvable_has_artifact_type<S: ArtifactFromBytes>(&self, solvable_id: SolvableId) -> bool {
         self.cached_artifacts
             .get(&solvable_id)
             .unwrap_or(&[])
@@ -477,29 +477,22 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         tracing::info!("requesting candidates #{}", concurrency_count);
 
-        let base_name = package_name.base().clone();
-        let result: miette::Result<_> = if let Some(url) = url_version {
-            tokio::spawn({
-                let url = Url::from_str(url).expect("cannot parse back url");
-                let package_db = self.package_db.clone();
-                let wheel_builder = self.wheel_builder.clone();
-                async move {
-                    Ok(package_db
-                        .get_artifact_by_direct_url(base_name, url, &wheel_builder)
-                        .await?
-                        .clone())
-                }
-            })
-            .await
-            .expect("cancelled")
+        let request = if let Some(url) = url_version {
+            ArtifactRequest::DirectUrl {
+                name: package_name.base().clone(),
+                url: Url::from_str(url).expect("cannot parse back url"),
+                wheel_builder: self.wheel_builder.clone(),
+            }
         } else {
-            tokio::spawn({
-                let package_db = self.package_db.clone();
-                async move { Ok(package_db.available_artifacts(base_name).await?.clone()) }
-            })
-            .await
-            .expect("cancelled")
+            ArtifactRequest::FromIndex(package_name.base().clone())
         };
+
+        let result: Result<_, miette::Report> = tokio::spawn({
+            let package_db = self.package_db.clone();
+            async move { Ok(package_db.available_artifacts(request).await?.clone()) }
+        })
+        .await
+        .expect("cancelled");
 
         tracing::info!("DONE requesting candidates #{}", concurrency_count);
         self.concurrent_candidate_fetches

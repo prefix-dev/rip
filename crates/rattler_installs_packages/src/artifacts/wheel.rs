@@ -1,8 +1,8 @@
 use crate::python_env::{ByteCodeCompiler, CompilationError};
-use crate::types::DirectUrlJson;
+use crate::types::{DirectUrlJson, HasArtifactName};
 use crate::{
     python_env::PythonInterpreterVersion,
-    types::Artifact,
+    types::ArtifactFromBytes,
     types::EntryPoint,
     types::Extra,
     types::NormalizedPackageName,
@@ -48,14 +48,16 @@ pub struct Wheel {
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
 }
 
-impl Artifact for Wheel {
+impl HasArtifactName for Wheel {
     type Name = WheelFilename;
 
     fn name(&self) -> &Self::Name {
         &self.name
     }
+}
 
-    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
+impl ArtifactFromBytes for Wheel {
+    fn from_bytes(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
             name,
             archive: Mutex::new(ZipArchive::new(bytes).into_diagnostic()?),
@@ -76,7 +78,7 @@ impl Wheel {
         let wheel_name =
             WheelFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
         let file = fs::File::open(path).into_diagnostic()?;
-        Self::new(wheel_name, Box::new(file))
+        Self::from_bytes(wheel_name, Box::new(file))
     }
 
     /// Create a wheel from URL and content.
@@ -95,7 +97,7 @@ impl Wheel {
         let wheel_filename =
             WheelFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
 
-        Self::new(wheel_filename.clone(), Box::new(bytes))
+        Self::from_bytes(wheel_filename.clone(), Box::new(bytes))
     }
 
     /// A wheel file always contains a special directory that contains the metadata of the package.
@@ -1399,7 +1401,7 @@ mod test {
             "b2df2c373e85871086bd55271c929670cd4e1dba63e94a08d442db830646203b").unwrap();
 
         let python_path = system_python_executable().unwrap();
-        let compiler = ByteCodeCompiler::new(&python_path).unwrap();
+        let compiler = ByteCodeCompiler::new(python_path).unwrap();
         let unpacked = unpack_wheel(&package_path, &"debugpy".parse().unwrap(), Some(&compiler));
 
         // Determine the location where we would expect the RECORD file to exist

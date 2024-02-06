@@ -1,78 +1,20 @@
 use crate::resolve::PypiVersion;
 use crate::types::{
-    Artifact, NormalizedPackageName, SDistFilename, SDistFormat, STreeFilename, SourceArtifactName,
+    ArtifactFromBytes, ArtifactFromSource, HasArtifactName, NormalizedPackageName,
+    ReadPyProjectError, SDistFilename, SDistFormat, SourceArtifactName,
 };
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;
 use flate2::read::GzDecoder;
-use fs::read_dir;
+
 use fs_err as fs;
 use miette::IntoDiagnostic;
-use std::collections::hash_map::DefaultHasher;
+
 use std::ffi::OsStr;
-use std::hash::{Hash, Hasher};
 use std::io::{ErrorKind, Read, Seek};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 use zip::ZipArchive;
-
-/// SDist or STree act as a SourceArtifact
-/// so we can use it in methods where we expect sdist
-/// to extract metadata
-pub trait SourceArtifact: Sync {
-    /// get bytes of an artifact
-    /// that will we be used for hashing
-    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error>;
-
-    /// Distribution Name
-    fn distribution_name(&self) -> String;
-
-    /// Version ( URL or Version )
-    fn version(&self) -> PypiVersion;
-
-    /// Source artifact name
-    fn artifact_name(&self) -> SourceArtifactName;
-
-    /// Read the build system info from the pyproject.toml
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError>;
-
-    /// extract to a specific location
-    /// for sdist we unpack it
-    /// for stree we move it
-    /// as example this method is used by install_build_files
-    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()>;
-}
-
-/// Represents a source tree which can be a simple directory on filesystem
-/// or something cloned from git
-pub struct STree {
-    /// Name of the source tree
-    pub name: STreeFilename,
-
-    /// Source tree location
-    pub location: parking_lot::Mutex<PathBuf>,
-}
-
-impl STree {
-    /// Get a lock on the inner data
-    pub fn lock_data(&self) -> parking_lot::MutexGuard<PathBuf> {
-        self.location.lock()
-    }
-    /// Copy source tree directory in specific location
-    fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
-        fs::create_dir_all(&dst)?;
-        for entry in fs::read_dir(src.as_ref())? {
-            let entry = entry?;
-            let ty = entry.file_type()?;
-            if ty.is_dir() {
-                Self::copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
-            } else {
-                fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
-            }
-        }
-        Ok(())
-    }
-}
 
 /// Represents a source distribution artifact.
 pub struct SDist {
@@ -85,17 +27,14 @@ pub struct SDist {
 
 #[derive(thiserror::Error, Debug)]
 pub enum SDistError {
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("IO error while reading PKG-INFO: {0}")]
+    PkgInfoIOError(#[source] std::io::Error),
 
     #[error("No PKG-INFO found in archive")]
     NoPkgInfoFound,
 
-    #[error("No pyproject.toml found in archive")]
-    NoPyProjectTomlFound,
-
-    #[error("Could not parse pyproject.toml")]
-    PyProjectTomlParseError(String),
+    #[error(transparent)]
+    PyProjectTomlError(#[from] ReadPyProjectError),
 
     #[error("Could not parse metadata")]
     WheelCoreMetaDataError(#[from] WheelCoreMetaDataError),
@@ -115,7 +54,7 @@ impl SDist {
         let name =
             SDistFilename::from_filename(file_name, normalized_package_name).into_diagnostic()?;
         let bytes = fs::File::open(path).into_diagnostic()?;
-        Self::new(name, Box::new(bytes))
+        Self::from_bytes(name, Box::new(bytes))
     }
 
     /// Find entry in tar archive
@@ -167,7 +106,10 @@ impl SDist {
 
     /// Read .PKG-INFO from the archive
     pub fn read_package_info(&self) -> Result<(Vec<u8>, WheelCoreMetadata), SDistError> {
-        if let Some(bytes) = self.find_entry("PKG-INFO")? {
+        if let Some(bytes) = self
+            .find_entry("PKG-INFO")
+            .map_err(SDistError::PkgInfoIOError)?
+        {
             let metadata = WheelCoreMetadata::try_from(bytes.as_slice())?;
 
             Ok((bytes, metadata))
@@ -194,13 +136,16 @@ impl SDist {
     }
 }
 
-impl Artifact for SDist {
+impl HasArtifactName for SDist {
     type Name = SDistFilename;
 
     fn name(&self) -> &Self::Name {
         &self.name
     }
-    fn new(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
+}
+
+impl ArtifactFromBytes for SDist {
+    fn from_bytes(name: Self::Name, bytes: Box<dyn ReadAndSeek + Send>) -> miette::Result<Self> {
         Ok(Self {
             name,
             file: parking_lot::Mutex::new(bytes),
@@ -208,7 +153,15 @@ impl Artifact for SDist {
     }
 }
 
-impl SourceArtifact for SDist {
+impl ArtifactFromSource for SDist {
+    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+        let mut vec = vec![];
+        let mut inner = self.lock_data();
+        inner.rewind()?;
+        inner.read_to_end(&mut vec)?;
+        Ok(vec)
+    }
+
     fn distribution_name(&self) -> String {
         self.name().distribution.as_source_str().to_owned()
     }
@@ -220,28 +173,20 @@ impl SourceArtifact for SDist {
         }
     }
 
-    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
-        let mut vec = vec![];
-        let mut inner = self.lock_data();
-        inner.rewind()?;
-        inner.read_to_end(&mut vec)?;
-        Ok(vec)
-    }
-
     fn artifact_name(&self) -> SourceArtifactName {
         SourceArtifactName::SDist(self.name().to_owned())
     }
 
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
+    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, ReadPyProjectError> {
         if let Some(bytes) = self.find_entry("pyproject.toml")? {
             let source = String::from_utf8(bytes).map_err(|e| {
-                SDistError::PyProjectTomlParseError(format!(
+                ReadPyProjectError::PyProjectTomlParseError(format!(
                     "could not parse pyproject.toml (bad encoding): {}",
                     e
                 ))
             })?;
             let project = pyproject_toml::PyProjectToml::new(&source).map_err(|e| {
-                SDistError::PyProjectTomlParseError(format!(
+                ReadPyProjectError::PyProjectTomlParseError(format!(
                     "could not parse pyproject.toml (bad toml): {}",
                     e
                 ))
@@ -250,7 +195,7 @@ impl SourceArtifact for SDist {
                 .build_system
                 .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
         } else {
-            Err(SDistError::NoPyProjectTomlFound)
+            Err(ReadPyProjectError::NoPyProjectTomlFound)
         }
     }
 
@@ -268,66 +213,6 @@ impl SourceArtifact for SDist {
                 Ok(())
             }
         }
-    }
-}
-
-impl SourceArtifact for STree {
-    fn try_get_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
-        let vec = vec![];
-        let inner = self.lock_data();
-        let mut dir_entry = read_dir(inner.as_path())?;
-
-        let next_entry = dir_entry.next();
-        if let Some(Ok(root_folder)) = next_entry {
-            let modified = root_folder.metadata()?.modified()?;
-            let mut hasher = DefaultHasher::new();
-            modified.hash(&mut hasher);
-            let hash = hasher.finish().to_be_bytes().as_slice().to_owned();
-            return Ok(hash);
-        }
-
-        Ok(vec)
-    }
-
-    fn distribution_name(&self) -> String {
-        self.name.distribution.as_source_str().to_owned()
-    }
-
-    fn version(&self) -> PypiVersion {
-        PypiVersion::Url(self.name.url.clone())
-    }
-
-    fn artifact_name(&self) -> SourceArtifactName {
-        SourceArtifactName::STree(self.name.clone())
-    }
-
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, SDistError> {
-        let location = self.lock_data().join("pyproject.toml");
-
-        if let Ok(bytes) = fs::read(location) {
-            let source = String::from_utf8(bytes).map_err(|e| {
-                SDistError::PyProjectTomlParseError(format!(
-                    "could not parse pyproject.toml (bad encoding): {}",
-                    e
-                ))
-            })?;
-            let project = pyproject_toml::PyProjectToml::new(&source).map_err(|e| {
-                SDistError::PyProjectTomlParseError(format!(
-                    "could not parse pyproject.toml (bad toml): {}",
-                    e
-                ))
-            })?;
-            Ok(project
-                .build_system
-                .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
-        } else {
-            Err(SDistError::NoPyProjectTomlFound)
-        }
-    }
-    /// move all files to a specific directory
-    fn extract_to(&self, work_dir: &Path) -> std::io::Result<()> {
-        let src = self.lock_data();
-        Self::copy_dir_all(src.as_path(), work_dir)
     }
 }
 
@@ -375,15 +260,20 @@ fn generic_archive_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::{SDist, SourceArtifact};
+    use crate::artifacts::SDist;
+    use crate::index::{ArtifactRequest, PackageSourcesBuilder};
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
     use crate::resolve::SDistResolution;
-    use crate::types::Extra;
     use crate::types::PackageName;
+    use crate::types::{
+        ArtifactFromSource, ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, STreeFilename,
+        Yanked,
+    };
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
+    use pep440_rs::Version;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
     use std::collections::{HashMap, HashSet};
@@ -398,15 +288,11 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let client = ClientWithMiddleware::from(Client::new());
 
+        let url = url::Url::parse("https://pypi.org/simple/").unwrap();
+        let sources = PackageSourcesBuilder::new(url).build().unwrap();
+
         (
-            Arc::new(
-                PackageDb::new(
-                    client,
-                    &[url::Url::parse("https://pypi.org/simple/").unwrap()],
-                    tempdir.path(),
-                )
-                .unwrap(),
-            ),
+            Arc::new(PackageDb::new(sources, client, tempdir.path()).unwrap()),
             tempdir,
         )
     }
@@ -757,7 +643,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: Arc::new(wheel_builder),
+            })
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -786,7 +676,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: Arc::new(wheel_builder),
+            })
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -817,7 +711,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: Arc::new(wheel_builder),
+            })
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -844,7 +742,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: Arc::new(wheel_builder),
+            })
             .await
             .unwrap();
 
@@ -884,7 +786,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: Arc::new(wheel_builder),
+            })
             .await
             .unwrap();
         let artifact_info = content.get(&PypiVersion::Url(url)).unwrap();
@@ -911,7 +817,11 @@ mod tests {
         let norm_name = PackageName::from_str("rich").unwrap();
         let content = package_db
             .0
-            .get_artifact_by_direct_url(norm_name, url.clone(), &wheel_builder)
+            .available_artifacts(ArtifactRequest::DirectUrl {
+                name: norm_name.into(),
+                url: url.clone(),
+                wheel_builder: Arc::new(wheel_builder),
+            })
             .await
             .unwrap();
 
@@ -923,6 +833,50 @@ mod tests {
         let wheel_metadata = package_db
             .0
             .get_metadata(artifact_info.as_slice(), None)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_debug_snapshot!(wheel_metadata.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn get_only_metadata_for_local_stree_rich_without_calling_available_artifacts() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/stree/dev_folder_with_rich");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let stree_file_name = STreeFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            url: url.clone(),
+        };
+
+        let artifact_info = vec![ArtifactInfo {
+            filename: ArtifactName::STree(stree_file_name),
+            url: url,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        }];
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
             .await
             .unwrap()
             .unwrap();

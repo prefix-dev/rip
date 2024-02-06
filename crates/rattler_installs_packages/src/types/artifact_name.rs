@@ -524,6 +524,12 @@ impl InnerAsArtifactName for SDistFilename {
     }
 }
 
+impl InnerAsArtifactName for STreeFilename {
+    fn try_as(name: &ArtifactName) -> Option<&Self> {
+        name.as_stree()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
