@@ -445,7 +445,6 @@ impl PackageDb {
 
         // Check if errors is empty and if not return an error
         if !errors.is_empty() {
-            tracing::warn!("errors while processing source distributions:");
             miette::bail!("{}", errors.join("\n"));
         }
 
@@ -498,6 +497,10 @@ impl PackageDb {
                     continue;
                 }
             }
+        }
+
+        if !errors.is_empty() {
+            miette::bail!("{}", errors.join("\n"));
         }
 
         Ok(None)
