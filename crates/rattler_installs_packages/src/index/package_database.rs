@@ -266,9 +266,13 @@ impl PackageDb {
             return Ok(cached);
         }
 
-        let response =
-            fetch_artifact_and_metadata_by_direct_url(&self.http, p.clone(), url, wheel_builder)
-                .await?;
+        let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
+            &self.http,
+            p.clone(),
+            url,
+            wheel_builder,
+        )
+        .await?;
 
         self.put_metadata_in_cache(&response.artifact_info, &response.metadata.0)
             .await?;
@@ -474,7 +478,7 @@ impl PackageDb {
                         artifact_info.filename
                     )
                 });
-            let response = fetch_artifact_and_metadata_by_direct_url(
+            let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
                 &self.http,
                 stree_name.distribution.clone(),
                 artifact_info.url.clone(),
@@ -624,35 +628,6 @@ impl PackageDb {
             .into_diagnostic()?;
         A::from_bytes(name.clone(), bytes)
     }
-}
-
-/// Get artifact directly from file, vcs, or url
-async fn fetch_artifact_and_metadata_by_direct_url<P: Into<NormalizedPackageName>>(
-    http: &Http,
-    p: P,
-    url: Url,
-    wheel_builder: &WheelBuilder,
-) -> miette::Result<DirectUrlArtifactResponse> {
-    let p = p.into();
-
-    let response = if url.scheme() == "file" {
-        // This can result in a Wheel, Sdist or STree
-        super::direct_url::file::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
-    } else if url.scheme() == "https" {
-        // This can be a Wheel or SDist artifact
-        super::direct_url::http::get_artifacts_and_metadata(http, p.clone(), url, wheel_builder)
-            .await
-    } else if url.scheme() == "git+https" || url.scheme() == "git+file" {
-        // This can be a STree artifact
-        super::direct_url::git::get_artifacts_and_metadata(p.clone(), url, wheel_builder).await
-    } else {
-        Err(miette::miette!(
-            "Usage of insecure protocol or unsupported scheme {:?}",
-            url.scheme()
-        ))
-    }?;
-
-    Ok(response)
 }
 
 async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<ProjectInfo>> {
