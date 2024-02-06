@@ -48,7 +48,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     )
     .await?;
 
-    let requires_python = wheel_metadata.1.requires_python;
+    let requires_python = wheel_metadata.1.requires_python.clone();
 
     let dist_info_metadata = DistInfoMetadata {
         available: false,
@@ -78,7 +78,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
 
     Ok(DirectUrlArtifactResponse {
         artifact_info,
-        metadata_bytes: wheel_metadata.0,
+        metadata: (wheel_metadata.0, wheel_metadata.1),
         artifact_versions: result,
     })
 }

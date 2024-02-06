@@ -165,7 +165,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         filename: artifact_name,
         url: url.clone(),
         hashes: Some(artifact_hash),
-        requires_python: metadata.requires_python,
+        requires_python: metadata.requires_python.clone(),
         dist_info_metadata: DistInfoMetadata::default(),
         yanked: Yanked::default(),
     });
@@ -175,7 +175,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
 
     Ok(DirectUrlArtifactResponse {
         artifact_info,
-        metadata_bytes,
+        metadata: (metadata_bytes, metadata),
         artifact_versions: result,
     })
 }
