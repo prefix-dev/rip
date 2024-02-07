@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env::temp_dir;
 use std::fmt;
 use std::{
     fmt::{Display, Formatter},
@@ -314,7 +313,7 @@ pub fn git_clone(source: &GitSource) -> Result<PathBuf, SourceError> {
         ));
     }
 
-    let tmp_dir = temp_dir();
+    let tmp_dir = tempfile::tempdir().unwrap().into_path();
 
     let cache_dir = tmp_dir.join("rip-git-cache");
     let recipe_dir = tmp_dir.join("rip-clone-dir");
