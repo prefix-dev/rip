@@ -5,7 +5,7 @@ use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::index::package_sources::PackageSources;
 use crate::resolve::PypiVersion;
-use crate::types::{ArtifactInfo, ProjectInfo, STreeFilename, WheelCoreMetadata};
+use crate::types::{ArtifactInfo, ArtifactType, ProjectInfo, STreeFilename, WheelCoreMetadata};
 
 use crate::wheel_builder::{WheelBuilder, WheelCache};
 use crate::{
@@ -71,6 +71,7 @@ pub(crate) struct DirectUrlArtifactResponse {
     pub(crate) artifact_info: Arc<ArtifactInfo>,
     pub(crate) artifact_versions: VersionArtifacts,
     pub(crate) metadata: (Vec<u8>, WheelCoreMetadata),
+    pub(crate) artifact: ArtifactType,
 }
 
 impl PackageDb {
@@ -232,7 +233,35 @@ impl PackageDb {
     ) -> miette::Result<Wheel> {
         // TODO: add support for this currently there are not saved
         if artifact_info.is::<STree>() {
-            miette::bail!("STree artifacts are not supported");
+            if let Some(builder) = builder {
+                let stree_name = artifact_info
+                    .filename
+                    .as_inner::<STreeFilename>()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "the specified artifact '{}' does not refer to type requested to read",
+                            artifact_info.filename
+                        )
+                    });
+
+                let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
+                    &self.http,
+                    stree_name.distribution.clone(),
+                    artifact_info.url.clone(),
+                    builder,
+                )
+                .await?;
+
+                let stree = response
+                    .artifact
+                    .as_stree()
+                    .expect("the request artifact does not refer to stree");
+
+                let built = builder.build_wheel(stree).await.into_diagnostic();
+                return built;
+            } else {
+                miette::bail!("cannot build wheel without a wheel builder");
+            }
         }
 
         // Try to build the wheel for this SDist if possible

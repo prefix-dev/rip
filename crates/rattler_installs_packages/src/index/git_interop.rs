@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env::temp_dir;
 use std::fmt;
 use std::{
     fmt::{Display, Formatter},
@@ -12,7 +13,6 @@ use fs_extra::dir::remove;
 use miette::IntoDiagnostic;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tempfile::TempDir;
 use url::Url;
 
 /// A Git repository URL or a local path to a Git repository
@@ -300,8 +300,28 @@ fn get_revision_sha(dest: &PathBuf, rev: Option<String>) -> Result<GitRev, Sourc
     Ok(GitRev::Commit(rev.to_owned()))
 }
 
+/// Represents a location
+// pub struct Location {
+//     /// Represents a location
+//     pub cache_dir: TempDir,
+//     /// Represents a location
+//     pub location: PathBuf
+// }
+
+// /// Represents a location
+// impl Location {
+//     /// Represents a location
+//     pub fn new(path: PathBuf) -> Self {
+//         let tmp = tempdir().unwrap();
+//         Self{
+//           cache_dir: tmp,
+//           location: path
+//         }
+//     }
+// }
+
 /// Fetch the git repository specified by the given source and place it in the cache directory.
-pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, SourceError> {
+pub fn git_clone(source: &GitSource) -> Result<PathBuf, SourceError> {
     // test if git is available locally as we fetch the git from PATH,
     if !Command::new("git")
         .arg("--version")
@@ -314,8 +334,11 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
         ));
     }
 
-    let cache_dir = tmp_dir.path().join("rip-git-cache");
-    let recipe_dir = tmp_dir.path().join("rip-clone-dir");
+    // let tmp_dir = tempdir().unwrap();
+    let tmp_dir = temp_dir();
+
+    let cache_dir = tmp_dir.join("rip-git-cache");
+    let recipe_dir = tmp_dir.join("rip-clone-dir");
 
     let filename = match &source.url() {
         GitUrl::Url(url) => (|| Some(url.path_segments()?.last()?.to_string()))()
@@ -434,6 +457,11 @@ pub fn git_clone(source: &GitSource, tmp_dir: &TempDir) -> Result<PathBuf, Sourc
             return Err(SourceError::GitErrorStr("failed to update git module"));
         }
     }
+
+    // let loc = Location{
+    //     cache_dir: tmp_dir,
+    //     location: cache_path
+    // };
 
     Ok(cache_path)
 }

@@ -19,7 +19,7 @@ use zip::ZipArchive;
 /// Represents a source distribution artifact.
 pub struct SDist {
     /// Name of the source distribution
-    name: SDistFilename,
+    pub name: SDistFilename,
 
     /// Source dist archive
     file: parking_lot::Mutex<Box<dyn ReadAndSeek + Send>>,
@@ -133,6 +133,12 @@ impl SDist {
     /// Get a lock on the inner data
     pub fn lock_data(&self) -> parking_lot::MutexGuard<Box<dyn ReadAndSeek + Send>> {
         self.file.lock()
+    }
+
+    /// Get a lock on the inner data
+    pub fn set_name(&mut self, name: SDistFilename) -> miette::Result<()> {
+        self.name = name;
+        Ok(())
     }
 }
 
@@ -882,5 +888,50 @@ mod tests {
             .unwrap();
 
         assert_debug_snapshot!(wheel_metadata.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn get_whl_for_local_stree_rich() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/stree/dev_folder_with_rich");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let stree_file_name = STreeFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            url: url.clone(),
+        };
+
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::STree(stree_file_name),
+            url: url,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let whl = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+
+        let whl_metadata = whl.metadata().unwrap();
+
+        assert_debug_snapshot!(whl_metadata.1);
     }
 }

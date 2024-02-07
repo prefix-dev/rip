@@ -1,4 +1,5 @@
 use super::{NormalizedPackageName, PackageName, ParsePackageNameError};
+use crate::artifacts::{SDist, STree, Wheel};
 use crate::python_env::WheelTag;
 use crate::types::Version;
 use itertools::Itertools;
@@ -527,6 +528,54 @@ impl InnerAsArtifactName for SDistFilename {
 impl InnerAsArtifactName for STreeFilename {
     fn try_as(name: &ArtifactName) -> Option<&Self> {
         name.as_stree()
+    }
+}
+
+/// Enum that contains all artifacts types
+pub enum ArtifactType {
+    /// Wheel artifact
+    Wheel(Wheel),
+    /// Sdist artifact
+    SDist(SDist),
+    /// STree artifact
+    STree(STree),
+}
+
+impl ArtifactType {
+    /// Return the name of artifact
+    pub fn name(&self) -> ArtifactName {
+        match self {
+            ArtifactType::Wheel(artifact) => ArtifactName::Wheel(artifact.name.clone()),
+            ArtifactType::SDist(artifact) => ArtifactName::SDist(artifact.name.clone()),
+            ArtifactType::STree(artifact) => ArtifactName::STree(artifact.name.clone()),
+        }
+    }
+
+    /// Returns this artifact as wheel
+    pub fn as_wheel(&self) -> Option<&Wheel> {
+        match self {
+            ArtifactType::Wheel(wheel) => Some(wheel),
+            ArtifactType::SDist(_) => None,
+            ArtifactType::STree(_) => None,
+        }
+    }
+
+    /// Returns this name as a wheel name
+    pub fn as_sdist(&self) -> Option<&SDist> {
+        match self {
+            ArtifactType::Wheel(_) => None,
+            ArtifactType::STree(_) => None,
+            ArtifactType::SDist(sdist) => Some(sdist),
+        }
+    }
+
+    /// Returns this name as a source tree name
+    pub fn as_stree(&self) -> Option<&STree> {
+        match self {
+            ArtifactType::Wheel(_) => None,
+            ArtifactType::STree(name) => Some(name),
+            ArtifactType::SDist(_) => None,
+        }
     }
 }
 

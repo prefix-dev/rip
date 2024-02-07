@@ -22,8 +22,8 @@ mod rfc822ish;
 pub use artifact::{ArtifactFromBytes, ArtifactFromSource, HasArtifactName, ReadPyProjectError};
 
 pub use artifact_name::{
-    ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFilename,
-    SDistFormat, STreeFilename, SourceArtifactName, WheelFilename,
+    ArtifactName, ArtifactType, BuildTag, InnerAsArtifactName, ParseArtifactNameError,
+    SDistFilename, SDistFormat, STreeFilename, SourceArtifactName, WheelFilename,
 };
 
 pub use direct_url_json::{DirectUrlHashes, DirectUrlJson, DirectUrlSource, DirectUrlVcs};
