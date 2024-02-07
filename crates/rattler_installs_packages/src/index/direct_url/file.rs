@@ -1,5 +1,4 @@
 use crate::artifacts::{SDist, STree, Wheel};
-// use crate::index::git_interop::Location;
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::resolve::PypiVersion;
 use crate::types::{
@@ -94,14 +93,10 @@ pub(crate) async fn get_stree_from_file_path(
         location: Mutex::new(path),
     };
 
-    println!("BEFORE GET SDIST METADATA");
-
     let wheel_metadata = wheel_builder
         .get_sdist_metadata(&stree)
         .await
         .into_diagnostic()?;
-
-    println!("AFTER SDIST METADATA");
 
     let stree_file_name = STreeFilename {
         distribution: wheel_metadata.1.name.clone(),
@@ -134,12 +129,9 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let normalized_package_name = p.into();
 
     let (metadata_bytes, metadata, artifact) = if path.is_file() && str_name.ends_with(".whl") {
-        eprintln!("BEFORE FROM PATH");
         let wheel = Wheel::from_path(&path, &normalized_package_name)
             .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))
             .into_diagnostic()?;
-
-        eprintln!("AFTER FROM  PATH");
 
         let (data_bytes, metadata) = wheel.metadata()?;
         (data_bytes, metadata, ArtifactType::Wheel(wheel))

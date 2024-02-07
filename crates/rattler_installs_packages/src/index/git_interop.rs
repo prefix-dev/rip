@@ -300,26 +300,6 @@ fn get_revision_sha(dest: &PathBuf, rev: Option<String>) -> Result<GitRev, Sourc
     Ok(GitRev::Commit(rev.to_owned()))
 }
 
-/// Represents a location
-// pub struct Location {
-//     /// Represents a location
-//     pub cache_dir: TempDir,
-//     /// Represents a location
-//     pub location: PathBuf
-// }
-
-// /// Represents a location
-// impl Location {
-//     /// Represents a location
-//     pub fn new(path: PathBuf) -> Self {
-//         let tmp = tempdir().unwrap();
-//         Self{
-//           cache_dir: tmp,
-//           location: path
-//         }
-//     }
-// }
-
 /// Fetch the git repository specified by the given source and place it in the cache directory.
 pub fn git_clone(source: &GitSource) -> Result<PathBuf, SourceError> {
     // test if git is available locally as we fetch the git from PATH,
@@ -457,11 +437,6 @@ pub fn git_clone(source: &GitSource) -> Result<PathBuf, SourceError> {
             return Err(SourceError::GitErrorStr("failed to update git module"));
         }
     }
-
-    // let loc = Location{
-    //     cache_dir: tmp_dir,
-    //     location: cache_path
-    // };
 
     Ok(cache_path)
 }

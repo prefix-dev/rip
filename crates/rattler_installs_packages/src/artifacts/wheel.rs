@@ -653,12 +653,9 @@ impl Wheel {
         python_executable: &Path,
         options: &UnpackWheelOptions,
     ) -> Result<UnpackedWheel, UnpackError> {
-        println!("BEFORE GET VITALS");
         let vitals = self
             .get_vitals()
             .map_err(UnpackError::FailedToParseWheelVitals)?;
-
-        println!("AFTER GET VITALS");
 
         let transformer = WheelPathTransformer {
             data: vitals.data,

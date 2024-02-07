@@ -12,7 +12,5 @@ mod package_sources;
 pub use package_database::{ArtifactRequest, PackageDb};
 pub use package_sources::{PackageSources, PackageSourcesBuilder};
 
-// pub use git_interop::Location;
-
 pub use self::http::CacheMode;
 pub use html::parse_hash;

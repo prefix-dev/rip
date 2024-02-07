@@ -134,12 +134,6 @@ impl SDist {
     pub fn lock_data(&self) -> parking_lot::MutexGuard<Box<dyn ReadAndSeek + Send>> {
         self.file.lock()
     }
-
-    /// Get a lock on the inner data
-    pub fn set_name(&mut self, name: SDistFilename) -> miette::Result<()> {
-        self.name = name;
-        Ok(())
-    }
 }
 
 impl HasArtifactName for SDist {
