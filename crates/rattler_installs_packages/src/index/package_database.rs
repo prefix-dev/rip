@@ -634,14 +634,20 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
     let mut headers = HeaderMap::new();
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
 
-    let response = http
-        .request(url, Method::GET, headers, CacheMode::Default)
-        .await?;
-
-    // If the resource could not be found we simply return.
-    if response.status() == StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
+    let response = match http
+        .request(url.to_owned(), Method::GET, headers, CacheMode::Default)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            if let HttpRequestError::HttpError(err) = &err {
+                if err.status() == Some(StatusCode::NOT_FOUND) {
+                    return Ok(None);
+                }
+            }
+            return Err(err.into());
+        }
+    };
 
     let content_type = response
         .headers()
