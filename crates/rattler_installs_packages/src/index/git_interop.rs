@@ -314,7 +314,6 @@ pub fn git_clone(source: &GitSource) -> Result<PathBuf, SourceError> {
         ));
     }
 
-    // let tmp_dir = tempdir().unwrap();
     let tmp_dir = temp_dir();
 
     let cache_dir = tmp_dir.join("rip-git-cache");
