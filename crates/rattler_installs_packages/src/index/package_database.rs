@@ -826,15 +826,8 @@ mod test {
             .available_artifacts(ArtifactRequest::FromIndex(pytest_name.into()))
             .await;
 
-        // Should fail because pytest is associated with test index
-        assert!(pytest_result.is_err());
-        match pytest_result
-            .unwrap_err()
-            .downcast_ref::<HttpRequestError>()
-        {
-            Some(HttpRequestError::HttpError(e)) if e.status() == Some(StatusCode::NOT_FOUND) => (),
-            _ => panic!("unexpected error type"),
-        };
+        // Should not fail because 404s are skipped
+        assert!(pytest_result.is_ok());
 
         let test_package_result = package_db
             .available_artifacts(ArtifactRequest::FromIndex(normalized_name))
