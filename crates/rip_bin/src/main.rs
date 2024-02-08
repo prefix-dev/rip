@@ -1,5 +1,5 @@
 use fs_err as fs;
-use rattler_installs_packages::resolve::PreReleaseResolution;
+use rattler_installs_packages::resolve::solve_options::{PreReleaseResolution, ResolveOptions};
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -19,11 +19,10 @@ use url::Url;
 use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
 use rattler_installs_packages::index::PackageSourcesBuilder;
 use rattler_installs_packages::python_env::{PythonLocation, WheelTags};
-use rattler_installs_packages::resolve::OnWheelBuildFailure;
+use rattler_installs_packages::resolve::solve_options::OnWheelBuildFailure;
 use rattler_installs_packages::wheel_builder::WheelBuilder;
 use rattler_installs_packages::{
-    normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve,
-    resolve::ResolveOptions, types::Requirement,
+    normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve, types::Requirement,
 };
 
 #[derive(Serialize, Debug)]
@@ -97,18 +96,19 @@ struct SDistResolution {
     only_sdists: bool,
 }
 
-impl From<SDistResolution> for resolve::SDistResolution {
+use resolve::solve_options::SDistResolution as LibSDistResolution;
+impl From<SDistResolution> for LibSDistResolution {
     fn from(value: SDistResolution) -> Self {
         if value.only_sdists {
-            resolve::SDistResolution::OnlySDists
+            LibSDistResolution::OnlySDists
         } else if value.only_wheels {
-            resolve::SDistResolution::OnlyWheels
+            LibSDistResolution::OnlyWheels
         } else if value.prefer_sdists {
-            resolve::SDistResolution::PreferSDists
+            LibSDistResolution::PreferSDists
         } else if value.prefer_wheels {
-            resolve::SDistResolution::PreferWheels
+            LibSDistResolution::PreferWheels
         } else {
-            resolve::SDistResolution::Normal
+            LibSDistResolution::Normal
         }
     }
 }

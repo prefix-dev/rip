@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 use pep508_rs::MarkerEnvironment;
 
 use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion};
-use crate::resolve::{OnWheelBuildFailure, ResolveOptions};
+use crate::resolve::solve_options::{OnWheelBuildFailure, ResolveOptions};
 use crate::types::ArtifactFromSource;
 use crate::types::{NormalizedPackageName, PackageName, SourceArtifactName, WheelFilename};
 use crate::wheel_builder::build_environment::BuildEnvironment;
@@ -291,7 +291,7 @@ mod tests {
     use crate::artifacts::SDist;
     use crate::index::{PackageDb, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
-    use crate::resolve::ResolveOptions;
+    use crate::resolve::solve_options::ResolveOptions;
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
     use crate::wheel_builder::WheelBuilder;
     use reqwest::Client;
@@ -365,7 +365,8 @@ mod tests {
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let resolve_options = ResolveOptions {
-            on_wheel_build_failure: crate::resolve::OnWheelBuildFailure::SaveBuildEnv,
+            on_wheel_build_failure:
+                crate::resolve::solve_options::OnWheelBuildFailure::SaveBuildEnv,
             ..Default::default()
         };
 
