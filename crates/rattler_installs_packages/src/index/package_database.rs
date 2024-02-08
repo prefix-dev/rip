@@ -634,14 +634,20 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
     let mut headers = HeaderMap::new();
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
 
-    let response = http
-        .request(url, Method::GET, headers, CacheMode::Default)
-        .await?;
-
-    // If the resource could not be found we simply return.
-    if response.status() == StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
+    let response = match http
+        .request(url.to_owned(), Method::GET, headers, CacheMode::Default)
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            if let HttpRequestError::HttpError(err) = &err {
+                if err.status() == Some(StatusCode::NOT_FOUND) {
+                    return Ok(None);
+                }
+            }
+            return Err(err.into());
+        }
+    };
 
     let content_type = response
         .headers()
@@ -820,15 +826,8 @@ mod test {
             .available_artifacts(ArtifactRequest::FromIndex(pytest_name.into()))
             .await;
 
-        // Should fail because pytest is associated with test index
-        assert!(pytest_result.is_err());
-        match pytest_result
-            .unwrap_err()
-            .downcast_ref::<HttpRequestError>()
-        {
-            Some(HttpRequestError::HttpError(e)) if e.status() == Some(StatusCode::NOT_FOUND) => (),
-            _ => panic!("unexpected error type"),
-        };
+        // Should not fail because 404s are skipped
+        assert!(pytest_result.is_ok());
 
         let test_package_result = package_db
             .available_artifacts(ArtifactRequest::FromIndex(normalized_name))
