@@ -22,13 +22,13 @@ mod rfc822ish;
 pub use artifact::{ArtifactFromBytes, ArtifactFromSource, HasArtifactName, ReadPyProjectError};
 
 pub use artifact_name::{
-    ArtifactName, BuildTag, InnerAsArtifactName, ParseArtifactNameError, SDistFilename,
-    SDistFormat, STreeFilename, SourceArtifactName, WheelFilename,
+    ArtifactName, ArtifactType, BuildTag, InnerAsArtifactName, ParseArtifactNameError,
+    SDistFilename, SDistFormat, STreeFilename, SourceArtifactName, WheelFilename,
 };
 
 pub use direct_url_json::{DirectUrlHashes, DirectUrlJson, DirectUrlSource, DirectUrlVcs};
 
-pub use core_metadata::{MetadataVersion, WheelCoreMetaDataError, WheelCoreMetadata};
+pub use core_metadata::{MetadataVersion, PackageInfo, WheelCoreMetaDataError, WheelCoreMetadata};
 
 pub use record::{Record, RecordEntry};
 
@@ -42,5 +42,5 @@ pub use project_info::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, Meta, Pro
 
 pub(crate) use rfc822ish::RFC822ish;
 
-pub use pep440_rs::{Version, VersionSpecifier, VersionSpecifiers};
-pub use pep508_rs::{MarkerEnvironment, Requirement};
+pub use pep440_rs::*;
+pub use pep508_rs::*;

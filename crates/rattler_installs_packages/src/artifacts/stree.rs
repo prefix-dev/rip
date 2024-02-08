@@ -5,7 +5,6 @@ use crate::types::{HasArtifactName, STreeFilename, SourceArtifactName};
 use fs_err as fs;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 /// Represents a source tree which can be a simple directory on filesystem
@@ -78,7 +77,7 @@ impl ArtifactFromSource for STree {
         SourceArtifactName::STree(self.name.clone())
     }
 
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, ReadPyProjectError> {
+    fn read_pyproject_toml(&self) -> Result<pyproject_toml::PyProjectToml, ReadPyProjectError> {
         let location = self.lock_data().join("pyproject.toml");
 
         if let Ok(bytes) = fs::read(location) {
@@ -94,9 +93,7 @@ impl ArtifactFromSource for STree {
                     e
                 ))
             })?;
-            Ok(project
-                .build_system
-                .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
+            Ok(project)
         } else {
             Err(ReadPyProjectError::NoPyProjectTomlFound)
         }

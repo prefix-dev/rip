@@ -1,6 +1,6 @@
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactFromBytes, ArtifactFromSource, HasArtifactName, NormalizedPackageName,
+    ArtifactFromBytes, ArtifactFromSource, HasArtifactName, NormalizedPackageName, PackageInfo,
     ReadPyProjectError, SDistFilename, SDistFormat, SourceArtifactName,
 };
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
@@ -19,7 +19,7 @@ use zip::ZipArchive;
 /// Represents a source distribution artifact.
 pub struct SDist {
     /// Name of the source distribution
-    name: SDistFilename,
+    pub name: SDistFilename,
 
     /// Source dist archive
     file: parking_lot::Mutex<Box<dyn ReadAndSeek + Send>>,
@@ -105,12 +105,12 @@ impl SDist {
     }
 
     /// Read .PKG-INFO from the archive
-    pub fn read_package_info(&self) -> Result<(Vec<u8>, WheelCoreMetadata), SDistError> {
+    pub fn read_package_info(&self) -> Result<(Vec<u8>, PackageInfo), SDistError> {
         if let Some(bytes) = self
             .find_entry("PKG-INFO")
             .map_err(SDistError::PkgInfoIOError)?
         {
-            let metadata = WheelCoreMetadata::try_from(bytes.as_slice())?;
+            let metadata = PackageInfo::from_bytes(bytes.as_slice())?;
 
             Ok((bytes, metadata))
         } else {
@@ -123,6 +123,8 @@ impl SDist {
     pub fn pep643_metadata(&self) -> Result<Option<(Vec<u8>, WheelCoreMetadata)>, SDistError> {
         // Assume we have a PKG-INFO
         let (bytes, metadata) = self.read_package_info()?;
+        let metadata =
+            WheelCoreMetadata::try_from(metadata).map_err(SDistError::WheelCoreMetaDataError)?;
         if metadata.metadata_version.implements_pep643() {
             Ok(Some((bytes, metadata)))
         } else {
@@ -177,7 +179,7 @@ impl ArtifactFromSource for SDist {
         SourceArtifactName::SDist(self.name().to_owned())
     }
 
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, ReadPyProjectError> {
+    fn read_pyproject_toml(&self) -> Result<pyproject_toml::PyProjectToml, ReadPyProjectError> {
         if let Some(bytes) = self.find_entry("pyproject.toml")? {
             let source = String::from_utf8(bytes).map_err(|e| {
                 ReadPyProjectError::PyProjectTomlParseError(format!(
@@ -191,9 +193,7 @@ impl ArtifactFromSource for SDist {
                     e
                 ))
             })?;
-            Ok(project
-                .build_system
-                .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
+            Ok(project)
         } else {
             Err(ReadPyProjectError::NoPyProjectTomlFound)
         }
@@ -261,27 +261,27 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::artifacts::SDist;
+    use crate::index::PackageDb;
     use crate::index::{ArtifactRequest, PackageSourcesBuilder};
-    use crate::python_env::Pep508EnvMakers;
+    use crate::python_env::{Pep508EnvMakers, PythonLocation, VEnv};
+    use crate::resolve::solve_options::{ResolveOptions, SDistResolution};
     use crate::resolve::PypiVersion;
-    use crate::resolve::SDistResolution;
-    use crate::types::PackageName;
+    use crate::types::{ArtifactFromSource, PackageName};
     use crate::types::{
-        ArtifactFromSource, ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, STreeFilename,
-        Yanked,
+        ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, NormalizedPackageName, STreeFilename,
+        WheelFilename, Yanked,
     };
+    use crate::types::{SDistFilename, SDistFormat};
     use crate::wheel_builder::WheelBuilder;
-    use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use pep440_rs::Version;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
     use std::collections::{HashMap, HashSet};
-    use std::env;
     use std::path::Path;
     use std::str::FromStr;
     use std::sync::Arc;
-    use tempfile::TempDir;
+    use tempfile::{tempdir, TempDir};
     use url::Url;
 
     fn get_package_db() -> (Arc<PackageDb>, TempDir) {
@@ -318,7 +318,7 @@ mod tests {
         // Load sdist
         let sdist = super::SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
-        let build_system = sdist.read_build_info().unwrap();
+        let build_system = sdist.read_pyproject_toml().unwrap().build_system.unwrap();
 
         assert_ron_snapshot!(build_system, @r###"
         BuildSystem(
@@ -868,6 +868,7 @@ mod tests {
         let artifact_info = vec![ArtifactInfo {
             filename: ArtifactName::STree(stree_file_name),
             url: url,
+            is_direct_url: true,
             hashes: None,
             requires_python: None,
             dist_info_metadata: DistInfoMetadata::default(),
@@ -882,5 +883,245 @@ mod tests {
             .unwrap();
 
         assert_debug_snapshot!(wheel_metadata.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn get_whl_for_local_stree_rich() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/stree/dev_folder_with_rich");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let stree_file_name = STreeFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            url: url.clone(),
+        };
+
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::STree(stree_file_name),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let whl = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+
+        // Install wheel to test if all vitals are correctly built
+        let tmpdir = tempdir().unwrap();
+
+        let venv = VEnv::create(tmpdir.path(), PythonLocation::System).unwrap();
+
+        venv.install_wheel(&whl, &Default::default()).unwrap();
+
+        // Check to make sure that the headers directory was created
+        assert!(venv
+            .root()
+            .join(
+                venv.install_paths()
+                    .site_packages()
+                    .join("rich/__init__.py")
+            )
+            .exists());
+
+        let whl_metadata = whl.metadata().unwrap();
+
+        assert_debug_snapshot!(whl_metadata.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn get_whl_for_local_sdist_rich() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let sdist_file_name = SDistFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            format: SDistFormat::TarGz,
+        };
+
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::SDist(sdist_file_name),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let whl = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+
+        let whl_metadata = whl.metadata().unwrap();
+
+        assert_debug_snapshot!(whl_metadata.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn get_whl_for_local_whl() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/wheels/miniblack-23.1.0-py3-none-any.whl");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = NormalizedPackageName::from(PackageName::from_str("miniblack").unwrap());
+        let whl_file_name =
+            WheelFilename::from_filename("miniblack-23.1.0-py3-none-any.whl", &norm_name).unwrap();
+
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::Wheel(whl_file_name),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let whl = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+
+        let whl_metadata = whl.metadata().unwrap();
+
+        assert_debug_snapshot!(whl_metadata.1.requires_dist);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn get_only_metadata_for_local_sdist_rich_without_calling_available_artifacts() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let sdist_file_name = SDistFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            format: SDistFormat::TarGz,
+        };
+
+        let artifact_info = vec![ArtifactInfo {
+            filename: ArtifactName::SDist(sdist_file_name),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        }];
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_debug_snapshot!(wheel_metadata.1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn get_only_metadata_for_local_whl_rich_without_calling_available_artifacts() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/wheels/miniblack-23.1.0-py3-none-any.whl");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let package_name = PackageName::from_str("miniblack").unwrap();
+        let norm_name = NormalizedPackageName::from(package_name);
+        let whl_file_name =
+            WheelFilename::from_filename("miniblack-23.1.0-py3-none-any.whl", &norm_name).unwrap();
+
+        let artifact_info = vec![ArtifactInfo {
+            filename: ArtifactName::Wheel(whl_file_name),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        }];
+
+        let wheel_metadata = package_db
+            .0
+            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_debug_snapshot!(wheel_metadata.1.requires_dist);
     }
 }

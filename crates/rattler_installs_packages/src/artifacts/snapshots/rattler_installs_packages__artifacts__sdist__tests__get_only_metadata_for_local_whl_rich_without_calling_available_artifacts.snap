@@ -1,0 +1,469 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+expression: wheel_metadata.1.requires_dist
+---
+[
+    Requirement {
+        name: "click",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    8,
+                                    0,
+                                    0,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: None,
+    },
+    Requirement {
+        name: "mypy-extensions",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    0,
+                                    4,
+                                    3,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: None,
+    },
+    Requirement {
+        name: "packaging",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    22,
+                                    0,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: None,
+    },
+    Requirement {
+        name: "pathspec",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    0,
+                                    9,
+                                    0,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: None,
+    },
+    Requirement {
+        name: "platformdirs",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    2,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: None,
+    },
+    Requirement {
+        name: "tomli",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    1,
+                                    1,
+                                    0,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: Some(
+            Expression(
+                MarkerExpression {
+                    l_value: MarkerEnvVersion(
+                        PythonVersion,
+                    ),
+                    operator: LessThan,
+                    r_value: QuotedString(
+                        "3.11",
+                    ),
+                },
+            ),
+        ),
+    },
+    Requirement {
+        name: "typed-ast",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    1,
+                                    4,
+                                    2,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: Some(
+            And(
+                [
+                    Expression(
+                        MarkerExpression {
+                            l_value: MarkerEnvVersion(
+                                PythonVersion,
+                            ),
+                            operator: LessThan,
+                            r_value: QuotedString(
+                                "3.8",
+                            ),
+                        },
+                    ),
+                    Expression(
+                        MarkerExpression {
+                            l_value: MarkerEnvString(
+                                ImplementationName,
+                            ),
+                            operator: Equal,
+                            r_value: QuotedString(
+                                "cpython",
+                            ),
+                        },
+                    ),
+                ],
+            ),
+        ),
+    },
+    Requirement {
+        name: "typing-extensions",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    3,
+                                    10,
+                                    0,
+                                    0,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: Some(
+            Expression(
+                MarkerExpression {
+                    l_value: MarkerEnvVersion(
+                        PythonVersion,
+                    ),
+                    operator: LessThan,
+                    r_value: QuotedString(
+                        "3.10",
+                    ),
+                },
+            ),
+        ),
+    },
+    Requirement {
+        name: "colorama",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    0,
+                                    4,
+                                    3,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: Some(
+            Expression(
+                MarkerExpression {
+                    l_value: Extra,
+                    operator: Equal,
+                    r_value: QuotedString(
+                        "colorama",
+                    ),
+                },
+            ),
+        ),
+    },
+    Requirement {
+        name: "aiohttp",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    3,
+                                    7,
+                                    4,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: Some(
+            Expression(
+                MarkerExpression {
+                    l_value: Extra,
+                    operator: Equal,
+                    r_value: QuotedString(
+                        "d",
+                    ),
+                },
+            ),
+        ),
+    },
+    Requirement {
+        name: "ipython",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    7,
+                                    8,
+                                    0,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: Some(
+            Expression(
+                MarkerExpression {
+                    l_value: Extra,
+                    operator: Equal,
+                    r_value: QuotedString(
+                        "jupyter",
+                    ),
+                },
+            ),
+        ),
+    },
+    Requirement {
+        name: "tokenize-rt",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    3,
+                                    2,
+                                    0,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: Some(
+            Expression(
+                MarkerExpression {
+                    l_value: Extra,
+                    operator: Equal,
+                    r_value: QuotedString(
+                        "jupyter",
+                    ),
+                },
+            ),
+        ),
+    },
+    Requirement {
+        name: "uvloop",
+        extras: None,
+        version_or_url: Some(
+            VersionSpecifier(
+                VersionSpecifiers(
+                    [
+                        VersionSpecifier {
+                            operator: GreaterThanEqual,
+                            version: Version {
+                                epoch: 0,
+                                release: [
+                                    0,
+                                    15,
+                                    2,
+                                ],
+                                pre: None,
+                                post: None,
+                                dev: None,
+                                local: None,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        ),
+        marker: Some(
+            Expression(
+                MarkerExpression {
+                    l_value: Extra,
+                    operator: Equal,
+                    r_value: QuotedString(
+                        "uvloop",
+                    ),
+                },
+            ),
+        ),
+    },
+]

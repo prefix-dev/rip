@@ -28,6 +28,9 @@ pub struct ArtifactInfo {
     pub filename: ArtifactName,
     /// Url to download the artifact
     pub url: url::Url,
+    /// Is url a direct reference
+    #[serde(skip_serializing)]
+    pub is_direct_url: bool,
     /// Hashes of the artifact
     pub hashes: Option<ArtifactHashes>,
     /// Python requirement

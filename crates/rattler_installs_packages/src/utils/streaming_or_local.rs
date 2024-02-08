@@ -40,7 +40,7 @@ impl StreamingOrLocal {
                     if bytes_read == 0 {
                         break;
                     }
-                    local_file.write_all(&buf)?;
+                    local_file.write_all(&buf[..bytes_read])?;
                 }
 
                 // Restart the file from the start so we can start reading from it.

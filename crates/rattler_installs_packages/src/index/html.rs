@@ -93,6 +93,7 @@ fn into_artifact_info(
     Some(ArtifactInfo {
         filename,
         url,
+        is_direct_url: false,
         hashes: hash,
         requires_python,
         dist_info_metadata,
