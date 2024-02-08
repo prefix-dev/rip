@@ -7,7 +7,7 @@ use crate::index::package_sources::PackageSources;
 use crate::resolve::PypiVersion;
 use crate::types::{ArtifactInfo, ArtifactType, ProjectInfo, STreeFilename, WheelCoreMetadata};
 
-use crate::wheel_builder::{WheelBuilder, WheelCache};
+use crate::wheel_builder::{WheelBuildError, WheelBuilder, WheelCache};
 use crate::{
     types::ArtifactFromBytes, types::InnerAsArtifactName, types::NormalizedPackageName,
     types::WheelFilename,
@@ -200,7 +200,7 @@ impl PackageDb {
         // network to get to the information.
         // Let's try to get information for any wheels that we have
         // first
-        let result = self.get_metadata_wheels(artifacts).await?;
+        let result = self.get_metadata_wheels(artifacts, wheel_builder).await?;
         if result.is_some() {
             return Ok(result);
         }
@@ -232,33 +232,25 @@ impl PackageDb {
         builder: Option<&'async_recursion WheelBuilder>,
     ) -> miette::Result<Wheel> {
         // TODO: add support for this currently there are not saved
-        if artifact_info.is::<STree>() {
+        if artifact_info.is_direct_url {
             if let Some(builder) = builder {
-                let stree_name = artifact_info
-                    .filename
-                    .as_inner::<STreeFilename>()
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "the specified artifact '{}' does not refer to type requested to read",
-                            artifact_info.filename
-                        )
-                    });
-
                 let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
                     &self.http,
-                    stree_name.distribution.clone(),
+                    artifact_info.filename.distribution_name(),
                     artifact_info.url.clone(),
                     builder,
                 )
                 .await?;
 
-                let stree = response
-                    .artifact
-                    .as_stree()
-                    .expect("the request artifact does not refer to stree");
-
-                let built = builder.build_wheel(stree).await.into_diagnostic();
-                return built;
+                match response.artifact {
+                    ArtifactType::Wheel(wheel) => return Ok(wheel),
+                    ArtifactType::SDist(sdist) => {
+                        return builder.build_wheel(&sdist).await.into_diagnostic()
+                    }
+                    ArtifactType::STree(stree) => {
+                        return builder.build_wheel(&stree).await.into_diagnostic()
+                    }
+                }
             } else {
                 miette::bail!("cannot build wheel without a wheel builder");
             }
@@ -341,7 +333,7 @@ impl PackageDb {
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         for artifact_info in artifacts.iter() {
             let artifact_info_ref = artifact_info.borrow();
-            if artifact_info_ref.is::<Wheel>() {
+            if artifact_info_ref.is::<Wheel>() && !artifact_info_ref.is_direct_url {
                 let result = self
                     .get_cached_artifact::<Wheel>(artifact_info_ref, CacheMode::OnlyIfCached)
                     .await;
@@ -372,7 +364,7 @@ impl PackageDb {
                 }
             }
             // We know that it is an sdist
-            else if artifact_info_ref.is::<SDist>() {
+            else if artifact_info_ref.is::<SDist>() && !artifact_info_ref.is_direct_url {
                 let result = self
                     .get_cached_artifact::<SDist>(artifact_info_ref, CacheMode::OnlyIfCached)
                     .await;
@@ -399,6 +391,7 @@ impl PackageDb {
     async fn get_metadata_wheels<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
+        wheel_builder: Option<&WheelBuilder>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let wheels = artifacts
             .iter()
@@ -420,11 +413,30 @@ impl PackageDb {
                 return Ok(Some((artifact_info, metadata)));
             }
 
-            // Otherwise download the entire artifact
-            let artifact = self
-                .get_cached_artifact::<Wheel>(ai, CacheMode::Default)
-                .await?;
-            let metadata = artifact.metadata();
+            let metadata = if ai.is_direct_url {
+                if let Some(wheel_builder) = wheel_builder {
+                    let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
+                        &self.http,
+                        ai.filename.distribution_name(),
+                        ai.url.clone(),
+                        wheel_builder,
+                    )
+                    .await;
+                    match response {
+                        Err(err) => Err(miette::miette!(err.to_string())),
+                        Ok(response) => Ok(response.metadata),
+                    }
+                } else {
+                    miette::bail!("cannot build wheel without a wheel builder");
+                }
+            } else {
+                // Otherwise download the entire artifact
+                let artifact = self
+                    .get_cached_artifact::<Wheel>(ai, CacheMode::Default)
+                    .await?;
+                artifact.metadata()
+            };
+
             match metadata {
                 Ok((blob, metadata)) => {
                     self.put_metadata_in_cache(ai, &blob).await?;
@@ -456,11 +468,26 @@ impl PackageDb {
         // only print these if we have not been able to find any metadata
         let mut errors = Vec::new();
         for ai in sdists {
-            let artifact_info = ai.borrow();
-            let artifact = self
-                .get_cached_artifact::<SDist>(artifact_info, CacheMode::Default)
-                .await?;
-            let metadata = wheel_builder.get_sdist_metadata(&artifact).await;
+            let artifact_info: &ArtifactInfo = ai.borrow();
+            let metadata = if artifact_info.is_direct_url {
+                let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
+                    &self.http,
+                    artifact_info.filename.distribution_name(),
+                    artifact_info.url.clone(),
+                    wheel_builder,
+                )
+                .await;
+                match response {
+                    Err(err) => Err(WheelBuildError::Error(err.to_string())),
+                    Ok(response) => Ok(response.metadata),
+                }
+            } else {
+                let artifact = self
+                    .get_cached_artifact::<SDist>(artifact_info, CacheMode::Default)
+                    .await?;
+                wheel_builder.get_sdist_metadata(&artifact).await
+            };
+
             match metadata {
                 Ok((blob, metadata)) => {
                     self.put_metadata_in_cache(artifact_info, &blob).await?;

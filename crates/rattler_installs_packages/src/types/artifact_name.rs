@@ -80,6 +80,15 @@ impl ArtifactName {
     pub fn as_inner<T: InnerAsArtifactName>(&self) -> Option<&T> {
         T::try_as(self)
     }
+
+    /// Tries to convert the specialized instance
+    pub fn distribution_name(&self) -> PackageName {
+        match self {
+            ArtifactName::Wheel(name) => name.distribution.clone(),
+            ArtifactName::STree(name) => name.distribution.clone(),
+            ArtifactName::SDist(name) => name.distribution.clone(),
+        }
+    }
 }
 
 impl Display for ArtifactName {
@@ -426,6 +435,10 @@ impl WheelFilename {
         let Some((distribution, rest)) =
             split_into_filename_rest(file_stem, normalized_package_name)
         else {
+            println!(
+                "FILE STEM IS {:?} NORM NAME {:?}",
+                file_stem, normalized_package_name
+            );
             return Err(ParseArtifactNameError::PackageNameNotFound(
                 normalized_package_name.clone(),
                 s.to_string(),
@@ -531,13 +544,14 @@ impl InnerAsArtifactName for STreeFilename {
     }
 }
 
-/// Enum that contains all artifacts types
+/// Enum that contains the different artifacts types:
+///    * SDist is a python source distribution
+///    * Wheel is a python binary distribution
+///    * STree (is not an official PyPa name) but represents a source code tree
+#[allow(missing_docs)]
 pub enum ArtifactType {
-    /// Wheel artifact
     Wheel(Wheel),
-    /// Sdist artifact
     SDist(SDist),
-    /// STree artifact
     STree(STree),
 }
 
@@ -552,7 +566,7 @@ impl ArtifactType {
     }
 
     /// Returns this artifact as wheel
-    pub fn as_wheel(&self) -> Option<&Wheel> {
+    pub fn as_wheel(self) -> Option<Wheel> {
         match self {
             ArtifactType::Wheel(wheel) => Some(wheel),
             ArtifactType::SDist(_) => None,
@@ -561,7 +575,7 @@ impl ArtifactType {
     }
 
     /// Returns this name as a wheel name
-    pub fn as_sdist(&self) -> Option<&SDist> {
+    pub fn as_sdist(self) -> Option<SDist> {
         match self {
             ArtifactType::Wheel(_) => None,
             ArtifactType::STree(_) => None,
@@ -570,10 +584,10 @@ impl ArtifactType {
     }
 
     /// Returns this name as a source tree name
-    pub fn as_stree(&self) -> Option<&STree> {
+    pub fn as_stree(self) -> Option<STree> {
         match self {
             ArtifactType::Wheel(_) => None,
-            ArtifactType::STree(name) => Some(name),
+            ArtifactType::STree(stree) => Some(stree),
             ArtifactType::SDist(_) => None,
         }
     }

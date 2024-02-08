@@ -82,6 +82,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let artifact_info = Arc::new(ArtifactInfo {
         filename: artifact.name(),
         url: url.clone(),
+        is_direct_url: true,
         hashes: Some(artifact_hash),
         requires_python: metadata.requires_python.clone(),
         dist_info_metadata: DistInfoMetadata::default(),
@@ -121,10 +122,10 @@ async fn get_sdist_from_bytes(
     // we don't know the version for artifact until we extract the actual metadata
     // so we create a plain sdist object aka dummy
     // and populate it with correct metadata after calling `get_sdist_metadata`
-    let mut dummy_sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(bytes))?;
+    let mut sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(bytes))?;
 
     let wheel_metadata = wheel_builder
-        .get_sdist_metadata(&dummy_sdist)
+        .get_sdist_metadata(&sdist)
         .await
         .into_diagnostic()?;
 
@@ -134,7 +135,7 @@ async fn get_sdist_from_bytes(
         version: wheel_metadata.1.version.clone(),
         format,
     };
-    dummy_sdist.name = sdist_filename;
+    sdist.name = sdist_filename;
 
-    Ok((wheel_metadata, dummy_sdist))
+    Ok((wheel_metadata, sdist))
 }

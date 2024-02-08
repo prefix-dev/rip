@@ -47,10 +47,10 @@ pub(crate) async fn get_sdist_from_file_path(
 
     let file = File::open(path).into_diagnostic()?;
 
-    let mut dummy_sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(file))?;
+    let mut sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(file))?;
 
     let wheel_metadata = wheel_builder
-        .get_sdist_metadata(&dummy_sdist)
+        .get_sdist_metadata(&sdist)
         .await
         .into_diagnostic()?;
 
@@ -61,9 +61,9 @@ pub(crate) async fn get_sdist_from_file_path(
         format,
     };
 
-    dummy_sdist.name = sdist_filename;
+    sdist.name = sdist_filename;
 
-    Ok((wheel_metadata, dummy_sdist))
+    Ok((wheel_metadata, sdist))
 }
 
 /// Return an stree from file path
@@ -169,6 +169,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let artifact_info = Arc::new(ArtifactInfo {
         filename: artifact.name(),
         url: url.clone(),
+        is_direct_url: true,
         hashes: Some(artifact_hash),
         requires_python: metadata.requires_python.clone(),
         dist_info_metadata: DistInfoMetadata::default(),

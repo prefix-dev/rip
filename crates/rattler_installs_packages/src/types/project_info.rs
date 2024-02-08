@@ -28,6 +28,9 @@ pub struct ArtifactInfo {
     pub filename: ArtifactName,
     /// Url to download the artifact
     pub url: url::Url,
+    /// Is url a direct reference
+    #[serde(skip_serializing)]
+    pub is_direct_url: bool,
     /// Hashes of the artifact
     pub hashes: Option<ArtifactHashes>,
     /// Python requirement
@@ -47,6 +50,11 @@ impl ArtifactInfo {
     pub fn is<T: HasArtifactName>(&self) -> bool {
         self.filename.as_inner::<T::Name>().is_some()
     }
+
+    // /// Returns true if this artifact is gathered by direct reference
+    // pub fn is_direct_dependency(&self) -> bool {
+    //     self.filename.is_direct_reference()
+    // }
 }
 
 /// Describes a set of hashes for a certain artifact. In theory all hash algorithms available via

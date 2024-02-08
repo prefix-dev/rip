@@ -67,6 +67,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let artifact_info = Arc::new(ArtifactInfo {
         filename: ArtifactName::STree(artifact.name().clone()),
         url: url.clone(),
+        is_direct_url: true,
         hashes: Some(project_hash),
         requires_python,
         dist_info_metadata,

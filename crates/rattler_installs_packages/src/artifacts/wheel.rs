@@ -36,6 +36,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio_util::compat::TokioAsyncReadCompatExt;
+use url::Url;
 use zip::{result::ZipError, ZipArchive};
 
 use crate::win::launcher::{build_windows_launcher, LauncherType, WindowsLauncherArch};
@@ -46,6 +47,9 @@ use crate::win::launcher::{build_windows_launcher, LauncherType, WindowsLauncher
 pub struct Wheel {
     /// Name of wheel
     pub name: WheelFilename,
+    /// Possible direct url
+    pub direct_url: Option<Url>,
+
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
 }
 
@@ -62,6 +66,7 @@ impl ArtifactFromBytes for Wheel {
         Ok(Self {
             name,
             archive: Mutex::new(ZipArchive::new(bytes).into_diagnostic()?),
+            direct_url: None,
         })
     }
 }
