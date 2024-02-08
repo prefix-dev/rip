@@ -12,6 +12,27 @@ use pep508_rs::Requirement;
 use std::{collections::HashSet, str::FromStr};
 use thiserror::Error;
 
+/// Holds the parsed PKG-INFO file.
+pub struct PackageInfo {
+    /// The parsed PKG-INFO file.
+    pub parsed: RFC822ish,
+}
+
+impl PackageInfo {
+    /// Parse the PKG-INFO file from bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, WheelCoreMetaDataError> {
+        let s = String::from_utf8_lossy(bytes);
+        Ok(Self {
+            parsed: RFC822ish::from_str(&s)?,
+        })
+    }
+
+    /// Create a new PackageInfo from a parsed RFC822ish.
+    pub fn new(parsed: RFC822ish) -> Self {
+        Self { parsed }
+    }
+}
+
 #[derive(Debug, Clone)]
 
 /// The core metadata of a wheel.
@@ -89,6 +110,14 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
     type Error = WheelCoreMetaDataError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        PackageInfo::from_bytes(value)?.try_into()
+    }
+}
+
+impl TryFrom<PackageInfo> for WheelCoreMetadata {
+    type Error = WheelCoreMetaDataError;
+
+    fn try_from(value: PackageInfo) -> Result<Self, Self::Error> {
         let (name, version, metadata_version, mut parsed) = parse_common(value)?;
 
         let mut requires_dist = Vec::new();
@@ -130,10 +159,9 @@ impl TryFrom<&[u8]> for WheelCoreMetadata {
 }
 
 fn parse_common(
-    input: &[u8],
+    input: PackageInfo,
 ) -> Result<(PackageName, Version, MetadataVersion, RFC822ish), WheelCoreMetaDataError> {
-    let input = String::from_utf8_lossy(input);
-    let mut parsed = RFC822ish::from_str(&input)?;
+    let mut parsed = input.parsed;
 
     static NEXT_MAJOR_METADATA_VERSION: Lazy<Version> =
         Lazy::new(|| Version::from_str("3").unwrap());

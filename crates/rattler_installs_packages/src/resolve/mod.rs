@@ -9,10 +9,11 @@
 //!
 
 mod dependency_provider;
+mod pypi_version_types;
 mod solve;
+pub mod solve_options;
+mod solve_types;
 
-pub use dependency_provider::{PypiVersion, PypiVersionSet};
-pub use solve::{
-    resolve, OnWheelBuildFailure, PinnedPackage, PreReleaseResolution, ResolveOptions,
-    SDistResolution,
-};
+pub use pypi_version_types::PypiVersion;
+pub use pypi_version_types::PypiVersionSet;
+pub use solve::{resolve, PinnedPackage};
