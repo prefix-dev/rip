@@ -55,7 +55,7 @@ pub struct PinnedPackage {
 #[allow(clippy::too_many_arguments)]
 pub async fn resolve(
     package_db: Arc<PackageDb>,
-    requirements: impl IntoIterator<Item=&Requirement>,
+    requirements: impl IntoIterator<Item = &Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
@@ -76,20 +76,20 @@ pub async fn resolve(
             env_variables,
         )
     })
-        .await
-        .map_or_else(
-            |e| match e.try_into_panic() {
-                Ok(panic) => std::panic::resume_unwind(panic),
-                Err(_) => Err(miette::miette!("the operation was cancelled")),
-            },
-            identity,
-        )
+    .await
+    .map_or_else(
+        |e| match e.try_into_panic() {
+            Ok(panic) => std::panic::resume_unwind(panic),
+            Err(_) => Err(miette::miette!("the operation was cancelled")),
+        },
+        identity,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
 fn resolve_inner<'r>(
     package_db: Arc<PackageDb>,
-    requirements: impl IntoIterator<Item=&'r Requirement>,
+    requirements: impl IntoIterator<Item = &'r Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
