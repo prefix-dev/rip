@@ -54,7 +54,7 @@ struct Args {
 
     /// How to handle sidsts
     #[clap(flatten)]
-    sdist_resolution: SDistResolution,
+    sdist_resolution: SDistResolutionArgs,
 
     /// Path to the python interpreter to use for resolving environment markers and creating venvs
     #[clap(long, short)]
@@ -78,7 +78,7 @@ struct Args {
 
 #[derive(Parser)]
 #[group(multiple = false)]
-struct SDistResolution {
+struct SDistResolutionArgs {
     /// Prefer any version with wheels over any version with sdists
     #[clap(long)]
     prefer_wheels: bool,
@@ -96,19 +96,19 @@ struct SDistResolution {
     only_sdists: bool,
 }
 
-use resolve::solve_options::SDistResolution as LibSDistResolution;
-impl From<SDistResolution> for LibSDistResolution {
-    fn from(value: SDistResolution) -> Self {
+use resolve::solve_options::SDistResolution;
+impl From<SDistResolutionArgs> for SDistResolution {
+    fn from(value: SDistResolutionArgs) -> Self {
         if value.only_sdists {
-            LibSDistResolution::OnlySDists
+            SDistResolution::OnlySDists
         } else if value.only_wheels {
-            LibSDistResolution::OnlyWheels
+            SDistResolution::OnlyWheels
         } else if value.prefer_sdists {
-            LibSDistResolution::PreferSDists
+            SDistResolution::PreferSDists
         } else if value.prefer_wheels {
-            LibSDistResolution::PreferWheels
+            SDistResolution::PreferWheels
         } else {
-            LibSDistResolution::Normal
+            SDistResolution::Normal
         }
     }
 }
