@@ -417,7 +417,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             .map(|s| Box::new(s.clone()) as Box<dyn Any>)
     }
 
-    fn sort_candidates(
+    async fn sort_candidates(
         &self,
         _: &SolverCache<PypiVersionSet, PypiPackageName, Self>,
         solvables: &mut [SolvableId],

@@ -2360,7 +2360,7 @@ dependencies = [
 [[package]]
 name = "resolvo"
 version = "0.3.0"
-source = "git+https://github.com/aochagavia/resolvo.git?branch=concurrent-metadata-fetching#a6d2138963f62e2434048e2dfb644c20db5bedea"
+source = "git+https://github.com/aochagavia/resolvo.git?branch=concurrent-metadata-fetching#ddfba79df6ace36af53507ac4521147e7eed950a"
 dependencies = [
  "bitvec",
  "elsa",
