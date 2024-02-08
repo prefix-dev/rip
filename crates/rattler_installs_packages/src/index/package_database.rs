@@ -269,10 +269,7 @@ impl PackageDb {
                     .get_cached_artifact::<SDist>(artifact_info, CacheMode::Default)
                     .await?;
 
-                let whl = builder
-                    .build_wheel(&sdist)
-                    .await
-                    .into_diagnostic()?;
+                let whl = builder.build_wheel(&sdist).await.into_diagnostic()?;
 
                 let direct_url = if artifact_info.is_direct_url {
                     let direct_url_hash = if let Some(hash) = artifact_info.hashes.clone() {
