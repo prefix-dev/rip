@@ -735,7 +735,7 @@ mod test {
     async fn make_simple_server(
         package_name: &str,
     ) -> anyhow::Result<(Url, JoinHandle<Result<(), std::io::Error>>)> {
-        let addr = SocketAddr::new([127, 0, 0, 1].into(), 0);
+        let addr = SocketAddr::new([0, 0, 0, 0].into(), 0);
         let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
         let address = listener.local_addr()?;
 
