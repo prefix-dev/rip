@@ -231,7 +231,7 @@ impl PackageDb {
         artifact_info: &ArtifactInfo,
         builder: Option<&'async_recursion WheelBuilder>,
     ) -> miette::Result<Wheel> {
-        // TODO: add support for this currently there are not saved
+        // TODO: add support for this currently there are not cached, they will be repeatedly downloaded between runs
         if artifact_info.is_direct_url {
             if let Some(builder) = builder {
                 let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
