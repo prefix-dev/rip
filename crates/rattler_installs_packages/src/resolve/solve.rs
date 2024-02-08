@@ -258,7 +258,7 @@ pub struct ResolveOptions {
 #[allow(clippy::too_many_arguments)]
 pub async fn resolve(
     package_db: Arc<PackageDb>,
-    requirements: impl IntoIterator<Item = &Requirement>,
+    requirements: impl IntoIterator<Item=&Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
@@ -279,20 +279,20 @@ pub async fn resolve(
             env_variables,
         )
     })
-    .await
-    .map_or_else(
-        |e| match e.try_into_panic() {
-            Ok(panic) => std::panic::resume_unwind(panic),
-            Err(_) => Err(miette::miette!("the operation was cancelled")),
-        },
-        identity,
-    )
+        .await
+        .map_or_else(
+            |e| match e.try_into_panic() {
+                Ok(panic) => std::panic::resume_unwind(panic),
+                Err(_) => Err(miette::miette!("the operation was cancelled")),
+            },
+            identity,
+        )
 }
 
 #[allow(clippy::too_many_arguments)]
 fn resolve_inner<'r>(
     package_db: Arc<PackageDb>,
-    requirements: impl IntoIterator<Item = &'r Requirement>,
+    requirements: impl IntoIterator<Item=&'r Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
@@ -358,13 +358,7 @@ fn resolve_inner<'r>(
     )?;
 
     // Invoke the solver to get a solution to the requirements
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_time()
-        .enable_io()
-        .build()
-        .unwrap();
-
-    let mut solver = Solver::new(&provider, runtime);
+    let mut solver = Solver::new(&provider).with_runtime(tokio::runtime::Handle::current());
     let solvables = match solver.solve(root_requirements) {
         Ok(solvables) => solvables,
         Err(e) => {
