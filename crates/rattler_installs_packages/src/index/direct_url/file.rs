@@ -2,8 +2,8 @@ use crate::artifacts::{SDist, STree, Wheel};
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata,
-    HasArtifactName, NormalizedPackageName, PackageName, SDistFilename, SDistFormat, STreeFilename,
+    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactType, DistInfoMetadata,
+    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, STreeFilename,
     WheelCoreMetadata, Yanked,
 };
 use crate::wheel_builder::{WheelBuildError, WheelBuilder};
@@ -23,7 +23,7 @@ pub(crate) async fn get_sdist_from_file_path(
     normalized_package_name: &NormalizedPackageName,
     path: &PathBuf,
     wheel_builder: &WheelBuilder,
-) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
+) -> miette::Result<((Vec<u8>, WheelCoreMetadata), SDist)> {
     let distribution = PackageName::from(normalized_package_name.clone());
 
     let path_str = if let Some(path_str) = path.as_os_str().to_str() {
@@ -47,10 +47,10 @@ pub(crate) async fn get_sdist_from_file_path(
 
     let file = File::open(path).into_diagnostic()?;
 
-    let dummy_sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(file))?;
+    let mut sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(file))?;
 
     let wheel_metadata = wheel_builder
-        .get_sdist_metadata(&dummy_sdist)
+        .get_sdist_metadata(&sdist)
         .await
         .into_diagnostic()?;
 
@@ -61,9 +61,9 @@ pub(crate) async fn get_sdist_from_file_path(
         format,
     };
 
-    let filename = ArtifactName::SDist(sdist_filename.clone());
+    sdist.name = sdist_filename;
 
-    Ok((wheel_metadata, filename))
+    Ok((wheel_metadata, sdist))
 }
 
 /// Return an stree from file path
@@ -72,7 +72,7 @@ pub(crate) async fn get_stree_from_file_path(
     url: Url,
     path: Option<PathBuf>,
     wheel_builder: &WheelBuilder,
-) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
+) -> miette::Result<((Vec<u8>, WheelCoreMetadata), STree)> {
     let distribution = PackageName::from(normalized_package_name.clone());
     let path = match path {
         None => PathBuf::from_str(url.path()).into_diagnostic()?,
@@ -88,7 +88,7 @@ pub(crate) async fn get_stree_from_file_path(
         url: url.clone(),
     };
 
-    let stree = STree {
+    let mut stree = STree {
         name: stree_file_name,
         location: Mutex::new(path),
     };
@@ -104,7 +104,9 @@ pub(crate) async fn get_stree_from_file_path(
         url: url.clone(),
     };
 
-    Ok((wheel_metadata, ArtifactName::STree(stree_file_name)))
+    stree.name = stree_file_name;
+
+    Ok((wheel_metadata, stree))
 }
 
 /// Get artifact by file URL
@@ -126,31 +128,34 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
 
     let normalized_package_name = p.into();
 
-    let (metadata_bytes, metadata, artifact_name) = if path.is_file() && str_name.ends_with(".whl")
-    {
+    let (metadata_bytes, metadata, artifact) = if path.is_file() && str_name.ends_with(".whl") {
         let wheel = Wheel::from_path(&path, &normalized_package_name)
             .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))
             .into_diagnostic()?;
 
         let (data_bytes, metadata) = wheel.metadata()?;
-        (
-            data_bytes,
-            metadata,
-            ArtifactName::Wheel(wheel.name().clone()),
-        )
+        (data_bytes, metadata, ArtifactType::Wheel(wheel))
     } else if path.is_file() {
-        let (wheel_metadata, name) =
+        let (wheel_metadata, sdist) =
             get_sdist_from_file_path(&normalized_package_name, &path, wheel_builder).await?;
-        (wheel_metadata.0, wheel_metadata.1, name)
+        (
+            wheel_metadata.0,
+            wheel_metadata.1,
+            ArtifactType::SDist(sdist),
+        )
     } else {
-        let (wheel_metadata, name) = get_stree_from_file_path(
+        let (wheel_metadata, stree) = get_stree_from_file_path(
             &normalized_package_name,
             url.clone(),
             Some(path),
             wheel_builder,
         )
         .await?;
-        (wheel_metadata.0, wheel_metadata.1, name)
+        (
+            wheel_metadata.0,
+            wheel_metadata.1,
+            ArtifactType::STree(stree),
+        )
     };
 
     let artifact_hash = {
@@ -162,8 +167,9 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     };
 
     let artifact_info = Arc::new(ArtifactInfo {
-        filename: artifact_name,
+        filename: artifact.name(),
         url: url.clone(),
+        is_direct_url: true,
         hashes: Some(artifact_hash),
         requires_python: metadata.requires_python.clone(),
         dist_info_metadata: DistInfoMetadata::default(),
@@ -177,5 +183,6 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         artifact_info,
         metadata: (metadata_bytes, metadata),
         artifact_versions: result,
+        artifact,
     })
 }

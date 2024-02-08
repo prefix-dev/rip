@@ -303,8 +303,7 @@ async fn actual_main() -> miette::Result<()> {
             let artifact_info = pinned_package.artifacts.first().unwrap();
             let artifact = package_db
                 .get_wheel(artifact_info, Some(&wheel_builder))
-                .await
-                .expect("could not get artifact");
+                .await?;
             venv.install_wheel(&artifact, &UnpackWheelOptions::default())
                 .into_diagnostic()?;
         }

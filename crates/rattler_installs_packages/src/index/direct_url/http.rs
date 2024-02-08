@@ -3,9 +3,8 @@ use crate::index::http::Http;
 use crate::index::{parse_hash, CacheMode};
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactName, DistInfoMetadata,
-    HasArtifactName, NormalizedPackageName, PackageName, SDistFilename, SDistFormat,
-    WheelCoreMetadata, Yanked,
+    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactType, DistInfoMetadata,
+    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, WheelCoreMetadata, Yanked,
 };
 use crate::utils::ReadAndSeek;
 use crate::wheel_builder::WheelBuilder;
@@ -62,24 +61,28 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         assert_eq!(hash, artifact_hash);
     };
 
-    let (filename, metadata_bytes, metadata) = if str_name.ends_with(".whl") {
+    let (metadata_bytes, metadata, artifact) = if str_name.ends_with(".whl") {
         let wheel = Wheel::from_url_and_bytes(url.path(), &normalized_package_name, bytes)?;
 
-        let filename = ArtifactName::Wheel(wheel.name().clone());
         let (data_bytes, metadata) = wheel.metadata()?;
 
-        (filename, data_bytes, metadata)
+        (data_bytes, metadata, ArtifactType::Wheel(wheel))
     } else {
-        let (wheel_metadata, filename) =
+        let (wheel_metadata, sdist) =
             get_sdist_from_bytes(&normalized_package_name, url.clone(), bytes, wheel_builder)
                 .await?;
 
-        (filename, wheel_metadata.0, wheel_metadata.1)
+        (
+            wheel_metadata.0,
+            wheel_metadata.1,
+            ArtifactType::SDist(sdist),
+        )
     };
 
     let artifact_info = Arc::new(ArtifactInfo {
-        filename,
+        filename: artifact.name(),
         url: url.clone(),
+        is_direct_url: true,
         hashes: Some(artifact_hash),
         requires_python: metadata.requires_python.clone(),
         dist_info_metadata: DistInfoMetadata::default(),
@@ -93,6 +96,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         artifact_info,
         metadata: (metadata_bytes, metadata),
         artifact_versions: result,
+        artifact,
     })
 }
 
@@ -102,7 +106,7 @@ async fn get_sdist_from_bytes(
     url: Url,
     bytes: Box<dyn ReadAndSeek + Send>,
     wheel_builder: &WheelBuilder,
-) -> miette::Result<((Vec<u8>, WheelCoreMetadata), ArtifactName)> {
+) -> miette::Result<((Vec<u8>, WheelCoreMetadata), SDist)> {
     // it's probably an sdist
     let distribution = PackageName::from(normalized_package_name.clone());
     let version = Version::from_str("0.0.0").expect("0.0.0 version should always be parseable");
@@ -118,10 +122,10 @@ async fn get_sdist_from_bytes(
     // we don't know the version for artifact until we extract the actual metadata
     // so we create a plain sdist object aka dummy
     // and populate it with correct metadata after calling `get_sdist_metadata`
-    let dummy_sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(bytes))?;
+    let mut sdist = SDist::from_bytes(dummy_sdist_file_name, Box::new(bytes))?;
 
     let wheel_metadata = wheel_builder
-        .get_sdist_metadata(&dummy_sdist)
+        .get_sdist_metadata(&sdist)
         .await
         .into_diagnostic()?;
 
@@ -131,7 +135,7 @@ async fn get_sdist_from_bytes(
         version: wheel_metadata.1.version.clone(),
         format,
     };
-    let filename = ArtifactName::SDist(sdist_filename.clone());
+    sdist.name = sdist_filename;
 
-    Ok((wheel_metadata, filename))
+    Ok((wheel_metadata, sdist))
 }

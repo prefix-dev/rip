@@ -1,13 +1,15 @@
 use crate::index::git_interop::{git_clone, GitSource, ParsedUrl};
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::resolve::PypiVersion;
-use crate::types::{ArtifactHashes, ArtifactInfo, DistInfoMetadata, NormalizedPackageName, Yanked};
+use crate::types::{
+    ArtifactHashes, ArtifactInfo, ArtifactName, ArtifactType, DistInfoMetadata, HasArtifactName,
+    NormalizedPackageName, Yanked,
+};
 use crate::wheel_builder::WheelBuilder;
 use indexmap::IndexMap;
 use miette::IntoDiagnostic;
 use rattler_digest::{compute_bytes_digest, Sha256};
 use std::sync::Arc;
-use tempfile::tempdir;
 use url::Url;
 
 /// Get artifact by git reference
@@ -25,9 +27,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         rev: parsed_url.revision,
     };
 
-    let temp_dir = tempdir().unwrap();
-
-    let mut location = git_clone(&git_source, &temp_dir).into_diagnostic()?;
+    let mut location = git_clone(&git_source).into_diagnostic()?;
 
     if let Some(subdirectory) = parsed_url.subdirectory {
         location.push(&subdirectory);
@@ -40,7 +40,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         }
     };
 
-    let (wheel_metadata, filename) = super::file::get_stree_from_file_path(
+    let (wheel_metadata, artifact) = super::file::get_stree_from_file_path(
         &normalized_package_name,
         url.clone(),
         Some(location),
@@ -65,8 +65,9 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     };
 
     let artifact_info = Arc::new(ArtifactInfo {
-        filename,
+        filename: ArtifactName::STree(artifact.name().clone()),
         url: url.clone(),
+        is_direct_url: true,
         hashes: Some(project_hash),
         requires_python,
         dist_info_metadata,
@@ -80,5 +81,6 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         artifact_info,
         metadata: (wheel_metadata.0, wheel_metadata.1),
         artifact_versions: result,
+        artifact: ArtifactType::STree(artifact),
     })
 }

@@ -44,7 +44,9 @@ use crate::win::launcher::{build_windows_launcher, LauncherType, WindowsLauncher
 /// See the [Reference Page](https://packaging.python.org/en/latest/specifications/binary-distribution-format/#binary-distribution-format)
 /// for more information.
 pub struct Wheel {
-    name: WheelFilename,
+    /// Name of wheel
+    pub name: WheelFilename,
+
     archive: Mutex<ZipArchive<Box<dyn ReadAndSeek + Send>>>,
 }
 
