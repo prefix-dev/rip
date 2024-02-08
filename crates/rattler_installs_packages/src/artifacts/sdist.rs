@@ -1,6 +1,6 @@
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactFromBytes, ArtifactFromSource, HasArtifactName, NormalizedPackageName,
+    ArtifactFromBytes, ArtifactFromSource, HasArtifactName, NormalizedPackageName, PackageInfo,
     ReadPyProjectError, SDistFilename, SDistFormat, SourceArtifactName,
 };
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
@@ -105,12 +105,12 @@ impl SDist {
     }
 
     /// Read .PKG-INFO from the archive
-    pub fn read_package_info(&self) -> Result<(Vec<u8>, WheelCoreMetadata), SDistError> {
+    pub fn read_package_info(&self) -> Result<(Vec<u8>, PackageInfo), SDistError> {
         if let Some(bytes) = self
             .find_entry("PKG-INFO")
             .map_err(SDistError::PkgInfoIOError)?
         {
-            let metadata = WheelCoreMetadata::try_from(bytes.as_slice())?;
+            let metadata = PackageInfo::from_bytes(bytes.as_slice())?;
 
             Ok((bytes, metadata))
         } else {
@@ -123,6 +123,8 @@ impl SDist {
     pub fn pep643_metadata(&self) -> Result<Option<(Vec<u8>, WheelCoreMetadata)>, SDistError> {
         // Assume we have a PKG-INFO
         let (bytes, metadata) = self.read_package_info()?;
+        let metadata =
+            WheelCoreMetadata::try_from(metadata).map_err(SDistError::WheelCoreMetaDataError)?;
         if metadata.metadata_version.implements_pep643() {
             Ok(Some((bytes, metadata)))
         } else {
@@ -177,7 +179,7 @@ impl ArtifactFromSource for SDist {
         SourceArtifactName::SDist(self.name().to_owned())
     }
 
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, ReadPyProjectError> {
+    fn read_pyproject_toml(&self) -> Result<pyproject_toml::PyProjectToml, ReadPyProjectError> {
         if let Some(bytes) = self.find_entry("pyproject.toml")? {
             let source = String::from_utf8(bytes).map_err(|e| {
                 ReadPyProjectError::PyProjectTomlParseError(format!(
@@ -191,9 +193,7 @@ impl ArtifactFromSource for SDist {
                     e
                 ))
             })?;
-            Ok(project
-                .build_system
-                .ok_or_else(|| std::io::Error::new(ErrorKind::NotFound, "no build-system found"))?)
+            Ok(project)
         } else {
             Err(ReadPyProjectError::NoPyProjectTomlFound)
         }
@@ -265,10 +265,9 @@ mod tests {
     use crate::python_env::Pep508EnvMakers;
     use crate::resolve::PypiVersion;
     use crate::resolve::SDistResolution;
-    use crate::types::PackageName;
+    use crate::types::{ArtifactFromSource, PackageName};
     use crate::types::{
-        ArtifactFromSource, ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, STreeFilename,
-        Yanked,
+        ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, STreeFilename, Yanked,
     };
     use crate::wheel_builder::WheelBuilder;
     use crate::{index::PackageDb, resolve::ResolveOptions};
@@ -318,7 +317,7 @@ mod tests {
         // Load sdist
         let sdist = super::SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
-        let build_system = sdist.read_build_info().unwrap();
+        let build_system = sdist.read_pyproject_toml().unwrap().build_system.unwrap();
 
         assert_ron_snapshot!(build_system, @r###"
         BuildSystem(

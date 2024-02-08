@@ -19,5 +19,3 @@ rust-version = "1.70"
 allow-branch = ["main"]
 consolidate-commits = true
 tag-prefix = ""
-
-[patch.crates-io]
