@@ -36,7 +36,6 @@ use std::{
 };
 use thiserror::Error;
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use url::Url;
 use zip::{result::ZipError, ZipArchive};
 
 use crate::win::launcher::{build_windows_launcher, LauncherType, WindowsLauncherArch};
