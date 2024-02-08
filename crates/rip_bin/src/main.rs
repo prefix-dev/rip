@@ -304,7 +304,6 @@ async fn actual_main() -> miette::Result<()> {
             let (artifact, direct_url_json) = package_db
                 .get_wheel(artifact_info, Some(&wheel_builder))
                 .await?;
-            println!("DIRECT URL JSON IS {:?}", direct_url_json);
             venv.install_wheel(
                 &artifact,
                 &UnpackWheelOptions {

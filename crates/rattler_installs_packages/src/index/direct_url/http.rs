@@ -100,7 +100,6 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let mut result = IndexMap::default();
     result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
 
-    // let hash_string = String::from_ut(&bytes_for_hash);
     let direct_url_json = DirectUrlJson {
         url: url.clone(),
         source: DirectUrlSource::Archive {

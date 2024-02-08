@@ -435,10 +435,6 @@ impl WheelFilename {
         let Some((distribution, rest)) =
             split_into_filename_rest(file_stem, normalized_package_name)
         else {
-            println!(
-                "FILE STEM IS {:?} NORM NAME {:?}",
-                file_stem, normalized_package_name
-            );
             return Err(ParseArtifactNameError::PackageNameNotFound(
                 normalized_package_name.clone(),
                 s.to_string(),
