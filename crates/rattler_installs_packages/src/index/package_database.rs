@@ -688,13 +688,15 @@ mod test {
     use crate::types::PackageName;
     use reqwest::Client;
     use tempfile::TempDir;
+    use tokio::task::JoinHandle;
 
     use crate::index::package_sources::PackageSourcesBuilder;
     use axum::response::{Html, IntoResponse};
     use axum::routing::get;
     use axum::Router;
     use insta::assert_debug_snapshot;
-    use std::net::{SocketAddr, TcpListener};
+    use std::future::IntoFuture;
+    use std::net::SocketAddr;
     use tower_http::add_extension::AddExtensionLayer;
 
     async fn get_index(
@@ -726,14 +728,15 @@ mod test {
             let html = format!("<html><body>{}</body></html>", link_list);
             Html(html).into_response()
         } else {
-            StatusCode::NOT_FOUND.into_response()
+            axum::http::StatusCode::NOT_FOUND.into_response()
         }
     }
 
     async fn make_simple_server(
         package_name: &str,
-    ) -> anyhow::Result<(Url, tokio::task::JoinHandle<()>)> {
-        let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
+    ) -> anyhow::Result<(Url, JoinHandle<Result<(), std::io::Error>>)> {
+        let addr = SocketAddr::new([127, 0, 0, 1].into(), 0);
+        let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
         let address = listener.local_addr()?;
 
         let router = Router::new()
@@ -741,17 +744,14 @@ mod test {
             .route("/simple/:package/", get(get_package))
             .layer(AddExtensionLayer::new(package_name.to_string()));
 
-        let listener = listener.try_into()?;
-        let server = tokio::spawn(async move {
-            axum::Server::from_tcp(listener)
-                .unwrap()
-                .serve(router.into_make_service())
-                .await
-                .unwrap()
-        });
+        let server = axum::serve(listener, router).into_future();
 
+        // Spawn the server.
+        let join_handle = tokio::spawn(server);
+
+        println!("Server started");
         let url = format!("http://{}/simple/", address).parse()?;
-        Ok((url, server))
+        Ok((url, join_handle))
     }
 
     fn make_package_db() -> (TempDir, PackageDb) {
