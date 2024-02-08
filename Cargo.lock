@@ -1913,12 +1913,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb813b8af86854136c6922af0598d719255ecb2179515e6e7730d468f05c9cae"
 
 [[package]]
-name = "parking"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb813b8af86854136c6922af0598d719255ecb2179515e6e7730d468f05c9cae"
-
-[[package]]
 name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2484,7 +2478,7 @@ dependencies = [
 [[package]]
 name = "resolvo"
 version = "0.3.0"
-source = "git+https://github.com/baszalmstra/resolvo.git?branch=refactor/concurrent-metadata-fetch#b8f974430c2e73627f05c455b3a710c703393944"
+source = "git+https://github.com/baszalmstra/resolvo.git?branch=refactor/concurrent-metadata-fetch#82c804ddf9e07adbe1a1b33989ca1c4016f84d48"
 dependencies = [
  "bitvec",
  "elsa",
