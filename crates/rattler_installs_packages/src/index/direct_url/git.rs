@@ -1,9 +1,10 @@
 use crate::index::git_interop::{git_clone, GitSource, ParsedUrl};
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::resolve::PypiVersion;
-use crate::types::{
-    ArtifactHashes, ArtifactInfo, ArtifactName, ArtifactType, DirectUrlJson, DirectUrlSource,
-    DirectUrlVcs, DistInfoMetadata, HasArtifactName, NormalizedPackageName, Yanked,
+use crate::types::{    
+ArtifactHashes, ArtifactInfo, ArtifactName, ArtifactType, DirectUrlJson, DirectUrlSource,
+DirectUrlVcs, ArtifactName, ArtifactType, DistInfoMetadata, HasArtifactName, HasArtifactName,
+NormalizedPackageName, Yanked,
 };
 use crate::wheel_builder::WheelBuilder;
 use indexmap::IndexMap;

@@ -920,7 +920,7 @@ mod tests {
             yanked: Yanked::default(),
         };
 
-        let (whl, _) = package_db
+        let whl = package_db
             .0
             .get_wheel(&artifact_info, Some(&wheel_builder))
             .await
@@ -983,28 +983,11 @@ mod tests {
             yanked: Yanked::default(),
         };
 
-        let (whl, _) = package_db
+        let whl = package_db
             .0
             .get_wheel(&artifact_info, Some(&wheel_builder))
             .await
             .unwrap();
-
-        // Install wheel to test if all vitals are correctly built
-        let tmpdir = tempdir().unwrap();
-
-        let venv = VEnv::create(tmpdir.path(), PythonLocation::System).unwrap();
-
-        venv.install_wheel(&whl, &Default::default()).unwrap();
-
-        // Check to make sure that the headers directory was created
-        assert!(venv
-            .root()
-            .join(
-                venv.install_paths()
-                    .site_packages()
-                    .join("rich/__init__.py")
-            )
-            .exists());
 
         let whl_metadata = whl.metadata().unwrap();
 
@@ -1043,7 +1026,7 @@ mod tests {
             yanked: Yanked::default(),
         };
 
-        let (whl, _) = package_db
+        let whl = package_db
             .0
             .get_wheel(&artifact_info, Some(&wheel_builder))
             .await

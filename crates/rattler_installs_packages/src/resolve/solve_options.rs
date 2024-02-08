@@ -186,7 +186,7 @@ pub enum OnWheelBuildFailure {
 }
 
 /// Additional options that may influence the solver. In general passing [`Default::default`] to
-/// the [`crate::resolve::resolve`] function should provide sane defaults, however if you want to fine tune the
+/// the [`super::resolve`] function should provide sane defaults, however if you want to fine tune the
 /// resolver you can do so via this struct.
 #[derive(Default, Clone)]
 pub struct ResolveOptions {

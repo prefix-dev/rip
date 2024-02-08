@@ -6,7 +6,7 @@ use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::index::package_sources::PackageSources;
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactInfo, ArtifactType, DirectUrlHashes, DirectUrlJson, DirectUrlSource, ProjectInfo,
+    ArtifactInfo, ArtifactType, DirectUrlHashes, DirectUrlJson, DirectUrlSource, ArtifactType, ProjectInfo,
     STreeFilename, WheelCoreMetadata,
 };
 
@@ -237,10 +237,6 @@ impl PackageDb {
     ) -> miette::Result<(Wheel, Option<DirectUrlJson>)> {
         // TODO: add support for this currently there are not saved
         if artifact_info.is_direct_url {
-            println!(
-                "IS DIRECT URL !!! {:?}",
-                artifact_info.filename.distribution_name()
-            );
             if let Some(builder) = builder {
                 let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
                     &self.http,
