@@ -21,5 +21,4 @@ consolidate-commits = true
 tag-prefix = ""
 
 [patch.crates-io]
-resolvo = { git = "https://github.com/baszalmstra/resolvo.git", branch = "refactor/concurrent-metadata-fetch" }
 pyproject-toml = { git = "https://github.com/wolfv/pyproject-toml-rs", branch = "update-deps" }

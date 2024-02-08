@@ -1,14 +1,17 @@
-use crate::artifacts::SDist;
-use crate::artifacts::Wheel;
-use crate::index::{ArtifactRequest, PackageDb};
-use crate::python_env::WheelTags;
-use crate::resolve::solve_options::SDistResolution;
-use crate::resolve::solve_options::{PreReleaseResolution, ResolveOptions};
-use crate::resolve::PinnedPackage;
-use crate::types::{
-    ArtifactFromBytes, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
+use super::{
+    pypi_version_types::PypiPackageName,
+    solve_options::{PreReleaseResolution, ResolveOptions, SDistResolution},
+    PinnedPackage, PypiVersion, PypiVersionSet,
 };
-use crate::wheel_builder::WheelBuilder;
+use crate::{
+    artifacts::{SDist, Wheel},
+    index::{ArtifactRequest, PackageDb},
+    python_env::WheelTags,
+    types::{
+        ArtifactFromBytes, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
+    },
+    wheel_builder::WheelBuilder,
+};
 use elsa::FrozenMap;
 use itertools::Itertools;
 use miette::{Diagnostic, IntoDiagnostic, MietteDiagnostic};
@@ -19,17 +22,9 @@ use resolvo::{
     Candidates, Dependencies, DependencyProvider, KnownDependencies, NameId, Pool, SolvableId,
     SolverCache,
 };
-use std::any::Any;
-use std::borrow::Borrow;
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
-use std::rc::Rc;
-
-use crate::resolve::pypi_version_types::{PypiPackageName, PypiVersion, PypiVersionSet};
-use std::str::FromStr;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::{
+    any::Any, borrow::Borrow, cmp::Ordering, collections::HashMap, rc::Rc, str::FromStr, sync::Arc,
+};
 use thiserror::Error;
 use url::Url;
 
@@ -49,9 +44,6 @@ pub(crate) struct PypiDependencyProvider {
 
     options: ResolveOptions,
     should_cancel_with_value: Mutex<Option<MetadataError>>,
-
-    concurrent_metadata_fetches: AtomicUsize,
-    concurrent_candidate_fetches: AtomicUsize,
 }
 
 impl PypiDependencyProvider {
@@ -92,8 +84,6 @@ impl PypiDependencyProvider {
             name_to_url,
             options,
             should_cancel_with_value: Default::default(),
-            concurrent_metadata_fetches: AtomicUsize::new(0),
-            concurrent_candidate_fetches: AtomicUsize::new(0),
         })
     }
 
@@ -306,11 +296,6 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         // check if we have URL variant for this name
         let url_version = self.name_to_url.get(package_name.base());
 
-        let concurrency_count = self
-            .concurrent_candidate_fetches
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        tracing::info!("requesting candidates #{}", concurrency_count);
-
         let request = if let Some(url) = url_version {
             ArtifactRequest::DirectUrl {
                 name: package_name.base().clone(),
@@ -327,10 +312,6 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         })
         .await
         .expect("cancelled");
-
-        tracing::info!("DONE requesting candidates #{}", concurrency_count);
-        self.concurrent_candidate_fetches
-            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
         let artifacts = match result {
             Ok(artifacts) => artifacts,
@@ -517,10 +498,6 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             return Dependencies::Unknown(error);
         }
 
-        let concurrency_count = self
-            .concurrent_metadata_fetches
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        tracing::info!("fetching metadata #{}", concurrency_count);
         let result: miette::Result<_> = tokio::spawn({
             let package_db = self.package_db.clone();
             let wheel_builder = self.wheel_builder.clone();
@@ -538,9 +515,6 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         })
         .await
         .expect("cancelled");
-        tracing::info!("DONE fetching metadata #{}", concurrency_count);
-        self.concurrent_metadata_fetches
-            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
 
         let metadata = match result {
             // We have retrieved a value without error
