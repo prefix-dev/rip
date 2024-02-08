@@ -828,7 +828,11 @@ mod test {
             .await;
 
         // Should not fail because 404s are skipped
-        assert!(pytest_result.is_ok());
+        assert!(
+            pytest_result.is_ok(),
+            "`pytest_result` not ok: {:?}",
+            pytest_result
+        );
 
         let test_package_result = package_db
             .available_artifacts(ArtifactRequest::FromIndex(normalized_name))
