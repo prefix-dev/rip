@@ -268,8 +268,8 @@ mod tests {
     use crate::resolve::PypiVersion;
     use crate::types::{ArtifactFromSource, PackageName};
     use crate::types::{
-        ArtifactInfo, ArtifactName, DistInfoMetadata, Extra,
-        NormalizedPackageName, STreeFilename, WheelFilename, Yanked,
+        ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, NormalizedPackageName, STreeFilename,
+        WheelFilename, Yanked,
     };
     use crate::types::{SDistFilename, SDistFormat};
     use crate::wheel_builder::WheelBuilder;
