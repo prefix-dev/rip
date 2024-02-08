@@ -50,11 +50,6 @@ impl ArtifactInfo {
     pub fn is<T: HasArtifactName>(&self) -> bool {
         self.filename.as_inner::<T::Name>().is_some()
     }
-
-    // /// Returns true if this artifact is gathered by direct reference
-    // pub fn is_direct_dependency(&self) -> bool {
-    //     self.filename.is_direct_reference()
-    // }
 }
 
 /// Describes a set of hashes for a certain artifact. In theory all hash algorithms available via
