@@ -57,7 +57,7 @@ pub trait ArtifactFromSource: HasArtifactName + Sync {
     fn artifact_name(&self) -> SourceArtifactName;
 
     /// Read the build system info from the pyproject.toml
-    fn read_build_info(&self) -> Result<pyproject_toml::BuildSystem, ReadPyProjectError>;
+    fn read_pyproject_toml(&self) -> Result<pyproject_toml::PyProjectToml, ReadPyProjectError>;
 
     /// extract to a specific location
     /// for sdist we unpack it

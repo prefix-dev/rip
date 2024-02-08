@@ -361,8 +361,10 @@ impl BuildEnvironment {
 
         // Find the build system
         let build_system = sdist
-            .read_build_info()
-            .unwrap_or_else(|_| Self::default_build_system());
+            .read_pyproject_toml()
+            .ok()
+            .and_then(|t| t.build_system)
+            .unwrap_or_else(Self::default_build_system);
 
         let build_system = if build_system.build_backend.is_none() {
             Self::default_build_system()
