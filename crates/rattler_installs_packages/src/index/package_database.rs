@@ -272,8 +272,7 @@ impl PackageDb {
                 let whl = builder
                     .build_wheel(&sdist)
                     .await
-                    .into_diagnostic()
-                    .expect("cannot build wheel");
+                    .into_diagnostic()?;
 
                 let direct_url = if artifact_info.is_direct_url {
                     let direct_url_hash = if let Some(hash) = artifact_info.hashes.clone() {
@@ -305,8 +304,7 @@ impl PackageDb {
         // Otherwise just retrieve the wheel
         let cached_whl = self
             .get_cached_artifact::<Wheel>(artifact_info, CacheMode::Default)
-            .await
-            .expect("cannot build wheel");
+            .await?;
         Ok((cached_whl, None))
     }
 
