@@ -8,11 +8,12 @@ use crate::types::{
 };
 use crate::utils::ReadAndSeek;
 use crate::wheel_builder::WheelBuilder;
-use http::{HeaderMap, Method};
 use indexmap::IndexMap;
 use miette::IntoDiagnostic;
 use pep440_rs::Version;
 use rattler_digest::Sha256;
+use reqwest::header::HeaderMap;
+use reqwest::Method;
 use std::str::FromStr;
 use std::sync::Arc;
 use url::Url;
