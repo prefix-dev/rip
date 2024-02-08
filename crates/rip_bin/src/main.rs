@@ -1,5 +1,5 @@
 use fs_err as fs;
-use rattler_installs_packages::resolve::PreReleaseResolution;
+use rattler_installs_packages::resolve::solve_options::{PreReleaseResolution, ResolveOptions};
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -19,11 +19,10 @@ use url::Url;
 use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
 use rattler_installs_packages::index::PackageSourcesBuilder;
 use rattler_installs_packages::python_env::{PythonLocation, WheelTags};
-use rattler_installs_packages::resolve::OnWheelBuildFailure;
+use rattler_installs_packages::resolve::solve_options::OnWheelBuildFailure;
 use rattler_installs_packages::wheel_builder::WheelBuilder;
 use rattler_installs_packages::{
-    normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve,
-    resolve::ResolveOptions, types::Requirement,
+    normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve, types::Requirement,
 };
 
 #[derive(Serialize, Debug)]
@@ -55,7 +54,7 @@ struct Args {
 
     /// How to handle sidsts
     #[clap(flatten)]
-    sdist_resolution: SDistResolution,
+    sdist_resolution: SDistResolutionArgs,
 
     /// Path to the python interpreter to use for resolving environment markers and creating venvs
     #[clap(long, short)]
@@ -79,7 +78,7 @@ struct Args {
 
 #[derive(Parser)]
 #[group(multiple = false)]
-struct SDistResolution {
+struct SDistResolutionArgs {
     /// Prefer any version with wheels over any version with sdists
     #[clap(long)]
     prefer_wheels: bool,
@@ -97,18 +96,19 @@ struct SDistResolution {
     only_sdists: bool,
 }
 
-impl From<SDistResolution> for resolve::SDistResolution {
-    fn from(value: SDistResolution) -> Self {
+use resolve::solve_options::SDistResolution;
+impl From<SDistResolutionArgs> for SDistResolution {
+    fn from(value: SDistResolutionArgs) -> Self {
         if value.only_sdists {
-            resolve::SDistResolution::OnlySDists
+            SDistResolution::OnlySDists
         } else if value.only_wheels {
-            resolve::SDistResolution::OnlyWheels
+            SDistResolution::OnlyWheels
         } else if value.prefer_sdists {
-            resolve::SDistResolution::PreferSDists
+            SDistResolution::PreferSDists
         } else if value.prefer_wheels {
-            resolve::SDistResolution::PreferWheels
+            SDistResolution::PreferWheels
         } else {
-            resolve::SDistResolution::Normal
+            SDistResolution::Normal
         }
     }
 }

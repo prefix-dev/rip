@@ -261,16 +261,16 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::artifacts::SDist;
+    use crate::index::PackageDb;
     use crate::index::{ArtifactRequest, PackageSourcesBuilder};
     use crate::python_env::Pep508EnvMakers;
+    use crate::resolve::solve_options::{ResolveOptions, SDistResolution};
     use crate::resolve::PypiVersion;
-    use crate::resolve::SDistResolution;
     use crate::types::{ArtifactFromSource, PackageName};
     use crate::types::{
         ArtifactInfo, ArtifactName, DistInfoMetadata, Extra, STreeFilename, Yanked,
     };
     use crate::wheel_builder::WheelBuilder;
-    use crate::{index::PackageDb, resolve::ResolveOptions};
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use pep440_rs::Version;
     use reqwest::Client;
