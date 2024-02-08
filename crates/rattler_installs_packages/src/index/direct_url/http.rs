@@ -3,8 +3,9 @@ use crate::index::http::Http;
 use crate::index::{parse_hash, CacheMode};
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactType, DistInfoMetadata,
-    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, WheelCoreMetadata, Yanked,
+    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactType, DirectUrlHashes, DirectUrlJson,
+    DirectUrlSource, DistInfoMetadata, NormalizedPackageName, PackageName, SDistFilename,
+    SDistFormat, WheelCoreMetadata, Yanked,
 };
 use crate::utils::ReadAndSeek;
 use crate::wheel_builder::WheelBuilder;
@@ -45,14 +46,14 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         .await
         .into_diagnostic()?;
 
+    let mut bytes_for_hash = vec![];
     let artifact_hash = {
-        let mut bytes_for_hash = vec![];
         bytes.rewind().into_diagnostic()?;
         bytes.read_to_end(&mut bytes_for_hash).into_diagnostic()?;
         bytes.rewind().into_diagnostic()?;
         ArtifactHashes {
             sha256: Some(rattler_digest::compute_bytes_digest::<Sha256>(
-                bytes_for_hash,
+                bytes_for_hash.clone(),
             )),
         }
     };
@@ -92,11 +93,22 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let mut result = IndexMap::default();
     result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
 
+    let hash_string = String::from_utf8_lossy(&bytes_for_hash);
+    let direct_url_json = DirectUrlJson {
+        url: url.clone(),
+        source: DirectUrlSource::Archive {
+            hashes: Some(DirectUrlHashes {
+                sha256: hash_string.to_string(),
+            }),
+        },
+    };
+
     Ok(crate::index::package_database::DirectUrlArtifactResponse {
         artifact_info,
         metadata: (metadata_bytes, metadata),
         artifact_versions: result,
         artifact,
+        direct_url_json,
     })
 }
 

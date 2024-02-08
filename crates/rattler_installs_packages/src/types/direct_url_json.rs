@@ -23,7 +23,7 @@ pub enum DirectUrlSource {
     /// Information about the archive file.
     Archive {
         /// Hashes of the archive file.
-        hashes: DirectUrlHashes,
+        hashes: Option<DirectUrlHashes>,
     },
     /// Information about a source from a VCS directly
     #[serde(rename = "vcs_info")]

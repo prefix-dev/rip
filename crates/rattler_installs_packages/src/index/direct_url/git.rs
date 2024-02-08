@@ -2,8 +2,8 @@ use crate::index::git_interop::{git_clone, GitSource, ParsedUrl};
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactHashes, ArtifactInfo, ArtifactName, ArtifactType, DistInfoMetadata, HasArtifactName,
-    NormalizedPackageName, Yanked,
+    ArtifactHashes, ArtifactInfo, ArtifactName, ArtifactType, DirectUrlJson, DirectUrlSource,
+    DirectUrlVcs, DistInfoMetadata, HasArtifactName, NormalizedPackageName, Yanked,
 };
 use crate::wheel_builder::WheelBuilder;
 use indexmap::IndexMap;
@@ -27,7 +27,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         rev: parsed_url.revision,
     };
 
-    let mut location = git_clone(&git_source).into_diagnostic()?;
+    let (mut location, git_rev) = git_clone(&git_source).into_diagnostic()?;
 
     if let Some(subdirectory) = parsed_url.subdirectory {
         location.push(&subdirectory);
@@ -60,6 +60,15 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         reason: None,
     };
 
+    let direct_url_json = DirectUrlJson {
+        url: url.clone(),
+        source: DirectUrlSource::Vcs {
+            vcs: DirectUrlVcs::Git,
+            requested_revision: git_source.rev,
+            commit_id: git_rev.get_commit(),
+        },
+    };
+
     let project_hash = ArtifactHashes {
         sha256: Some(compute_bytes_digest::<Sha256>(url.as_str().as_bytes())),
     };
@@ -82,5 +91,6 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         metadata: (wheel_metadata.0, wheel_metadata.1),
         artifact_versions: result,
         artifact: ArtifactType::STree(artifact),
+        direct_url_json,
     })
 }

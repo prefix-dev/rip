@@ -1,5 +1,6 @@
 use fs_err as fs;
 use rattler_installs_packages::resolve::solve_options::{PreReleaseResolution, ResolveOptions};
+use rattler_installs_packages::types::{DirectUrlJson, DirectUrlSource};
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -301,11 +302,18 @@ async fn actual_main() -> miette::Result<()> {
                 console::style(pinned_package.version).italic()
             );
             let artifact_info = pinned_package.artifacts.first().unwrap();
-            let artifact = package_db
+            let (artifact, direct_url_json) = package_db
                 .get_wheel(artifact_info, Some(&wheel_builder))
                 .await?;
-            venv.install_wheel(&artifact, &UnpackWheelOptions::default())
-                .into_diagnostic()?;
+            println!("DIRECT URL JSON IS {:?}", direct_url_json);
+            venv.install_wheel(
+                &artifact,
+                &UnpackWheelOptions {
+                    direct_url_json,
+                    ..Default::default()
+                },
+            )
+            .into_diagnostic()?;
         }
     }
 
