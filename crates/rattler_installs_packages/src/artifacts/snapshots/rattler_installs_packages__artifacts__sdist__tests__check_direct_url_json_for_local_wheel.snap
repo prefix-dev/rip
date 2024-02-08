@@ -1,0 +1,20 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+expression: json
+---
+DirectUrlJson {
+    url: Url {
+        scheme: "file",
+        cannot_be_a_base: false,
+        username: "",
+        password: None,
+        host: None,
+        port: None,
+        path: "/",
+        query: None,
+        fragment: None,
+    },
+    source: Dir {
+        editable: None,
+    },
+}

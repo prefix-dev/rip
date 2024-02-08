@@ -260,7 +260,7 @@ fn generic_archive_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::SDist;
+    use crate::artifacts::{SDist, STree};
     use crate::index::PackageDb;
     use crate::index::{ArtifactRequest, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonLocation, VEnv};
@@ -1123,5 +1123,174 @@ mod tests {
             .unwrap();
 
         assert_debug_snapshot!(wheel_metadata.1.requires_dist);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn check_direct_url_json_for_local_wheel() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../test-data/wheels/miniblack-23.1.0-py3-none-any.whl");
+
+        let url = Url::from_file_path(path.canonicalize().unwrap()).unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let package_name = PackageName::from_str("miniblack").unwrap();
+        let norm_name = NormalizedPackageName::from(package_name);
+        let whl_file_name =
+            WheelFilename::from_filename("miniblack-23.1.0-py3-none-any.whl", &norm_name).unwrap();
+
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::Wheel(whl_file_name),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let (_, direct_url_json) = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+        let mut json = direct_url_json.unwrap();
+        // reset the path so it does not fail when running for different users
+        // where path to whl differ
+        json.url.set_path("");
+
+        assert_debug_snapshot!(json);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn check_direct_url_json_with_commit_for_remote_git() {
+        let url = Url::parse(
+            "git+https://github.com/mahmoud/boltons.git@47c8046492d4db49f163bb977d20d5942e4ddb25",
+        )
+        .unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let git_stree_filename = STreeFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            url: url.clone(),
+        };
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::STree(git_stree_filename),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let (_, direct_url_json) = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+
+        assert_debug_snapshot!(direct_url_json);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn check_direct_url_json_by_tag_for_remote_git() {
+        let url = Url::parse("git+https://github.com/mahmoud/boltons.git@21.0.0").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("rich").unwrap();
+        let git_stree_filename = STreeFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            url: url.clone(),
+        };
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::STree(git_stree_filename),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let (_, direct_url_json) = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+
+        assert_debug_snapshot!(direct_url_json);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn check_direct_url_json_for_remote_sdist() {
+        let url = Url::parse("https://files.pythonhosted.org/packages/ea/65/163134cb3c06d42557c0d1a7bc0b53d28fb674c16489f990d9e1bbccfa7b/boltons-20.2.1.tar.gz").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("boltons").unwrap();
+        let sdist_remote_filename = SDistFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            format: SDistFormat::TarGz,
+        };
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::SDist(sdist_remote_filename),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let (_, direct_url_json) = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+
+        assert_debug_snapshot!(direct_url_json);
     }
 }
