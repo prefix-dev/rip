@@ -9,6 +9,7 @@ use crate::wheel_builder::WheelBuilder;
 use indexmap::IndexMap;
 use miette::IntoDiagnostic;
 use rattler_digest::{compute_bytes_digest, Sha256};
+use std::str::FromStr;
 use std::sync::Arc;
 use url::Url;
 
@@ -61,7 +62,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     };
 
     let direct_url_json = DirectUrlJson {
-        url: url.clone(),
+        url: Url::from_str(parsed_url.url.as_str()).expect("URL should be parseable"),
         source: DirectUrlSource::Vcs {
             vcs: DirectUrlVcs::Git,
             requested_revision: git_source.rev,

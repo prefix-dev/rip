@@ -1,7 +1,7 @@
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactFromBytes, ArtifactFromSource, DirectUrlJson, HasArtifactName, NormalizedPackageName,
-    PackageInfo, ReadPyProjectError, SDistFilename, SDistFormat, SourceArtifactName,
+    ArtifactFromBytes, ArtifactFromSource, HasArtifactName, NormalizedPackageName, PackageInfo,
+    ReadPyProjectError, SDistFilename, SDistFormat, SourceArtifactName,
 };
 use crate::types::{WheelCoreMetaDataError, WheelCoreMetadata};
 use crate::utils::ReadAndSeek;

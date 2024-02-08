@@ -129,7 +129,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let normalized_package_name = p.into();
 
     let (metadata_bytes, metadata, artifact) = if path.is_file() && str_name.ends_with(".whl") {
-        let mut wheel = Wheel::from_path(&path, &normalized_package_name)
+        let wheel = Wheel::from_path(&path, &normalized_package_name)
             .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))
             .into_diagnostic()?;
 

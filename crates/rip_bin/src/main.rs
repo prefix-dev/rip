@@ -1,6 +1,5 @@
 use fs_err as fs;
 use rattler_installs_packages::resolve::solve_options::{PreReleaseResolution, ResolveOptions};
-use rattler_installs_packages::types::{DirectUrlJson, DirectUrlSource};
 use rip_bin::{global_multi_progress, IndicatifWriter};
 use serde::Serialize;
 use std::collections::HashMap;

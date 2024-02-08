@@ -263,7 +263,7 @@ fn get_revision_sha(dest: &PathBuf, rev: Option<String>) -> Result<GitRev, Sourc
     let rev = if let Some(rev) = rev {
         rev
     } else {
-        return Ok(GitRev::Head);
+        "HEAD".to_owned()
     };
 
     let output = Command::new("git")

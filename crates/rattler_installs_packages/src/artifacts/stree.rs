@@ -1,6 +1,5 @@
 use crate::resolve::PypiVersion;
 use crate::types::ArtifactFromSource;
-use crate::types::DirectUrlJson;
 use crate::types::ReadPyProjectError;
 use crate::types::{HasArtifactName, STreeFilename, SourceArtifactName};
 use fs_err as fs;

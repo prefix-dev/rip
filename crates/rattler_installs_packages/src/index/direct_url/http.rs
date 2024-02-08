@@ -46,8 +46,8 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         .await
         .into_diagnostic()?;
 
-    let mut bytes_for_hash = vec![];
     let artifact_hash = {
+        let mut bytes_for_hash = vec![];
         bytes.rewind().into_diagnostic()?;
         bytes.read_to_end(&mut bytes_for_hash).into_diagnostic()?;
         bytes.rewind().into_diagnostic()?;
@@ -61,6 +61,13 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     if let Some(hash) = url_hash.clone() {
         assert_eq!(hash, artifact_hash);
     };
+
+    let hash_str = format!(
+        "{:x}",
+        artifact_hash
+            .sha256
+            .expect("hash should be already calculated")
+    );
 
     let (metadata_bytes, metadata, artifact) = if str_name.ends_with(".whl") {
         let wheel = Wheel::from_url_and_bytes(url.path(), &normalized_package_name, bytes)?;
@@ -93,13 +100,11 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let mut result = IndexMap::default();
     result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
 
-    let hash_string = String::from_utf8_lossy(&bytes_for_hash);
+    // let hash_string = String::from_ut(&bytes_for_hash);
     let direct_url_json = DirectUrlJson {
         url: url.clone(),
         source: DirectUrlSource::Archive {
-            hashes: Some(DirectUrlHashes {
-                sha256: hash_string.to_string(),
-            }),
+            hashes: Some(DirectUrlHashes { sha256: hash_str }),
         },
     };
 

@@ -34,8 +34,6 @@ use std::{fmt::Display, io::Read, path::Path};
 
 use url::Url;
 
-use super::direct_url;
-
 type VersionArtifacts = IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>;
 
 /// Cache of the available packages, artifacts and their metadata.
@@ -239,6 +237,10 @@ impl PackageDb {
     ) -> miette::Result<(Wheel, Option<DirectUrlJson>)> {
         // TODO: add support for this currently there are not saved
         if artifact_info.is_direct_url {
+            println!(
+                "IS DIRECT URL !!! {:?}",
+                artifact_info.filename.distribution_name()
+            );
             if let Some(builder) = builder {
                 let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
                     &self.http,
@@ -248,19 +250,17 @@ impl PackageDb {
                 )
                 .await?;
 
-                match response.artifact {
-                    ArtifactType::Wheel(wheel) => {
-                        return Ok((wheel, Some(response.direct_url_json)))
-                    }
+                let whl = match response.artifact {
+                    ArtifactType::Wheel(wheel) => wheel,
                     ArtifactType::SDist(sdist) => {
-                        let whl = builder.build_wheel(&sdist).await.into_diagnostic()?;
-                        return Ok((whl, None));
+                        builder.build_wheel(&sdist).await.into_diagnostic()?
                     }
                     ArtifactType::STree(stree) => {
-                        let whl = builder.build_wheel(&stree).await.into_diagnostic()?;
-                        return Ok((whl, None));
+                        builder.build_wheel(&stree).await.into_diagnostic()?
                     }
-                }
+                };
+
+                return Ok((whl, Some(response.direct_url_json)));
             } else {
                 miette::bail!("cannot build wheel without a wheel builder");
             }
@@ -311,7 +311,7 @@ impl PackageDb {
             .get_cached_artifact::<Wheel>(artifact_info, CacheMode::Default)
             .await
             .expect("cannot build wheel");
-        return Ok((cached_whl, None));
+        Ok((cached_whl, None))
     }
 
     /// Get artifact directly from file, vcs, or url
