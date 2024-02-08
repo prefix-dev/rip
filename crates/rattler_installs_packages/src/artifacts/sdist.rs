@@ -920,7 +920,7 @@ mod tests {
             yanked: Yanked::default(),
         };
 
-        let whl = package_db
+        let (whl, _) = package_db
             .0
             .get_wheel(&artifact_info, Some(&wheel_builder))
             .await
@@ -983,7 +983,7 @@ mod tests {
             yanked: Yanked::default(),
         };
 
-        let whl = package_db
+        let (whl, _) = package_db
             .0
             .get_wheel(&artifact_info, Some(&wheel_builder))
             .await
@@ -1026,7 +1026,7 @@ mod tests {
             yanked: Yanked::default(),
         };
 
-        let whl = package_db
+        let (whl, _) = package_db
             .0
             .get_wheel(&artifact_info, Some(&wheel_builder))
             .await

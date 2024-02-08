@@ -6,7 +6,7 @@ use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::index::package_sources::PackageSources;
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactInfo, ArtifactType, DirectUrlHashes, DirectUrlJson, DirectUrlSource, ArtifactType, ProjectInfo,
+    ArtifactInfo, ArtifactType, DirectUrlHashes, DirectUrlJson, DirectUrlSource, ProjectInfo,
     STreeFilename, WheelCoreMetadata,
 };
 
