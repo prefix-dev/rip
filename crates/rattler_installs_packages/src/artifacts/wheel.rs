@@ -163,7 +163,7 @@ impl Wheel {
             .file()
             .entries()
             .iter()
-            .filter_map(|e| e.entry().filename().as_str().ok())
+            .filter_map(|e| e.filename().as_str().ok())
             .map(|filename| {
                 filename
                     .split_once(['/', '\\'])
@@ -187,15 +187,15 @@ impl Wheel {
             .entries()
             .iter()
             .enumerate()
-            .find(|(_, p)| p.entry().filename().as_str().ok() == Some(metadata_path.as_str()))
+            .find(|(_, p)| p.filename().as_str().ok() == Some(metadata_path.as_str()))
             .ok_or(WheelVitalsError::MetadataMissing)?;
 
         // Get the size of the entry plus the header + size of the filename. We should also actually
         // include bytes for the extra fields but we don't have that information.
         let offset = metadata_entry.header_offset();
-        let size = metadata_entry.entry().compressed_size()
+        let size = metadata_entry.compressed_size()
             + 30 // Header size in bytes
-            + metadata_entry.entry().filename().as_bytes().len() as u64;
+            + metadata_entry.filename().as_bytes().len() as u64;
 
         // The zip archive uses as BufReader which reads in chunks of 8192. To ensure we prefetch
         // enough data we round the size up to the nearest multiple of the buffer size.

@@ -16,9 +16,10 @@ use async_http_range_reader::{AsyncHttpRangeReader, CheckSupportMethod};
 use async_recursion::async_recursion;
 use elsa::sync::FrozenMap;
 use futures::{pin_mut, stream, StreamExt};
-use http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method};
 use indexmap::IndexMap;
 use miette::{self, Diagnostic, IntoDiagnostic};
+use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::Method;
 
 use reqwest::{header::CACHE_CONTROL, StatusCode};
 use reqwest_middleware::ClientWithMiddleware;
