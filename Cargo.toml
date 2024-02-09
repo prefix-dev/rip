@@ -19,6 +19,3 @@ rust-version = "1.70"
 allow-branch = ["main"]
 consolidate-commits = true
 tag-prefix = ""
-
-[patch.crates-io]
-pyproject-toml = { git = "https://github.com/wolfv/pyproject-toml-rs", branch = "update-deps" }

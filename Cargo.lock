@@ -2175,8 +2175,9 @@ dependencies = [
 
 [[package]]
 name = "pyproject-toml"
-version = "0.8.2"
-source = "git+https://github.com/wolfv/pyproject-toml-rs?branch=update-deps#98dfe9f560bca6b838080ab06db1a161dd085f1b"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95c3dd745f99aa3c554b7bb00859f7d18c2f1d6afd749ccc86d60b61e702abd9"
 dependencies = [
  "indexmap 2.2.2",
  "pep440_rs",

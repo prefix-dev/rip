@@ -63,7 +63,7 @@ pathdiff = "0.2.1"
 async_zip = { version = "0.0.16", features = ["tokio", "deflate"] }
 tar = "0.4.40"
 flate2 = "1.0.28"
-pyproject-toml = "0.8.2"
+pyproject-toml = "0.9.0"
 async-once-cell = "0.5.3"
 configparser = "3.0.4"
 cacache = { version = "12.0.0", default-features = false, features = ["tokio-runtime", "mmap"] }
