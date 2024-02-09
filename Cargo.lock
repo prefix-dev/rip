@@ -2248,7 +2248,7 @@ dependencies = [
 
 [[package]]
 name = "rattler_installs_packages"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-once-cell",
@@ -2508,7 +2508,7 @@ dependencies = [
 
 [[package]]
 name = "rip_bin"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "clap",
  "console",
@@ -3061,7 +3061,7 @@ dependencies = [
 
 [[package]]
 name = "test-utils"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "data-encoding",
  "dirs",
