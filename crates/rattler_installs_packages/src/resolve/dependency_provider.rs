@@ -331,7 +331,6 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         .await
         .expect("cancelled");
 
-
         let artifacts = match result {
             Ok(artifacts) => artifacts,
             Err(err) => {

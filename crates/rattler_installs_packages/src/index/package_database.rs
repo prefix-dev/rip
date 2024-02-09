@@ -10,7 +10,7 @@ use crate::types::{
     STreeFilename, WheelCoreMetadata,
 };
 
-use crate::wheel_builder::{ProjectInfoCache, WheelBuildError, WheelBuilder, WheelCache};
+use crate::wheel_builder::{WheelBuildError, WheelBuilder, WheelCache};
 use crate::{
     types::ArtifactFromBytes, types::InnerAsArtifactName, types::NormalizedPackageName,
     types::WheelFilename,
@@ -54,9 +54,6 @@ pub struct PackageDb {
     /// Cache to locally built wheels
     local_wheel_cache: WheelCache,
 
-    /// Cache to project info
-    local_project_info_cache: ProjectInfoCache,
-
     /// Reference to the cache directory for all caches
     cache_dir: PathBuf,
 }
@@ -98,7 +95,6 @@ impl PackageDb {
 
         let metadata_cache = FileStore::new(&cache_dir.join("metadata")).into_diagnostic()?;
         let local_wheel_cache = WheelCache::new(cache_dir.join("local_wheels"));
-        let local_project_info_cache = ProjectInfoCache::new(cache_dir.join("local_project_info"));
 
         Ok(Self {
             http,
@@ -106,7 +102,6 @@ impl PackageDb {
             metadata_cache,
             artifacts: Default::default(),
             local_wheel_cache,
-            local_project_info_cache,
             cache_dir: cache_dir.to_owned(),
         })
     }
@@ -746,7 +741,6 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
             return Err(err.into());
         }
     };
-
 
     let content_type = response
         .headers()

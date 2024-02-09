@@ -10,18 +10,19 @@ use reqwest::header::{ACCEPT, CACHE_CONTROL};
 use reqwest::{header::HeaderMap, Method};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
-use core::panic;
 use std::io;
 use std::io::BufReader;
 use std::io::BufWriter;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::mem;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 use thiserror::Error;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use url::Url;
+
+const CURRENT_VERSION: u8 = 1;
+const CACHE_BOM: &str = "RIP"; // ASCII string as BOM
 
 // Attached to HTTP responses, to make testing easier
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -142,10 +143,8 @@ impl Http {
 
                         // Determine what to do based on the response headers.
                         match old_policy.after_response(&request, &response, SystemTime::now()) {
-                            AfterResponse::NotModified(new_policy, new_parts) => {
+                            AfterResponse::NotModified(_, new_parts) => {
                                 tracing::debug!(url=%url, "stale, but not modified");
-                                println!("ITS STALE BUT NOT MODIFIED");
-                                // let new_body = fill_cache(&new_policy, &final_url, old_body, lock)?;
                                 Ok(make_response(
                                     new_parts,
                                     StreamingOrLocal::Local(Box::new(old_body)),
@@ -195,7 +194,6 @@ impl Http {
 
                 let new_policy = CachePolicy::new(&request, &response);
                 let (parts, body) = response.into_parts();
-                println!("I FILL CACHE ASYNC BECAUSE I DONT HAVE METADATA?");
                 let new_body = if new_policy.is_storable() {
                     let new_body = fill_cache_async(&new_policy, &final_url, body, lock).await?;
                     StreamingOrLocal::Local(Box::new(new_body))
@@ -258,42 +256,18 @@ fn read_cache<R>(mut f: R) -> std::io::Result<(CachePolicy, Url, impl ReadAndSee
 where
     R: Read + Seek,
 {
-    println!("I TRY TO READ DATA?");
-
     let mut buff_reader = BufReader::new(&mut f);
-    // let mut buf = vec![];
-    let mut buffer = [0; 8];
+    verify_cache_bom(&mut buff_reader).unwrap();
 
-    let ciborium_end = buff_reader.read_exact(&mut buffer).unwrap();
-
-    // buff_reader.seek(SeekFrom::Start(buffer))).unwrap();
-    // buff_reader.rewind().unwrap();
-    
-    // buff_reader.rewind().unwrap();
-
+    let mut struct_size_buffer = [0; 8];
+    buff_reader.read_exact(&mut struct_size_buffer).unwrap();
 
     let data: CacheData = ciborium::de::from_reader(buff_reader).unwrap();
-
-    println!("I READ DATA?");
-    
-    // ciborium::ser::into_writer(value, writer))
-    /// 335
-    // let size = mem::size_of_val(&data);
-// 
-    // println!("SIZE IS {:?}", size);
-    
-    // let start = f.stream_position()?;
-
-    let start = u64::from_le_bytes(buffer);
+    let start = u64::from_le_bytes(struct_size_buffer);
     let end = f.seek(SeekFrom::End(0))?;
 
-    println!("START AND END IS {:?} {:?}", start, end);
-
-    
     let mut body = SeekSlice::new(f, start, end)?;
     body.rewind()?;
-
-    println!("I RETURN {:?} {:?}", data.policy, data.url);
 
     Ok((data.policy, data.url, body))
 }
@@ -304,36 +278,36 @@ struct CacheData {
     url: Url,
 }
 
-/// Fill the cache with the
-fn fill_cache<R: Read>(
-    policy: &CachePolicy,
-    url: &Url,
-    mut body: R,
-    handle: FileLock,
-) -> Result<impl Read + Seek, std::io::Error> {
-    let mut cache_writer = handle.begin()?;
-    let mut buf_cached_writer = BufWriter::new(cache_writer);
-    
-    ciborium::ser::into_writer(
-        &CacheData {
-            policy: policy.clone(),
-            url: url.clone(),
-        },
-        &mut buf_cached_writer,
-    )
-    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    
-    
-    
-    
-    let body_start = buf_cached_writer.stream_position()?;
+/// Write cache BOM and return it's current position after writing
+/// BOM is represented by:
+/// [BOM]--[VERSION]--[SIZE_OF_HEADERS_STRUCT]
+fn write_cache_bom<W: Write + Seek>(writer: &mut W) -> Result<u64, std::io::Error> {
+    writer.write_all(CACHE_BOM.as_bytes())?;
+    writer.write_all(&[CURRENT_VERSION])?;
+    writer.stream_position()
+}
 
-    
-    std::io::copy(&mut body, &mut buf_cached_writer)?;
-    drop(body);
-    let body_end = buf_cached_writer.stream_position()?;
-    let cache_entry = buf_cached_writer.into_inner()?.commit()?.detach_unlocked();
-    SeekSlice::new(cache_entry, body_start, body_end)
+/// Verify that cache BOM is the same and up-to-date
+fn verify_cache_bom<R: Read + Seek>(reader: &mut R) -> Result<(), std::io::Error> {
+    // Read and verify the byte order mark and version
+    let mut bom_and_version = [0u8; 4]; // 3 bytes to match the length of CUSTOM_BOM
+    reader.read_exact(&mut bom_and_version)?;
+
+    if &bom_and_version[0..3] != CACHE_BOM.as_bytes() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid byte order mark",
+        ));
+    }
+
+    if bom_and_version[3] != CURRENT_VERSION {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Incombatible version",
+        ));
+    }
+
+    Ok(())
 }
 
 /// Fill the cache with the
@@ -342,15 +316,26 @@ async fn fill_cache_async(
     url: &Url,
     mut body: impl Stream<Item = reqwest::Result<Bytes>> + Send + Unpin,
     handle: FileLock,
-) -> Result<impl Read + Seek, std::io::Error> {    
-    let mut cache_writer = handle.begin()?;
+) -> Result<impl Read + Seek, std::io::Error> {
+    let cache_writer = handle.begin()?;
     let mut buf_cache_writer = BufWriter::new(cache_writer);
 
-        
-    buf_cache_writer.rewind().unwrap();
-    let file_contents_base64: [u8; 8] = [0; 8];
-    buf_cache_writer.write_all(&file_contents_base64).unwrap();
-    
+    let bom_written_position = write_cache_bom(&mut buf_cache_writer).unwrap();
+
+    // We need to save struct size because we keep cache in this way:
+    // headers_struct + body
+    //
+    // When reading using `BufReader` and serializing using `ciborium`,
+    // we don't know anymore what was the final position of the struct and we
+    // can't slice and return only the body.
+    // To overcome this, we record struct size at the start of cache, together with BOM
+    // which we later will use to seek at it and return the body.
+    // Example of stored cache:
+    // [BOM][VERSION][HEADERS_STRUCT_SIZE][HEADERS][BODY]
+
+    let struct_size = [0; 8];
+    buf_cache_writer.write_all(&struct_size).unwrap();
+
     ciborium::ser::into_writer(
         &CacheData {
             policy: policy.clone(),
@@ -361,17 +346,16 @@ async fn fill_cache_async(
     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let body_start = buf_cache_writer.stream_position()?;
 
-
-    buf_cache_writer.rewind().unwrap();
+    buf_cache_writer
+        .seek(SeekFrom::Start(bom_written_position))
+        .unwrap();
 
     let body_le_bytes = body_start.to_le_bytes();
+    buf_cache_writer
+        .write_all(body_le_bytes.as_slice())
+        .unwrap();
 
-    let file_contents_base64  = body_le_bytes.as_slice();
-    let written = buf_cache_writer.write_all(&file_contents_base64).unwrap();
-    
     buf_cache_writer.seek(SeekFrom::Start(body_start)).unwrap();
-
-
 
     while let Some(bytes) = body.next().await {
         buf_cache_writer.write_all(
@@ -382,16 +366,9 @@ async fn fill_cache_async(
     }
 
     let body_end = buf_cache_writer.stream_position()?;
-    let Ok(inner) = buf_cache_writer.into_inner() else {
-        panic!("aa")
-    } ;
+    let cache_entry = buf_cache_writer.into_inner()?.commit()?.detach_unlocked();
 
-    let cache_entry = inner.commit()?.detach_unlocked();
-    println!("I WROTE {:?} {:?}", body_start, body_end);
-    SeekSlice::new(cache_entry, body_start, body_end) 
-
-
-    
+    SeekSlice::new(cache_entry, body_start, body_end)
 }
 
 /// Converts from a `http::request::Parts` into a `reqwest::Request`.
