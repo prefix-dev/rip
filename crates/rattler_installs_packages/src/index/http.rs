@@ -22,7 +22,7 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 use url::Url;
 
 const CURRENT_VERSION: u8 = 1;
-const CACHE_BOM: &str = "RIP"; // ASCII string as BOM
+const CACHE_BOM: &str = "RIP";
 
 // Attached to HTTP responses, to make testing easier
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -155,7 +155,6 @@ impl Http {
                             AfterResponse::Modified(new_policy, parts) => {
                                 tracing::debug!(url=%url, "stale, but *and* modified");
                                 drop(old_body);
-                                println!("ITS STALE AND MODIFIED");
                                 let new_body = if new_policy.is_storable() {
                                     let new_body = fill_cache_async(
                                         &new_policy,
