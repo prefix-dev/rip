@@ -646,7 +646,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: &wheel_builder,
+                wheel_builder: Arc::new(wheel_builder),
             })
             .await
             .unwrap();
@@ -679,7 +679,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: &wheel_builder,
+                wheel_builder: Arc::new(wheel_builder),
             })
             .await
             .unwrap();
@@ -714,7 +714,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: &wheel_builder,
+                wheel_builder: Arc::new(wheel_builder),
             })
             .await
             .unwrap();
@@ -745,7 +745,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: &wheel_builder,
+                wheel_builder: Arc::new(wheel_builder),
             })
             .await
             .unwrap();
@@ -789,7 +789,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: &wheel_builder,
+                wheel_builder: Arc::new(wheel_builder),
             })
             .await
             .unwrap();
@@ -820,7 +820,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: &wheel_builder,
+                wheel_builder: Arc::new(wheel_builder),
             })
             .await
             .unwrap();

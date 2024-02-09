@@ -1,14 +1,17 @@
-use crate::artifacts::SDist;
-use crate::artifacts::Wheel;
-use crate::index::{ArtifactRequest, PackageDb};
-use crate::python_env::WheelTags;
-use crate::resolve::solve_options::SDistResolution;
-use crate::resolve::solve_options::{PreReleaseResolution, ResolveOptions};
-use crate::resolve::PinnedPackage;
-use crate::types::{
-    ArtifactFromBytes, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
+use super::{
+    pypi_version_types::PypiPackageName,
+    solve_options::{PreReleaseResolution, ResolveOptions, SDistResolution},
+    PinnedPackage, PypiVersion, PypiVersionSet,
 };
-use crate::wheel_builder::WheelBuilder;
+use crate::{
+    artifacts::{SDist, Wheel},
+    index::{ArtifactRequest, PackageDb},
+    python_env::WheelTags,
+    types::{
+        ArtifactFromBytes, ArtifactInfo, ArtifactName, Extra, NormalizedPackageName, PackageName,
+    },
+    wheel_builder::WheelBuilder,
+};
 use elsa::FrozenMap;
 use itertools::Itertools;
 use miette::{Diagnostic, IntoDiagnostic, MietteDiagnostic};
@@ -19,22 +22,15 @@ use resolvo::{
     Candidates, Dependencies, DependencyProvider, KnownDependencies, NameId, Pool, SolvableId,
     SolverCache,
 };
-use std::any::Any;
-use std::borrow::Borrow;
-use std::cmp::Ordering;
-use std::collections::HashMap;
-
-use crate::resolve::pypi_version_types::{PypiPackageName, PypiVersion, PypiVersionSet};
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+    any::Any, borrow::Borrow, cmp::Ordering, collections::HashMap, rc::Rc, str::FromStr, sync::Arc,
+};
 use thiserror::Error;
-use tokio::runtime::Handle;
-use tokio::task;
 use url::Url;
 
 /// This is a [`DependencyProvider`] for PyPI packages
 pub(crate) struct PypiDependencyProvider {
-    pub pool: Pool<PypiVersionSet, PypiPackageName>,
+    pub pool: Rc<Pool<PypiVersionSet, PypiPackageName>>,
     package_db: Arc<PackageDb>,
     wheel_builder: Arc<WheelBuilder>,
     markers: Arc<MarkerEnvironment>,
@@ -77,7 +73,7 @@ impl PypiDependencyProvider {
         );
 
         Ok(Self {
-            pool,
+            pool: Rc::new(pool),
             package_db,
             wheel_builder,
             markers,
@@ -233,8 +229,8 @@ pub(crate) enum MetadataError {
 }
 
 impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDependencyProvider {
-    fn pool(&self) -> &Pool<PypiVersionSet, PypiPackageName> {
-        &self.pool
+    fn pool(&self) -> Rc<Pool<PypiVersionSet, PypiPackageName>> {
+        self.pool.clone()
     }
 
     fn should_cancel_with_value(&self) -> Option<Box<dyn Any>> {
@@ -245,9 +241,9 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             .map(|s| Box::new(s.clone()) as Box<dyn Any>)
     }
 
-    fn sort_candidates(
+    async fn sort_candidates(
         &self,
-        solver: &SolverCache<PypiVersionSet, PypiPackageName, Self>,
+        _: &SolverCache<PypiVersionSet, PypiPackageName, Self>,
         solvables: &mut [SolvableId],
     ) {
         solvables.sort_by(|&a, &b| {
@@ -272,8 +268,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
                 }
             }
 
-            let solvable_a = solver.pool().resolve_solvable(a);
-            let solvable_b = solver.pool().resolve_solvable(b);
+            let solvable_a = self.pool.resolve_solvable(a);
+            let solvable_b = self.pool.resolve_solvable(b);
 
             match (&solvable_a.inner(), &solvable_b.inner()) {
                 // Sort Urls alphabetically
@@ -293,7 +289,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         })
     }
 
-    fn get_candidates(&self, name: NameId) -> Option<Candidates> {
+    async fn get_candidates(&self, name: NameId) -> Option<Candidates> {
         let package_name = self.pool.resolve_package_name(name);
         tracing::info!("collecting {}", package_name);
 
@@ -304,14 +300,18 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             ArtifactRequest::DirectUrl {
                 name: package_name.base().clone(),
                 url: Url::from_str(url).expect("cannot parse back url"),
-                wheel_builder: &self.wheel_builder,
+                wheel_builder: self.wheel_builder.clone(),
             }
         } else {
             ArtifactRequest::FromIndex(package_name.base().clone())
         };
-        let result = task::block_in_place(move || {
-            Handle::current().block_on(self.package_db.available_artifacts(request))
-        });
+
+        let result: Result<_, miette::Report> = tokio::spawn({
+            let package_db = self.package_db.clone();
+            async move { Ok(package_db.available_artifacts(request).await?.clone()) }
+        })
+        .await
+        .expect("cancelled");
 
         let artifacts = match result {
             Ok(artifacts) => artifacts,
@@ -427,7 +427,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         Some(candidates)
     }
 
-    fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
+    async fn get_dependencies(&self, solvable_id: SolvableId) -> Dependencies {
         let solvable = self.pool.resolve_solvable(solvable_id);
         let package_name = self.pool.resolve_package_name(solvable.name_id());
         let package_version = solvable.inner();
@@ -498,13 +498,23 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             return Dependencies::Unknown(error);
         }
 
-        // Retrieve the metadata for the artifacts
-        let result = task::block_in_place(|| {
-            Handle::current().block_on(
-                self.package_db
-                    .get_metadata(artifacts, Some(&self.wheel_builder)),
-            )
-        });
+        let result: miette::Result<_> = tokio::spawn({
+            let package_db = self.package_db.clone();
+            let wheel_builder = self.wheel_builder.clone();
+            let artifacts = artifacts.to_vec();
+            async move {
+                if let Some((ai, metadata)) = package_db
+                    .get_metadata(&artifacts, Some(&wheel_builder))
+                    .await?
+                {
+                    Ok(Some((ai.clone(), metadata)))
+                } else {
+                    Ok(None)
+                }
+            }
+        })
+        .await
+        .expect("cancelled");
 
         let metadata = match result {
             // We have retrieved a value without error

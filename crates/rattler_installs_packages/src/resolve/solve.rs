@@ -15,6 +15,7 @@ use url::Url;
 use crate::resolve::pypi_version_types::{PypiPackageName, PypiVersionSet};
 use crate::resolve::solve_options::ResolveOptions;
 use std::collections::HashSet;
+use std::convert::identity;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -55,6 +56,40 @@ pub struct PinnedPackage {
 pub async fn resolve(
     package_db: Arc<PackageDb>,
     requirements: impl IntoIterator<Item = &Requirement>,
+    env_markers: Arc<MarkerEnvironment>,
+    compatible_tags: Option<Arc<WheelTags>>,
+    locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    options: ResolveOptions,
+    env_variables: HashMap<String, String>,
+) -> miette::Result<Vec<PinnedPackage>> {
+    let requirements: Vec<_> = requirements.into_iter().cloned().collect();
+    tokio::task::spawn_blocking(move || {
+        resolve_inner(
+            package_db,
+            &requirements,
+            env_markers,
+            compatible_tags,
+            locked_packages,
+            favored_packages,
+            options,
+            env_variables,
+        )
+    })
+    .await
+    .map_or_else(
+        |e| match e.try_into_panic() {
+            Ok(panic) => std::panic::resume_unwind(panic),
+            Err(_) => Err(miette::miette!("the operation was cancelled")),
+        },
+        identity,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_inner<'r>(
+    package_db: Arc<PackageDb>,
+    requirements: impl IntoIterator<Item = &'r Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
@@ -120,7 +155,7 @@ pub async fn resolve(
     )?;
 
     // Invoke the solver to get a solution to the requirements
-    let mut solver = Solver::new(&provider);
+    let mut solver = Solver::new(&provider).with_runtime(tokio::runtime::Handle::current());
     let solvables = match solver.solve(root_requirements) {
         Ok(solvables) => solvables,
         Err(e) => {
@@ -128,7 +163,11 @@ pub async fn resolve(
                 UnsolvableOrCancelled::Unsolvable(problem) => Err(miette::miette!(
                     "{}",
                     problem
-                        .display_user_friendly(&solver, &DefaultSolvableDisplay)
+                        .display_user_friendly(
+                            &solver,
+                            solver.pool.clone(),
+                            &DefaultSolvableDisplay
+                        )
                         .to_string()
                         .trim()
                 )),
@@ -142,9 +181,8 @@ pub async fn resolve(
     };
     let mut result: HashMap<NormalizedPackageName, PinnedPackage> = HashMap::new();
     for solvable_id in solvables {
-        let pool = solver.pool();
-        let solvable = pool.resolve_solvable(solvable_id);
-        let name = pool.resolve_package_name(solvable.name_id());
+        let solvable = solver.pool.resolve_solvable(solvable_id);
+        let name = solver.pool.resolve_package_name(solvable.name_id());
         let version = solvable.inner();
 
         let artifacts: Vec<_> = provider

@@ -27,6 +27,8 @@ use std::borrow::Borrow;
 
 use std::path::PathBuf;
 
+use itertools::Itertools;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::{fmt::Display, io::Read, path::Path};
 
@@ -54,7 +56,7 @@ pub struct PackageDb {
 }
 
 /// Type of request to get from the `available_artifacts` function.
-pub enum ArtifactRequest<'wb> {
+pub enum ArtifactRequest {
     /// Get the available artifacts from the index.
     FromIndex(NormalizedPackageName),
     /// Get the artifact from a direct URL.
@@ -64,7 +66,7 @@ pub enum ArtifactRequest<'wb> {
         /// The URL of the artifact
         url: Url,
         /// The wheel builder to use to build the artifact if its an SDist or STree
-        wheel_builder: &'wb WheelBuilder,
+        wheel_builder: Arc<WheelBuilder>,
     },
 }
 
@@ -113,7 +115,7 @@ impl PackageDb {
     /// Downloads and caches information about available artifacts of a package from the index.
     pub async fn available_artifacts<'wb>(
         &self,
-        request: ArtifactRequest<'wb>,
+        request: ArtifactRequest,
     ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
         match request {
             ArtifactRequest::FromIndex(p) => {
@@ -124,8 +126,11 @@ impl PackageDb {
                 let http = self.http.clone();
                 let index_urls = self.sources.index_url(&p);
 
-                let request_iter = stream::iter(&index_urls)
+                let urls = index_urls
+                    .into_iter()
                     .map(|url| url.join(&format!("{}/", p.as_str())).expect("invalid url"))
+                    .collect_vec();
+                let request_iter = stream::iter(urls)
                     .map(|url| fetch_simple_api(&http, url))
                     .buffer_unordered(10)
                     .filter_map(|result| async { result.transpose() });
@@ -165,7 +170,7 @@ impl PackageDb {
                 url,
                 wheel_builder,
             } => {
-                self.get_artifact_by_direct_url(name, url, wheel_builder)
+                self.get_artifact_by_direct_url(name, url, wheel_builder.deref())
                     .await
             }
         }

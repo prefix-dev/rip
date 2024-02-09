@@ -294,6 +294,7 @@ mod tests {
     use crate::resolve::solve_options::ResolveOptions;
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
     use crate::wheel_builder::WheelBuilder;
+    use futures::future::TryJoinAll;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
     use std::collections::HashMap;
@@ -391,5 +392,53 @@ mod tests {
 
         // Check if the build env is there
         assert!(path.exists());
+    }
+
+    // Skipped for now will fix this in a later PR
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    pub async fn build_sdist_metadata_concurrently() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+
+        let wheel_builder = Arc::new(
+            WheelBuilder::new(
+                package_db.0,
+                env_markers,
+                None,
+                ResolveOptions::default(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
+
+        let mut handles = vec![];
+
+        for _ in 0..10 {
+            let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+            let wheel_builder = wheel_builder.clone();
+            handles.push(tokio::spawn(async move {
+                wheel_builder.get_sdist_metadata(&sdist).await
+            }));
+        }
+
+        let result = handles.into_iter().collect::<TryJoinAll<_>>().await;
+        match result {
+            Ok(results) => {
+                for result in results {
+                    assert!(
+                        result.is_ok(),
+                        "error during concurrent wheel build: {:?}",
+                        result.err()
+                    );
+                }
+            }
+            Err(e) => {
+                panic!("Failed to build wheels concurrently: {}", e);
+            }
+        }
     }
 }

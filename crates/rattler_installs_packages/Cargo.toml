@@ -58,7 +58,7 @@ tokio-util = { version = "0.7.10", features = ["compat"] }
 tracing = { version = "0.1.40", default-features = false, features = ["attributes"] }
 url = { version = "2.5.0", features = ["serde"] }
 zip = "0.6.6"
-resolvo = { version = "0.3.0", default-features = false }
+resolvo = { version = "0.4.0", default-features = false, features = ["tokio"] }
 pathdiff = "0.2.1"
 async_zip = { version = "0.0.16", features = ["tokio", "deflate"] }
 tar = "0.4.40"
