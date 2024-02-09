@@ -34,6 +34,7 @@ Lots of changes in this release, the two main ones:
 - Actually skip 404s.
 - Only write out amount of bytes read for gzip.
 - Fix an intra-doc link failure that passed through and caused CI failures.
+- Fixes error that occured when a venv already had a symlinked python.
 
 #### Removed
 - Remove all lifetimes from PackageDb and WheelBuilder to simplify code.
