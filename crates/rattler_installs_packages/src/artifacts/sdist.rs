@@ -260,7 +260,7 @@ fn generic_archive_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::{SDist, STree};
+    use crate::artifacts::SDist;
     use crate::index::PackageDb;
     use crate::index::{ArtifactRequest, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonLocation, VEnv};
