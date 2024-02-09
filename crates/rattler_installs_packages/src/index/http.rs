@@ -254,6 +254,7 @@ where
 {
     let data: CacheData = ciborium::de::from_reader(&mut f)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
     let start = f.stream_position()?;
     let end = f.seek(SeekFrom::End(0))?;
     let mut body = SeekSlice::new(f, start, end)?;
