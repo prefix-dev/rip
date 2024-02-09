@@ -1,0 +1,31 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+assertion_line: 1214
+expression: direct_url_json
+---
+Some(
+    DirectUrlJson {
+        url: Url {
+            scheme: "https",
+            cannot_be_a_base: false,
+            username: "",
+            password: None,
+            host: Some(
+                Domain(
+                    "github.com",
+                ),
+            ),
+            port: None,
+            path: "/mahmoud/boltons.git",
+            query: None,
+            fragment: None,
+        },
+        source: Vcs {
+            vcs: Git,
+            requested_revision: Some(
+                "47c8046492d4db49f163bb977d20d5942e4ddb25",
+            ),
+            commit_id: "47c8046492d4db49f163bb977d20d5942e4ddb25",
+        },
+    },
+)
