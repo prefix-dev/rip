@@ -258,6 +258,8 @@ prompt = {}"#,
             .parent()
             .expect("venv exe binary should have parent folder");
 
+        println!("VENV BIN IS {:?}", venv_bin);
+
         #[cfg(not(windows))]
         {
             if !venv_exe_path.exists() {

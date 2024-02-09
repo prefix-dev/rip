@@ -10,8 +10,12 @@ use reqwest::header::{ACCEPT, CACHE_CONTROL};
 use reqwest::{header::HeaderMap, Method};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::{Deserialize, Serialize};
+use core::panic;
 use std::io;
+use std::io::BufReader;
+use std::io::BufWriter;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::mem;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -140,10 +144,11 @@ impl Http {
                         match old_policy.after_response(&request, &response, SystemTime::now()) {
                             AfterResponse::NotModified(new_policy, new_parts) => {
                                 tracing::debug!(url=%url, "stale, but not modified");
-                                let new_body = fill_cache(&new_policy, &final_url, old_body, lock)?;
+                                println!("ITS STALE BUT NOT MODIFIED");
+                                // let new_body = fill_cache(&new_policy, &final_url, old_body, lock)?;
                                 Ok(make_response(
                                     new_parts,
-                                    StreamingOrLocal::Local(Box::new(new_body)),
+                                    StreamingOrLocal::Local(Box::new(old_body)),
                                     CacheStatus::StaleButValidated,
                                     final_url,
                                 ))
@@ -151,6 +156,7 @@ impl Http {
                             AfterResponse::Modified(new_policy, parts) => {
                                 tracing::debug!(url=%url, "stale, but *and* modified");
                                 drop(old_body);
+                                println!("ITS STALE AND MODIFIED");
                                 let new_body = if new_policy.is_storable() {
                                     let new_body = fill_cache_async(
                                         &new_policy,
@@ -189,7 +195,7 @@ impl Http {
 
                 let new_policy = CachePolicy::new(&request, &response);
                 let (parts, body) = response.into_parts();
-
+                println!("I FILL CACHE ASYNC BECAUSE I DONT HAVE METADATA?");
                 let new_body = if new_policy.is_storable() {
                     let new_body = fill_cache_async(&new_policy, &final_url, body, lock).await?;
                     StreamingOrLocal::Local(Box::new(new_body))
@@ -252,13 +258,43 @@ fn read_cache<R>(mut f: R) -> std::io::Result<(CachePolicy, Url, impl ReadAndSee
 where
     R: Read + Seek,
 {
-    let data: CacheData = ciborium::de::from_reader(&mut f)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    println!("I TRY TO READ DATA?");
 
-    let start = f.stream_position()?;
+    let mut buff_reader = BufReader::new(&mut f);
+    // let mut buf = vec![];
+    let mut buffer = [0; 8];
+
+    let ciborium_end = buff_reader.read_exact(&mut buffer).unwrap();
+
+    // buff_reader.seek(SeekFrom::Start(buffer))).unwrap();
+    // buff_reader.rewind().unwrap();
+    
+    // buff_reader.rewind().unwrap();
+
+
+    let data: CacheData = ciborium::de::from_reader(buff_reader).unwrap();
+
+    println!("I READ DATA?");
+    
+    // ciborium::ser::into_writer(value, writer))
+    /// 335
+    // let size = mem::size_of_val(&data);
+// 
+    // println!("SIZE IS {:?}", size);
+    
+    // let start = f.stream_position()?;
+
+    let start = u64::from_le_bytes(buffer);
     let end = f.seek(SeekFrom::End(0))?;
+
+    println!("START AND END IS {:?} {:?}", start, end);
+
+    
     let mut body = SeekSlice::new(f, start, end)?;
     body.rewind()?;
+
+    println!("I RETURN {:?} {:?}", data.policy, data.url);
+
     Ok((data.policy, data.url, body))
 }
 
@@ -276,19 +312,27 @@ fn fill_cache<R: Read>(
     handle: FileLock,
 ) -> Result<impl Read + Seek, std::io::Error> {
     let mut cache_writer = handle.begin()?;
+    let mut buf_cached_writer = BufWriter::new(cache_writer);
+    
     ciborium::ser::into_writer(
         &CacheData {
             policy: policy.clone(),
             url: url.clone(),
         },
-        &mut cache_writer,
+        &mut buf_cached_writer,
     )
     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let body_start = cache_writer.stream_position()?;
-    std::io::copy(&mut body, &mut cache_writer)?;
+    
+    
+    
+    
+    let body_start = buf_cached_writer.stream_position()?;
+
+    
+    std::io::copy(&mut body, &mut buf_cached_writer)?;
     drop(body);
-    let body_end = cache_writer.stream_position()?;
-    let cache_entry = cache_writer.commit()?.detach_unlocked();
+    let body_end = buf_cached_writer.stream_position()?;
+    let cache_entry = buf_cached_writer.into_inner()?.commit()?.detach_unlocked();
     SeekSlice::new(cache_entry, body_start, body_end)
 }
 
@@ -298,29 +342,56 @@ async fn fill_cache_async(
     url: &Url,
     mut body: impl Stream<Item = reqwest::Result<Bytes>> + Send + Unpin,
     handle: FileLock,
-) -> Result<impl Read + Seek, std::io::Error> {
+) -> Result<impl Read + Seek, std::io::Error> {    
     let mut cache_writer = handle.begin()?;
+    let mut buf_cache_writer = BufWriter::new(cache_writer);
+
+        
+    buf_cache_writer.rewind().unwrap();
+    let file_contents_base64: [u8; 8] = [0; 8];
+    buf_cache_writer.write_all(&file_contents_base64).unwrap();
+    
     ciborium::ser::into_writer(
         &CacheData {
             policy: policy.clone(),
             url: url.clone(),
         },
-        &mut cache_writer,
+        &mut buf_cache_writer,
     )
     .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let body_start = cache_writer.stream_position()?;
+    let body_start = buf_cache_writer.stream_position()?;
+
+
+    buf_cache_writer.rewind().unwrap();
+
+    let body_le_bytes = body_start.to_le_bytes();
+
+    let file_contents_base64  = body_le_bytes.as_slice();
+    let written = buf_cache_writer.write_all(&file_contents_base64).unwrap();
+    
+    buf_cache_writer.seek(SeekFrom::Start(body_start)).unwrap();
+
+
 
     while let Some(bytes) = body.next().await {
-        cache_writer.write_all(
+        buf_cache_writer.write_all(
             bytes
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
                 .as_ref(),
         )?;
     }
 
-    let body_end = cache_writer.stream_position()?;
-    let cache_entry = cache_writer.commit()?.detach_unlocked();
-    SeekSlice::new(cache_entry, body_start, body_end)
+    let body_end = buf_cache_writer.stream_position()?;
+    let Ok(inner) = buf_cache_writer.into_inner() else {
+        panic!("aa")
+    } ;
+
+    let cache_entry = inner.commit()?.detach_unlocked();
+    println!("I WROTE {:?} {:?}", body_start, body_end);
+    SeekSlice::new(cache_entry, body_start, body_end) 
+
+
+    
 }
 
 /// Converts from a `http::request::Parts` into a `reqwest::Request`.

@@ -28,14 +28,100 @@
 //! This way multiple WheelCacheKeys can point to the same wheel.
 use crate::artifacts::Wheel;
 use crate::python_env::PythonInterpreterVersion;
-use crate::types::ArtifactFromSource;
+use crate::types::{ArtifactFromSource, ArtifactInfo, ProjectInfo};
 use crate::types::{ArtifactFromBytes, WheelFilename};
 use cacache::{Integrity, WriteOpts};
+use miette::IntoDiagnostic;
+use pyproject_toml::Project;
 use rattler_digest::Sha256;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::str::FromStr;
+
+
+/// Wrapper around an API built on top of cacache
+/// This is used to store wheels that are built from sdists
+#[derive(Debug, Clone)]
+pub struct ProjectInfoCache {
+    // Path to the cache directory
+    path: PathBuf,
+}
+
+#[derive(Debug)]
+/// A key that can be used to retrieve a wheel from the cache
+pub struct ProjectInfoCacheKey(String);
+
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ProjectInfoCacheKeyMetadata {
+    project_info: ProjectInfo,
+    integrity: String,
+}
+
+impl ProjectInfoCache {
+    /// Create a new entry into the wheel cache
+    /// **path** is the path to the cache directory
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    /// Save wheel into cache
+    fn save_project_info(&self, project_content: &mut dyn Read) -> miette::Result<Integrity> {
+        // Write the wheel to the cache
+        let mut writer = WriteOpts::new().open_hash_sync(&self.path).into_diagnostic()?;
+        std::io::copy(project_content, &mut writer).into_diagnostic()?;
+        Ok(writer.commit().into_diagnostic()?)
+    }
+
+    /// Associate project_info with cache key
+    pub fn associate_wheel(
+        &self,
+        key: &ProjectInfoCacheKey,
+        project_info: ProjectInfo,
+        body: &mut dyn Read,
+    ) -> miette::Result<()> {
+        // Save the wheel to the cache
+        let project_info_integrity = self.save_project_info(body)?;
+        let metadata = serde_json::to_value(ProjectInfoCacheKeyMetadata {
+            project_info,
+            integrity: project_info_integrity.to_string(),
+        }).into_diagnostic()?;
+        // Associate with the integrity
+        cacache::index::insert(
+            &self.path,
+            &key.0,
+            WriteOpts::new()
+                // This is just so the index entry is loadable.
+                .integrity("sha256-deadbeef".parse().unwrap())
+                .metadata(metadata),
+        ).into_diagnostic()?;
+
+        Ok(())
+    }
+
+    /// Get wheel for key, returns None if it does not exist for this key
+    pub fn project_info_for_key(
+        &self,
+        project_info_key: &ProjectInfoCacheKey,
+    ) -> miette::Result<Option<ProjectInfo>> {
+        // Find metadata for the key
+        let metadata = cacache::index::find(&self.path, &project_info_key.0).into_diagnostic()?;
+
+        if let Some(metadata) = metadata {
+            // Find integrity associated with metadata
+            let value: ProjectInfoCacheKeyMetadata = serde_json::from_value(metadata.metadata).into_diagnostic()?;
+            let integrity =
+                Integrity::from_str(&value.integrity).map_err(cacache::Error::IntegrityError).into_diagnostic()?;
+            
+            Ok(Some(value.project_info))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+
 
 /// Wrapper around an API built on top of cacache
 /// This is used to store wheels that are built from sdists

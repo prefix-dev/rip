@@ -103,6 +103,8 @@ fn into_artifact_info(
 
 /// Parses information regarding the different artifacts for a project
 pub fn parse_project_info_html(base: &Url, body: &str) -> miette::Result<ProjectInfo> {
+    println!("URL for parse project info IS {:?}", base);
+    // println!("BODY IS {:?}", body);
     let dom = tl::parse(body, tl::ParserOptions::default()).into_diagnostic()?;
     let variants = dom.query_selector("a");
     let mut project_info = ProjectInfo::default();
