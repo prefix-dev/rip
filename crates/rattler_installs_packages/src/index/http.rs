@@ -289,7 +289,7 @@ fn write_cache_bom<W: Write + Seek>(writer: &mut W) -> Result<u64, std::io::Erro
 /// Verify that cache BOM is the same and up-to-date
 fn verify_cache_bom<R: Read + Seek>(reader: &mut R) -> Result<(), std::io::Error> {
     // Read and verify the byte order mark and version
-    let mut bom_and_version = [0u8; 4]; // 3 bytes to match the length of CUSTOM_BOM
+    let mut bom_and_version = [0u8; 4];
     reader.read_exact(&mut bom_and_version)?;
 
     if &bom_and_version[0..3] != CACHE_BOM.as_bytes() {
