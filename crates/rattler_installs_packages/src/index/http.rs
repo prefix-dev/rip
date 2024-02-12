@@ -440,7 +440,7 @@ mod tests {
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
 
-    use std::{io::BufWriter, sync::Arc};
+    use std::{fs, io::BufWriter, sync::Arc};
     use tempfile::TempDir;
 
     use super::{key_for_request, read_cache, CacheMode, Http};
@@ -449,9 +449,15 @@ mod tests {
         let tempdir = tempfile::tempdir().unwrap();
         let client = ClientWithMiddleware::from(Client::new());
 
+        let tmp = tempdir.path().join("http");
+        fs::create_dir_all(tmp).unwrap();
+
         let http = Http::new(
             client,
-            FileStore::new(&tempdir.path().join("http")).unwrap(),
+            FileStore {
+                base: tempdir.path().to_path_buf(),
+                tmp: tempdir.path().join("http"),
+            },
         );
 
         (Arc::new(http), tempdir)
