@@ -176,15 +176,17 @@ impl<'a> LockedWriter<'a> {
     pub fn commit(self) -> io::Result<LockedReader<'a>> {
         self.f.as_file().sync_data().expect("CANT SYNC DATA");
 
-        let md = fs::metadata(self.path)?;
-        let permissions = md.permissions();
-        let readonly = permissions.readonly();
-
-        println!(
-            "I WANT TO CREATE FILE HERE {:?} WITH READONLY {:?}",
-            self.path, readonly
-        );
-        println!("PERMISSIONS ARE {:?}", permissions);
+        if let Ok(md) = fs::metadata(self.path) {
+            let permissions = md.permissions();
+            let readonly = permissions.readonly();
+            println!(
+                "I WANT TO CREATE FILE HERE {:?} WITH READONLY {:?}",
+                self.path, readonly
+            );
+            println!("PERMISSIONS ARE {:?}", permissions);
+        } else {
+            println!("I WANT TO CREATE FILE HERE {:?}", self.path);
+        }
 
         let mut file = fs::File::from_parts(
             self.f.persist(self.path).expect("CANT PERSIS DATA"),
