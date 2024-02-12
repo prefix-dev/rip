@@ -483,6 +483,10 @@ mod tests {
 
         assert!(res.is_some());
 
+        drop(lock);
+
+        let lock = client_arc.http_cache.lock(&key.as_slice()).await.unwrap();
+
         let mut buf_writer = BufWriter::new(lock.begin().unwrap());
 
         // let's "corrupt" cache and change it's bom predenting that it's older or different cache
