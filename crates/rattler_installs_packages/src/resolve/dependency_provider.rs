@@ -26,26 +26,23 @@ use std::{
     any::Any, borrow::Borrow, cmp::Ordering, collections::HashMap, rc::Rc, str::FromStr, sync::Arc,
 };
 use thiserror::Error;
-use tokio::sync::Semaphore;
 use url::Url;
 
 /// This is a [`DependencyProvider`] for PyPI packages
 pub(crate) struct PypiDependencyProvider {
     pub pool: Rc<Pool<PypiVersionSet, PypiPackageName>>,
+    pub cached_artifacts: FrozenMap<SolvableId, Vec<Arc<ArtifactInfo>>>,
+    pub name_to_url: FrozenMap<NormalizedPackageName, String>,
     package_db: Arc<PackageDb>,
     wheel_builder: Arc<WheelBuilder>,
     markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
 
-    pub cached_artifacts: FrozenMap<SolvableId, Vec<Arc<ArtifactInfo>>>,
-
     favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
     locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-    pub name_to_url: FrozenMap<NormalizedPackageName, String>,
 
     options: ResolveOptions,
     should_cancel_with_value: Mutex<Option<MetadataError>>,
-    concurrent_tasks: Arc<Semaphore>,
 }
 
 impl PypiDependencyProvider {
@@ -86,7 +83,6 @@ impl PypiDependencyProvider {
             name_to_url,
             options,
             should_cancel_with_value: Default::default(),
-            concurrent_tasks: Arc::new(Semaphore::new(30)),
         })
     }
 
@@ -220,7 +216,8 @@ impl PypiDependencyProvider {
     /// Acquires a lease to be able to spawn a task
     /// this is used to limit the amount of concurrent tasks
     async fn aquire_lease_to_run(&self) -> tokio::sync::OwnedSemaphorePermit {
-        self.concurrent_tasks
+        self.options
+            .max_concurrent_tasks
             .clone()
             .acquire_owned()
             .await
