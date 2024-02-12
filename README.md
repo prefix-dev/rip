@@ -59,6 +59,7 @@ This is a list of current features of `RIP`, the biggest are listed below:
 * [x] Resolving of PyPI packages using [Resolvo](https://github.com/mamba-org/resolvo).
 * [x] Installation of wheel files.
 * [x] Support sdist files (must currently adhere to the `PEP 517` and `PEP 518` standards).
+* [x] Caching of locally built wheels.
 
 More intricacies of the PyPI ecosystem need to be implemented, see our GitHub issues for more details.
 
