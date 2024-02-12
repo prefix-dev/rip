@@ -1,0 +1,30 @@
+---
+source: crates/rattler_installs_packages/src/artifacts/sdist.rs
+expression: direct_url_json
+---
+Some(
+    DirectUrlJson {
+        url: Url {
+            scheme: "https",
+            cannot_be_a_base: false,
+            username: "",
+            password: None,
+            host: Some(
+                Domain(
+                    "files.pythonhosted.org",
+                ),
+            ),
+            port: None,
+            path: "/packages/ea/65/163134cb3c06d42557c0d1a7bc0b53d28fb674c16489f990d9e1bbccfa7b/boltons-20.2.1.tar.gz",
+            query: None,
+            fragment: None,
+        },
+        source: Archive {
+            hashes: Some(
+                DirectUrlHashes {
+                    sha256: "dd362291a460cc1e0c2e91cc6a60da3036ced77099b623112e8f833e6734bdc5",
+                },
+            ),
+        },
+    },
+)

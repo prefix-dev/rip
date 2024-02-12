@@ -5,7 +5,10 @@ use crate::index::html::{parse_package_names_html, parse_project_info_html};
 use crate::index::http::{CacheMode, Http, HttpRequestError};
 use crate::index::package_sources::PackageSources;
 use crate::resolve::PypiVersion;
-use crate::types::{ArtifactInfo, ArtifactType, ProjectInfo, STreeFilename, WheelCoreMetadata};
+use crate::types::{
+    ArtifactInfo, ArtifactType, DirectUrlHashes, DirectUrlJson, DirectUrlSource, ProjectInfo,
+    STreeFilename, WheelCoreMetadata,
+};
 
 use crate::wheel_builder::{WheelBuildError, WheelBuilder, WheelCache};
 use crate::{
@@ -75,6 +78,7 @@ pub(crate) struct DirectUrlArtifactResponse {
     pub(crate) artifact_versions: VersionArtifacts,
     pub(crate) metadata: (Vec<u8>, WheelCoreMetadata),
     pub(crate) artifact: ArtifactType,
+    pub(crate) direct_url_json: DirectUrlJson,
 }
 
 impl PackageDb {
@@ -236,8 +240,8 @@ impl PackageDb {
         &self,
         artifact_info: &ArtifactInfo,
         builder: Option<&'async_recursion WheelBuilder>,
-    ) -> miette::Result<Wheel> {
-        // TODO: add support for this currently there are not cached, they will be repeatedly downloaded between runs
+    ) -> miette::Result<(Wheel, Option<DirectUrlJson>)> {
+        // TODO: add support for this currently there are not saved
         if artifact_info.is_direct_url {
             if let Some(builder) = builder {
                 let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
@@ -248,15 +252,17 @@ impl PackageDb {
                 )
                 .await?;
 
-                match response.artifact {
-                    ArtifactType::Wheel(wheel) => return Ok(wheel),
+                let whl = match response.artifact {
+                    ArtifactType::Wheel(wheel) => wheel,
                     ArtifactType::SDist(sdist) => {
-                        return builder.build_wheel(&sdist).await.into_diagnostic()
+                        builder.build_wheel(&sdist).await.into_diagnostic()?
                     }
                     ArtifactType::STree(stree) => {
-                        return builder.build_wheel(&stree).await.into_diagnostic()
+                        builder.build_wheel(&stree).await.into_diagnostic()?
                     }
-                }
+                };
+
+                return Ok((whl, Some(response.direct_url_json)));
             } else {
                 miette::bail!("cannot build wheel without a wheel builder");
             }
@@ -269,15 +275,40 @@ impl PackageDb {
                     .get_cached_artifact::<SDist>(artifact_info, CacheMode::Default)
                     .await?;
 
-                return builder.build_wheel(&sdist).await.into_diagnostic();
+                let whl = builder.build_wheel(&sdist).await.into_diagnostic()?;
+
+                let direct_url = if artifact_info.is_direct_url {
+                    let direct_url_hash = if let Some(hash) = artifact_info.hashes.clone() {
+                        if let Some(sha256) = hash.sha256 {
+                            let str = format!("{:x}", sha256);
+                            Some(DirectUrlHashes { sha256: str })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    Some(DirectUrlJson {
+                        url: artifact_info.url.clone(),
+                        source: DirectUrlSource::Archive {
+                            hashes: direct_url_hash,
+                        },
+                    })
+                } else {
+                    None
+                };
+
+                return Ok((whl, direct_url));
             } else {
                 miette::bail!("cannot build wheel without a wheel builder");
             }
         }
 
         // Otherwise just retrieve the wheel
-        self.get_cached_artifact::<Wheel>(artifact_info, CacheMode::Default)
-            .await
+        let cached_whl = self
+            .get_cached_artifact::<Wheel>(artifact_info, CacheMode::Default)
+            .await?;
+        Ok((cached_whl, None))
     }
 
     /// Get artifact directly from file, vcs, or url

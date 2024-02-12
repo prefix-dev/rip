@@ -301,11 +301,17 @@ async fn actual_main() -> miette::Result<()> {
                 console::style(pinned_package.version).italic()
             );
             let artifact_info = pinned_package.artifacts.first().unwrap();
-            let artifact = package_db
+            let (artifact, direct_url_json) = package_db
                 .get_wheel(artifact_info, Some(&wheel_builder))
                 .await?;
-            venv.install_wheel(&artifact, &UnpackWheelOptions::default())
-                .into_diagnostic()?;
+            venv.install_wheel(
+                &artifact,
+                &UnpackWheelOptions {
+                    direct_url_json,
+                    ..Default::default()
+                },
+            )
+            .into_diagnostic()?;
         }
     }
 

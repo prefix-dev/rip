@@ -263,7 +263,7 @@ fn get_revision_sha(dest: &PathBuf, rev: Option<String>) -> Result<GitRev, Sourc
     let rev = if let Some(rev) = rev {
         rev
     } else {
-        return Ok(GitRev::Head);
+        "HEAD".to_owned()
     };
 
     let output = Command::new("git")
@@ -300,7 +300,7 @@ fn get_revision_sha(dest: &PathBuf, rev: Option<String>) -> Result<GitRev, Sourc
 }
 
 /// Fetch the git repository specified by the given source and place it in the cache directory.
-pub fn git_clone(source: &GitSource) -> Result<PathBuf, SourceError> {
+pub fn git_clone(source: &GitSource) -> Result<(PathBuf, GitRev), SourceError> {
     // test if git is available locally as we fetch the git from PATH,
     if !Command::new("git")
         .arg("--version")
@@ -436,5 +436,5 @@ pub fn git_clone(source: &GitSource) -> Result<PathBuf, SourceError> {
         }
     }
 
-    Ok(cache_path)
+    Ok((cache_path, git_rev))
 }

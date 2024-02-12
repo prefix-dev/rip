@@ -2,9 +2,9 @@ use crate::artifacts::{SDist, STree, Wheel};
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactType, DistInfoMetadata,
-    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, STreeFilename,
-    WheelCoreMetadata, Yanked,
+    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactType, DirectUrlJson, DirectUrlSource,
+    DistInfoMetadata, NormalizedPackageName, PackageName, SDistFilename, SDistFormat,
+    STreeFilename, WheelCoreMetadata, Yanked,
 };
 use crate::wheel_builder::{WheelBuildError, WheelBuilder};
 use indexmap::IndexMap;
@@ -179,10 +179,16 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let mut result = IndexMap::default();
     result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
 
+    let direct_url_json = DirectUrlJson {
+        url: url.clone(),
+        source: DirectUrlSource::Dir { editable: None },
+    };
+
     Ok(DirectUrlArtifactResponse {
         artifact_info,
         metadata: (metadata_bytes, metadata),
         artifact_versions: result,
         artifact,
+        direct_url_json,
     })
 }

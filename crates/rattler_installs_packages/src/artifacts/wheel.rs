@@ -1450,9 +1450,9 @@ mod test {
         let direct_url = DirectUrlJson {
             url: Url::from_directory_path(&package_path).unwrap(),
             source: DirectUrlSource::Archive {
-                hashes: DirectUrlHashes {
+                hashes: Some(DirectUrlHashes {
                     sha256: "95a7e86f46de9b5da6ec9365e1e96d1644c67328".to_string(),
-                },
+                }),
             },
         };
         let wheel = venv

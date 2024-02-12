@@ -3,8 +3,9 @@ use crate::index::http::Http;
 use crate::index::{parse_hash, CacheMode};
 use crate::resolve::PypiVersion;
 use crate::types::{
-    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactType, DistInfoMetadata,
-    NormalizedPackageName, PackageName, SDistFilename, SDistFormat, WheelCoreMetadata, Yanked,
+    ArtifactFromBytes, ArtifactHashes, ArtifactInfo, ArtifactType, DirectUrlHashes, DirectUrlJson,
+    DirectUrlSource, DistInfoMetadata, NormalizedPackageName, PackageName, SDistFilename,
+    SDistFormat, WheelCoreMetadata, Yanked,
 };
 use crate::utils::ReadAndSeek;
 use crate::wheel_builder::WheelBuilder;
@@ -53,7 +54,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         bytes.rewind().into_diagnostic()?;
         ArtifactHashes {
             sha256: Some(rattler_digest::compute_bytes_digest::<Sha256>(
-                bytes_for_hash,
+                bytes_for_hash.clone(),
             )),
         }
     };
@@ -61,6 +62,13 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     if let Some(hash) = url_hash.clone() {
         assert_eq!(hash, artifact_hash);
     };
+
+    let hash_str = format!(
+        "{:x}",
+        artifact_hash
+            .sha256
+            .expect("hash should be already calculated")
+    );
 
     let (metadata_bytes, metadata, artifact) = if str_name.ends_with(".whl") {
         let wheel = Wheel::from_url_and_bytes(url.path(), &normalized_package_name, bytes)?;
@@ -93,11 +101,19 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let mut result = IndexMap::default();
     result.insert(PypiVersion::Url(url.clone()), vec![artifact_info.clone()]);
 
+    let direct_url_json = DirectUrlJson {
+        url: url.clone(),
+        source: DirectUrlSource::Archive {
+            hashes: Some(DirectUrlHashes { sha256: hash_str }),
+        },
+    };
+
     Ok(crate::index::package_database::DirectUrlArtifactResponse {
         artifact_info,
         metadata: (metadata_bytes, metadata),
         artifact_versions: result,
         artifact,
+        direct_url_json,
     })
 }
 

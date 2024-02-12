@@ -257,14 +257,19 @@ impl BuildEnvironment {
                     package_info.version
                 );
                 let artifact_info = package_info.artifacts.first().unwrap();
-                let artifact = wheel_builder
+                let (artifact, direct_url_json) = wheel_builder
                     .package_db
                     .get_wheel(artifact_info, Some(wheel_builder))
                     .await
                     .expect("could not get artifact");
 
-                self.venv
-                    .install_wheel(&artifact, &UnpackWheelOptions::default())?;
+                self.venv.install_wheel(
+                    &artifact,
+                    &UnpackWheelOptions {
+                        direct_url_json,
+                        ..Default::default()
+                    },
+                )?;
             }
         }
         Ok(())
@@ -410,7 +415,7 @@ impl BuildEnvironment {
         for package_info in resolved_wheels.iter() {
             let artifact_info = package_info.artifacts.first().unwrap();
 
-            let artifact = wheel_builder
+            let (artifact, _) = wheel_builder
                 .package_db
                 .get_wheel(artifact_info, Some(wheel_builder))
                 .await
