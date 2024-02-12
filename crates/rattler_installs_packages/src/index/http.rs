@@ -317,8 +317,6 @@ fn verify_cache_bom<R: Read + Seek>(
         ));
     }
 
-    println!("CACHE BOM IS OK");
-
     Ok(())
 }
 
