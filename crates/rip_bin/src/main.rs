@@ -204,6 +204,7 @@ async fn actual_main() -> miette::Result<()> {
         clean_env: args.clean_env,
         on_wheel_build_failure,
         pre_release_resolution,
+        ..Default::default()
     };
 
     // Solve the environment

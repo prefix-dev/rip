@@ -3,6 +3,8 @@
 use crate::python_env::PythonLocation;
 use pep508_rs::{Requirement, VersionOrUrl};
 use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 use crate::types::PackageName;
 
@@ -188,7 +190,7 @@ pub enum OnWheelBuildFailure {
 /// Additional options that may influence the solver. In general passing [`Default::default`] to
 /// the [`super::resolve`] function should provide sane defaults, however if you want to fine tune the
 /// resolver you can do so via this struct.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct ResolveOptions {
     /// Defines how to handle sdists during resolution. By default sdists will be treated the same
     /// as wheels.
@@ -208,4 +210,30 @@ pub struct ResolveOptions {
     /// Defines whether pre-releases are allowed to be selected during resolution. By default
     /// pre-releases are not allowed (only if there are no other versions available for a given dependency).
     pub pre_release_resolution: PreReleaseResolution,
+
+    /// Limits the amount of concurrent tasks when resolving.
+    pub max_concurrent_tasks: Arc<Semaphore>,
+}
+
+impl ResolveOptions {
+    /// Create a new instance of `ResolveOptions` with the given `max_concurrent_tasks`.
+    pub fn with_max_concurrent_tasks(max_concurrent_tasks: usize) -> Self {
+        Self {
+            max_concurrent_tasks: Arc::new(Semaphore::new(max_concurrent_tasks)),
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for ResolveOptions {
+    fn default() -> Self {
+        Self {
+            sdist_resolution: SDistResolution::default(),
+            python_location: PythonLocation::default(),
+            clean_env: false,
+            on_wheel_build_failure: OnWheelBuildFailure::default(),
+            pre_release_resolution: PreReleaseResolution::default(),
+            max_concurrent_tasks: Arc::new(Semaphore::new(30)),
+        }
+    }
 }
