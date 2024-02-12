@@ -434,7 +434,7 @@ fn body_to_streaming_or_local(
 mod tests {
     use crate::index::{
         file_store::FileStore,
-        http::{write_cache_bom, CACHE_BOM, CURRENT_VERSION},
+        http::{write_cache_bom_and_metadata, CACHE_BOM, CURRENT_VERSION},
     };
     use http::{header::CACHE_CONTROL, HeaderMap, HeaderValue, Method};
     use reqwest::Client;
@@ -494,7 +494,7 @@ mod tests {
 
         // let's "corrupt" cache and change it's version metadata predenting that it's older or different cache
         let stream_position =
-            write_cache_bom(&mut buf_writer, CACHE_BOM, CURRENT_VERSION + 1).unwrap();
+            write_cache_bom_and_metadata(&mut buf_writer, CACHE_BOM, CURRENT_VERSION + 1).unwrap();
 
         assert!(stream_position > 0);
 
