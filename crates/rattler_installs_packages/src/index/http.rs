@@ -454,10 +454,7 @@ mod tests {
 
         let http = Http::new(
             client,
-            FileStore {
-                base: tempdir.path().to_path_buf(),
-                tmp: tempdir.path().join("http"),
-            },
+            FileStore::new(&tempdir.path().join("http")).unwrap(),
         );
 
         (Arc::new(http), tempdir)

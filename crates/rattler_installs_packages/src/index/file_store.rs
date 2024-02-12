@@ -65,8 +65,8 @@ impl CacheKey for ArtifactHashes {
 #[derive(Debug)]
 /// A cache that stores its data as cbor files on the filesystem.
 pub struct FileStore {
-    pub base: PathBuf,
-    pub tmp: PathBuf,
+    base: PathBuf,
+    tmp: PathBuf,
 }
 
 impl FileStore {
