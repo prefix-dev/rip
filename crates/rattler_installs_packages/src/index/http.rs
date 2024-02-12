@@ -109,10 +109,9 @@ impl Http {
             let key = key_for_request(&url, method, &headers);
             let lock = self.http_cache.lock(&key.as_slice()).await?;
 
-            if let Some((old_policy, final_url, old_body)) = lock
-                .reader()
-                .and_then(|reader| read_cache(reader.detach_unlocked()).ok())
-            {
+            if let Some((old_policy, final_url, old_body)) = lock.reader().and_then(|reader| {
+                read_cache(reader.detach_unlocked(), CACHE_BOM, CURRENT_VERSION).ok()
+            }) {
                 match old_policy.before_request(&request, SystemTime::now()) {
                     BeforeRequest::Fresh(parts) => {
                         tracing::debug!(url=%url, "is fresh");
@@ -251,12 +250,16 @@ fn key_for_request(url: &Url, method: Method, headers: &HeaderMap) -> Vec<u8> {
 }
 
 /// Read a HTTP cached value from a readable stream.
-fn read_cache<R>(mut f: R) -> std::io::Result<(CachePolicy, Url, impl ReadAndSeek)>
+fn read_cache<R>(
+    mut f: R,
+    bom_key: &str,
+    version: u8,
+) -> std::io::Result<(CachePolicy, Url, impl ReadAndSeek)>
 where
     R: Read + Seek,
 {
     let mut buff_reader = BufReader::new(&mut f);
-    verify_cache_bom(&mut buff_reader).unwrap();
+    verify_cache_bom(&mut buff_reader, bom_key, version)?;
 
     let mut struct_size_buffer = [0; 8];
     buff_reader.read_exact(&mut struct_size_buffer).unwrap();
@@ -280,31 +283,41 @@ struct CacheData {
 /// Write cache BOM and return it's current position after writing
 /// BOM is represented by:
 /// [BOM]--[VERSION]--[SIZE_OF_HEADERS_STRUCT]
-fn write_cache_bom<W: Write + Seek>(writer: &mut W) -> Result<u64, std::io::Error> {
-    writer.write_all(CACHE_BOM.as_bytes())?;
-    writer.write_all(&[CURRENT_VERSION])?;
+fn write_cache_bom<W: Write + Seek>(
+    writer: &mut W,
+    bom_key: &str,
+    version: u8,
+) -> Result<u64, std::io::Error> {
+    writer.write_all(bom_key.as_bytes())?;
+    writer.write_all(&[version])?;
     writer.stream_position()
 }
 
 /// Verify that cache BOM is the same and up-to-date
-fn verify_cache_bom<R: Read + Seek>(reader: &mut R) -> Result<(), std::io::Error> {
+fn verify_cache_bom<R: Read + Seek>(
+    reader: &mut R,
+    bom_key: &str,
+    version: u8,
+) -> Result<(), std::io::Error> {
     // Read and verify the byte order mark and version
     let mut bom_and_version = [0u8; 4];
     reader.read_exact(&mut bom_and_version)?;
 
-    if &bom_and_version[0..3] != CACHE_BOM.as_bytes() {
+    if &bom_and_version[0..3] != bom_key.as_bytes() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "Invalid byte order mark",
         ));
     }
 
-    if bom_and_version[3] != CURRENT_VERSION {
+    if bom_and_version[3] != version {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "Incombatible version",
         ));
     }
+
+    println!("CACHE BOM IS OK");
 
     Ok(())
 }
@@ -319,7 +332,8 @@ async fn fill_cache_async(
     let cache_writer = handle.begin()?;
     let mut buf_cache_writer = BufWriter::new(cache_writer);
 
-    let bom_written_position = write_cache_bom(&mut buf_cache_writer).unwrap();
+    let bom_written_position =
+        write_cache_bom(&mut buf_cache_writer, CACHE_BOM, CURRENT_VERSION).unwrap();
 
     // We need to save struct size because we keep cache in this way:
     // headers_struct + body
@@ -416,4 +430,74 @@ fn body_to_streaming_or_local(
             .into_async_read()
             .compat(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::index::{
+        file_store::FileStore,
+        http::{write_cache_bom, CACHE_BOM, CURRENT_VERSION},
+    };
+    use http::{header::CACHE_CONTROL, HeaderMap, HeaderValue, Method};
+    use reqwest::Client;
+    use reqwest_middleware::ClientWithMiddleware;
+
+    use std::{io::BufWriter, sync::Arc};
+    use tempfile::TempDir;
+
+    use super::{key_for_request, read_cache, CacheMode, Http};
+
+    fn get_http_client() -> (Arc<Http>, TempDir) {
+        let tempdir = tempfile::tempdir().unwrap();
+        let client = ClientWithMiddleware::from(Client::new());
+
+        let http = Http::new(
+            client,
+            FileStore::new(&tempdir.path().join("http")).unwrap(),
+        );
+
+        (Arc::new(http), tempdir)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn test_cache_is_correct_written_and_read_when_requesting_pypi_boltons() {
+        let url = url::Url::parse("https://pypi.org/simple/boltons").unwrap();
+
+        let url_clone = url.clone();
+
+        let (client_arc, _tmpdir) = get_http_client();
+
+        let mut headers = HeaderMap::new();
+        headers.insert(CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
+
+        // let's make a request and validate that the cache is saved
+        client_arc
+            .request(url, Method::GET, headers.clone(), CacheMode::Default)
+            .await
+            .unwrap();
+
+        let key = key_for_request(&url_clone, Method::GET, &headers);
+        let lock = client_arc.http_cache.lock(&key.as_slice()).await.unwrap();
+
+        let res = lock.reader().and_then(|reader| {
+            read_cache(reader.detach_unlocked(), CACHE_BOM, CURRENT_VERSION).ok()
+        });
+
+        assert!(res.is_some());
+
+        let mut buf_writer = BufWriter::new(lock.begin().unwrap());
+
+        // let's "corrupt" cache and change it's bom predenting that it's older or different cache
+        let stream_position =
+            write_cache_bom(&mut buf_writer, CACHE_BOM, CURRENT_VERSION + 1).unwrap();
+
+        assert!(stream_position > 0);
+
+        let new_reader = buf_writer.into_inner().unwrap().commit().unwrap();
+
+        // read_cache should return Err because we expect that BOM differ
+        let read_again = read_cache(new_reader, CACHE_BOM, CURRENT_VERSION);
+
+        assert!(read_again.is_err());
+    }
 }
