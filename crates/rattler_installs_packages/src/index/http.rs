@@ -481,15 +481,15 @@ mod tests {
             .unwrap();
 
         let key = key_for_request(&url_clone, Method::GET, &headers);
-        let lock = client_arc.http_cache.lock(&key.as_slice()).await.unwrap();
+        {
+            let lock = client_arc.http_cache.lock(&key.as_slice()).await.unwrap();
 
-        let res = lock.reader().and_then(|reader| {
-            read_cache(reader.detach_unlocked(), CACHE_BOM, CURRENT_VERSION).ok()
-        });
+            let res = lock.reader().and_then(|reader| {
+                read_cache(reader.detach_unlocked(), CACHE_BOM, CURRENT_VERSION).ok()
+            });
 
-        assert!(res.is_some());
-
-        drop(lock);
+            assert!(res.is_some());
+        }
 
         let lock = client_arc.http_cache.lock(&key.as_slice()).await.unwrap();
 
