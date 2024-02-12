@@ -175,7 +175,10 @@ impl<'a> LockedWriter<'a> {
     /// be used to read from the file again.
     pub fn commit(self) -> io::Result<LockedReader<'a>> {
         self.f.as_file().sync_data().expect("CANT SYNC DATA");
-        let mut file = fs::File::from_parts(self.f.persist(self.path).expect("CANT PERSIS DATA"), self.path);
+        let mut file = fs::File::from_parts(
+            self.f.persist(self.path).expect("CANT PERSIS DATA"),
+            self.path,
+        );
         file.rewind().expect("CANT REWIND DATA");
         Ok(LockedReader {
             file,
