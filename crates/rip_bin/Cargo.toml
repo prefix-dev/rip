@@ -40,6 +40,7 @@ rand = "0.8.5"
 serde = "1.0.196"
 serde_json = "1.0.113"
 fs-err = "2.11.0"
+clap-verbosity-flag = "2.1.2"
 
 [package.metadata.release]
 release = false

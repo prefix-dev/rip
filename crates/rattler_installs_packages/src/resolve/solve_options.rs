@@ -237,3 +237,5 @@ impl Default for ResolveOptions {
         }
     }
 }
+
+// ResolveOptions.with_max_concurrent_tasks(30).with_locked_packages
