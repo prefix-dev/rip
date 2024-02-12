@@ -139,7 +139,7 @@ def rip():
 
 def test_functionality(rip: rip):
     text = rip("--help").splitlines()
-    assert text[0] == "Binary to verify and play around with rattler_installs_packages"
+    assert text[0] == "Resolve a set of requirements and output the resolved versions"
 
 
 def test_solve(rip: rip):
