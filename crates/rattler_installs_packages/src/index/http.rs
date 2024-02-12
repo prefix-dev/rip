@@ -333,12 +333,12 @@ async fn fill_cache_async(
     let bom_written_position =
         write_cache_bom_and_metadata(&mut buf_cache_writer, CACHE_BOM, CURRENT_VERSION).unwrap();
 
-    // We need to save struct size because we keep cache in this way:
+    // We need to save the struct size because we keep cache:
     // headers_struct + body
     //
     // When reading using `BufReader` and serializing using `ciborium`,
-    // we don't know anymore what was the final position of the struct and we
-    // can't slice and return only the body.
+    // we don't know what was the final position of the struct and we
+    // can't slice and return only the body, because we do not know where to start.
     // To overcome this, we record struct size at the start of cache, together with BOM
     // which we later will use to seek at it and return the body.
     // Example of stored cache:
