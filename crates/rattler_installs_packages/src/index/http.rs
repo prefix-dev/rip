@@ -280,10 +280,10 @@ struct CacheData {
     url: Url,
 }
 
-/// Write cache BOM and return it's current position after writing
-/// BOM is represented by:
+/// Write cache BOM and metadata and return it's current position after writing
+/// BOM and metadata of cache is represented by:
 /// [BOM]--[VERSION]--[SIZE_OF_HEADERS_STRUCT]
-fn write_cache_bom<W: Write + Seek>(
+fn write_cache_bom_and_metadata<W: Write + Seek>(
     writer: &mut W,
     bom_key: &str,
     version: u8,
@@ -331,7 +331,7 @@ async fn fill_cache_async(
     let mut buf_cache_writer = BufWriter::new(cache_writer);
 
     let bom_written_position =
-        write_cache_bom(&mut buf_cache_writer, CACHE_BOM, CURRENT_VERSION).unwrap();
+        write_cache_bom_and_metadata(&mut buf_cache_writer, CACHE_BOM, CURRENT_VERSION).unwrap();
 
     // We need to save struct size because we keep cache in this way:
     // headers_struct + body
@@ -492,7 +492,7 @@ mod tests {
 
         let mut buf_writer = BufWriter::new(lock.begin().unwrap());
 
-        // let's "corrupt" cache and change it's bom predenting that it's older or different cache
+        // let's "corrupt" cache and change it's version metadata predenting that it's older or different cache
         let stream_position =
             write_cache_bom(&mut buf_writer, CACHE_BOM, CURRENT_VERSION + 1).unwrap();
 
