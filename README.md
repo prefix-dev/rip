@@ -47,8 +47,8 @@ We cache everything in a local directory so that we can re-use the metadata and 
 # Installation
 
 We have added very simple installation support for the resolved packages.
-For testing purposes exclusively, we have added a `--install-into` flag to the `rip_bin` binary.
-Use the `--install-into <some_path>` to create a venv and install the packages into it.
+For testing purposes exclusively, we have added an `install` command to the `rip_bin` binary.
+E.g. `cargo r -- install flask /tmp/flask` to create a venv and install the flask and it's into it.
 There is no detection of existing packages yet.
 
 ## Features
