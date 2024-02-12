@@ -176,7 +176,7 @@ impl<'a> LockedWriter<'a> {
     pub fn commit(self) -> io::Result<LockedReader<'a>> {
         self.f.as_file().sync_data().expect("CANT SYNC DATA");
         println!("I WANT TO CREATE FILE HERE {:?}", self.path);
-        
+
         let mut file = fs::File::from_parts(
             self.f.persist(self.path).expect("CANT PERSIS DATA"),
             self.path,
