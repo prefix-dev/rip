@@ -51,17 +51,12 @@ pub struct PinnedPackage {
 /// If `compatible_tags` is defined then the available artifacts of a distribution are filtered to
 /// include only artifacts that are compatible with the specified tags. If `None` is passed, the
 /// artifacts are not filtered at all
-// TODO: refactor this into an input type of sorts later
-#[allow(clippy::too_many_arguments)]
 pub async fn resolve(
     package_db: Arc<PackageDb>,
     requirements: impl IntoIterator<Item = &Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
-    locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-    favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
     options: ResolveOptions,
-    env_variables: HashMap<String, String>,
 ) -> miette::Result<Vec<PinnedPackage>> {
     let requirements: Vec<_> = requirements.into_iter().cloned().collect();
     tokio::task::spawn_blocking(move || {
@@ -70,10 +65,7 @@ pub async fn resolve(
             &requirements,
             env_markers,
             compatible_tags,
-            locked_packages,
-            favored_packages,
             options,
-            env_variables,
         )
     })
     .await
@@ -86,16 +78,12 @@ pub async fn resolve(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn resolve_inner<'r>(
     package_db: Arc<PackageDb>,
     requirements: impl IntoIterator<Item = &'r Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
-    locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-    favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
     options: ResolveOptions,
-    env_variables: HashMap<String, String>,
 ) -> miette::Result<Vec<PinnedPackage>> {
     // Construct the pool
     let pool = Pool::new();
@@ -147,11 +135,8 @@ fn resolve_inner<'r>(
         package_db,
         env_markers,
         compatible_tags,
-        locked_packages,
-        favored_packages,
         name_to_url,
         options,
-        env_variables,
     )?;
 
     // Invoke the solver to get a solution to the requirements

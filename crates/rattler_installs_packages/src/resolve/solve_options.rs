@@ -1,10 +1,12 @@
 //! Contains the options that can be passed to the [`super::solve::resolve`] function.
 
-use crate::python_env::PythonLocation;
+use crate::{python_env::PythonLocation, types::NormalizedPackageName};
 use pep508_rs::{Requirement, VersionOrUrl};
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use crate::types::PackageName;
+
+use super::PinnedPackage;
 
 /// Defines how to handle sdists during resolution.
 #[derive(Default, Debug, Clone, Copy, Eq, PartialOrd, PartialEq)]
@@ -208,4 +210,39 @@ pub struct ResolveOptions {
     /// Defines whether pre-releases are allowed to be selected during resolution. By default
     /// pre-releases are not allowed (only if there are no other versions available for a given dependency).
     pub pre_release_resolution: PreReleaseResolution,
+
+    /// Defines locked packages that should be used
+    pub locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+
+    /// Defines favored packages that should be used
+    pub favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+
+    /// Defines env variables that can be used during resolving
+    pub env_variables: HashMap<String, String>,
+}
+
+impl ResolveOptions {
+    /// Change resolve options locked packages
+    pub fn with_locked_packages(
+        &mut self,
+        locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    ) -> &mut Self {
+        self.locked_packages = locked_packages;
+        self
+    }
+
+    /// Change resolve options favored packages
+    pub fn with_favored_packages(
+        &mut self,
+        favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
+    ) -> &mut Self {
+        self.favored_packages = favored_packages;
+        self
+    }
+
+    /// Change env variables of resolve options
+    pub fn with_env_variables(&mut self, env_variables: HashMap<String, String>) -> &mut Self {
+        self.env_variables = env_variables;
+        self
+    }
 }

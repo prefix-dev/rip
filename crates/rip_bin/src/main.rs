@@ -204,6 +204,7 @@ async fn actual_main() -> miette::Result<()> {
         clean_env: args.clean_env,
         on_wheel_build_failure,
         pre_release_resolution,
+        ..Default::default()
     };
 
     // Solve the environment
@@ -212,10 +213,7 @@ async fn actual_main() -> miette::Result<()> {
         &args.specs,
         env_markers.clone(),
         Some(compatible_tags.clone()),
-        HashMap::default(),
-        HashMap::default(),
         resolve_opts.clone(),
-        HashMap::default(),
     )
     .await
     {
@@ -286,7 +284,6 @@ async fn actual_main() -> miette::Result<()> {
             env_markers,
             Some(compatible_tags),
             resolve_opts,
-            Default::default(),
         )
         .into_diagnostic()?;
 

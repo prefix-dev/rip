@@ -340,14 +340,8 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
         let result = wheel_builder
             .get_sdist_metadata::<SDist>(&sdist)
@@ -366,14 +360,8 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
         // Build the wheel
         wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
@@ -391,14 +379,8 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -416,7 +398,7 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let resolve_options = ResolveOptions {
+        let mut resolve_options = ResolveOptions {
             ..Default::default()
         };
 
@@ -424,15 +406,10 @@ mod tests {
 
         // In order to build wheel, we need to pass specific ENV that setup.py expect
         mandatory_env.insert("MY_ENV_VAR".to_string(), "SOME_VALUE".to_string());
+        resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            mandatory_env,
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -454,7 +431,7 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let resolve_options = ResolveOptions {
+        let mut resolve_options = ResolveOptions {
             clean_env: true,
             ..Default::default()
         };
@@ -463,15 +440,10 @@ mod tests {
 
         // In order to build wheel, we need to pass specific ENV that setup.py expect
         mandatory_env.insert(String::from("MY_ENV_VAR"), String::from("SOME_VALUE"));
+        resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            mandatory_env,
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -490,7 +462,7 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let resolve_options = ResolveOptions {
+        let mut resolve_options = ResolveOptions {
             clean_env: true,
             ..Default::default()
         };
@@ -498,15 +470,10 @@ mod tests {
         // Do not pass any mandatory env for wheel builder, and do not inherit
         // this should fail
         let mandatory_env = HashMap::new();
+        resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            mandatory_env,
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await;
@@ -525,13 +492,8 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        );
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default());
 
         let result = wheel_builder
             .unwrap()
@@ -594,14 +556,8 @@ mod tests {
             ..Default::default()
         };
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -636,7 +592,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -669,7 +624,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -704,7 +658,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -735,7 +688,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -779,7 +731,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -810,7 +761,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -854,7 +804,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -899,7 +848,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -962,7 +910,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1008,7 +955,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1051,7 +997,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1096,7 +1041,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1139,7 +1083,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1185,7 +1128,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1225,7 +1167,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1265,7 +1206,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 

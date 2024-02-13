@@ -45,9 +45,6 @@ pub struct WheelBuilder {
     /// to build a sdist. E.g. `hatchling` requires `hatchling` as build system.
     resolve_options: ResolveOptions,
 
-    /// The passed environment variables
-    env_variables: HashMap<String, String>,
-
     /// Saved build environments
     /// This is used to save build environments for debugging
     /// only if the `save_on_failure` option is set in resolve options
@@ -64,7 +61,6 @@ impl WheelBuilder {
         env_markers: Arc<MarkerEnvironment>,
         wheel_tags: Option<Arc<WheelTags>>,
         resolve_options: ResolveOptions,
-        env_variables: HashMap<String, String>,
     ) -> Result<Self, ParsePythonInterpreterVersionError> {
         let resolve_options = resolve_options.clone();
 
@@ -76,7 +72,6 @@ impl WheelBuilder {
             env_markers,
             wheel_tags,
             resolve_options,
-            env_variables,
             saved_build_envs: Mutex::new(HashSet::new()),
             python_version,
         })
@@ -324,14 +319,8 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
         // Build the wheel
         wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -371,14 +360,8 @@ mod tests {
             ..Default::default()
         };
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            Default::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
 
         // Build the wheel
         // this should fail because we don't have the right environment
@@ -405,14 +388,7 @@ mod tests {
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
 
         let wheel_builder = Arc::new(
-            WheelBuilder::new(
-                package_db.0,
-                env_markers,
-                None,
-                ResolveOptions::default(),
-                Default::default(),
-            )
-            .unwrap(),
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap(),
         );
 
         let mut handles = vec![];

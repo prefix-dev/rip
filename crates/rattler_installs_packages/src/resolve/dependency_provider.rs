@@ -1,7 +1,7 @@
 use super::{
     pypi_version_types::PypiPackageName,
     solve_options::{PreReleaseResolution, ResolveOptions, SDistResolution},
-    PinnedPackage, PypiVersion, PypiVersionSet,
+    PypiVersion, PypiVersionSet,
 };
 use crate::{
     artifacts::{SDist, Wheel},
@@ -22,9 +22,7 @@ use resolvo::{
     Candidates, Dependencies, DependencyProvider, KnownDependencies, NameId, Pool, SolvableId,
     SolverCache,
 };
-use std::{
-    any::Any, borrow::Borrow, cmp::Ordering, collections::HashMap, rc::Rc, str::FromStr, sync::Arc,
-};
+use std::{any::Any, borrow::Borrow, cmp::Ordering, rc::Rc, str::FromStr, sync::Arc};
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use url::Url;
@@ -39,8 +37,6 @@ pub(crate) struct PypiDependencyProvider {
 
     pub cached_artifacts: FrozenMap<SolvableId, Vec<Arc<ArtifactInfo>>>,
 
-    favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-    locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
     pub name_to_url: FrozenMap<NormalizedPackageName, String>,
 
     options: ResolveOptions,
@@ -51,17 +47,13 @@ pub(crate) struct PypiDependencyProvider {
 impl PypiDependencyProvider {
     /// Creates a new PypiDependencyProvider
     /// for use with the [`resolvo`] crate
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: Pool<PypiVersionSet, PypiPackageName>,
         package_db: Arc<PackageDb>,
         markers: Arc<MarkerEnvironment>,
         compatible_tags: Option<Arc<WheelTags>>,
-        locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-        favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
         name_to_url: FrozenMap<NormalizedPackageName, String>,
         options: ResolveOptions,
-        env_variables: HashMap<String, String>,
     ) -> miette::Result<Self> {
         let wheel_builder = Arc::new(
             WheelBuilder::new(
@@ -69,7 +61,6 @@ impl PypiDependencyProvider {
                 markers.clone(),
                 compatible_tags.clone(),
                 options.clone(),
-                env_variables,
             )
             .into_diagnostic()?,
         );
@@ -81,8 +72,6 @@ impl PypiDependencyProvider {
             markers,
             compatible_tags,
             cached_artifacts: Default::default(),
-            favored_packages,
-            locked_packages,
             name_to_url,
             options,
             should_cancel_with_value: Default::default(),
@@ -341,8 +330,8 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             }
         };
         let mut candidates = Candidates::default();
-        let locked_package = self.locked_packages.get(package_name.base());
-        let favored_package = self.favored_packages.get(package_name.base());
+        let locked_package = self.options.locked_packages.get(package_name.base());
+        let favored_package = self.options.favored_packages.get(package_name.base());
 
         let should_package_allow_prerelease = match &self.options.pre_release_resolution {
             PreReleaseResolution::Disallow => false,
@@ -409,7 +398,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         }
 
         // Add a locked dependency
-        if let Some(locked) = self.locked_packages.get(package_name.base()) {
+        if let Some(locked) = self.options.locked_packages.get(package_name.base()) {
             let version = if let Some(url) = &locked.url {
                 PypiVersion::Url(url.clone())
             } else {
@@ -426,7 +415,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
         }
 
         // Add a favored dependency
-        if let Some(favored) = self.favored_packages.get(package_name.base()) {
+        if let Some(favored) = self.options.favored_packages.get(package_name.base()) {
             let version = if let Some(url) = &favored.url {
                 PypiVersion::Url(url.clone())
             } else {
@@ -493,7 +482,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             // TODO: rework this so it makes more sense from an API perspective later, I think we should add the concept of installed_and_locked or something
             // It is locked the package data may be available externally
             // So it's fine if there are no artifacts, we can just assume this has been taken care of
-            let locked_package = self.locked_packages.get(package_name.base());
+            let locked_package = self.options.locked_packages.get(package_name.base());
             match package_version {
                 PypiVersion::Url(url) => {
                     if locked_package.map(|p| &p.url) == Some(&Some(url.clone())) {
