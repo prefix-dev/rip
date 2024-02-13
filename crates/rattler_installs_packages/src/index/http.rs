@@ -259,7 +259,7 @@ where
     R: Read + Seek,
 {
     let mut buff_reader = BufReader::new(&mut f);
-    verify_cache_bom(&mut buff_reader, bom_key, version)?;
+    verify_cache_bom_and_version(&mut buff_reader, bom_key, version)?;
 
     let mut struct_size_buffer = [0; 8];
     buff_reader.read_exact(&mut struct_size_buffer).unwrap();
@@ -293,8 +293,8 @@ fn write_cache_bom_and_metadata<W: Write + Seek>(
     writer.stream_position()
 }
 
-/// Verify that cache BOM is the same and up-to-date
-fn verify_cache_bom<R: Read + Seek>(
+/// Verify that cache BOM and metadata is the same and up-to-date
+fn verify_cache_bom_and_version<R: Read + Seek>(
     reader: &mut R,
     bom_key: &str,
     version: u8,
