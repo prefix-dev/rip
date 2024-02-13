@@ -89,7 +89,7 @@ class Rip:
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:
         try:
-            return check_output([str(self.path), *args], **kwds).decode("utf-8")
+            return check_output([str(self.path), "resolve", *args], **kwds).decode("utf-8")
         except CalledProcessError as e:
             print(e.output)
             print(e.stderr)
@@ -139,7 +139,7 @@ def rip():
 
 def test_functionality(rip: rip):
     text = rip("--help").splitlines()
-    assert text[0] == "Binary to verify and play around with rattler_installs_packages"
+    assert text[0] == "Resolve a set of requirements and output the resolved versions"
 
 
 def test_solve(rip: rip):

@@ -47,18 +47,19 @@ We cache everything in a local directory so that we can re-use the metadata and 
 # Installation
 
 We have added very simple installation support for the resolved packages.
-For testing purposes exclusively, we have added a `--install-into` flag to the `rip_bin` binary.
-Use the `--install-into <some_path>` to create a venv and install the packages into it.
+For testing purposes exclusively, we have added an `install` command to the `rip_bin` binary.
+E.g. `cargo r -- install flask /tmp/flask` to create a venv and install the flask and it's into it.
 There is no detection of existing packages yet.
 
 ## Features
 
-This is a list of current and planned features of `RIP`, the biggest are listed below:
+This is a list of current features of `RIP`, the biggest are listed below:
 
-* [x] Downloading and aggressive caching of PyPI metadata.
+* [x] Async downloading and aggressive caching of PyPI metadata.
 * [x] Resolving of PyPI packages using [Resolvo](https://github.com/mamba-org/resolvo).
-* [x] Installation of wheel files (see: https://github.com/prefix-dev/rip/issues/6 for last open issues)
-* [x] Support sdist files
+* [x] Installation of wheel files.
+* [x] Support sdist files (must currently adhere to the `PEP 517` and `PEP 518` standards).
+* [x] Caching of locally built wheels.
 
 More intricacies of the PyPI ecosystem need to be implemented, see our GitHub issues for more details.
 
