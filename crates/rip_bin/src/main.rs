@@ -31,7 +31,7 @@ struct Cli {
 
     /// Base URL of the Python Package Index (default <https://pypi.org/simple>). This should point
     /// to a repository compliant with PEP 503 (the simple repository API).
-    #[clap(default_value = "https://pypi.org/simple/", long)]
+    #[clap(default_value = "https://pypi.org/simple/", long, global = true)]
     index_url: Url,
 }
 
