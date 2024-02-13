@@ -74,7 +74,10 @@ This feature can be enabled with the `resolvo` feature flag.
 
 We have very simple installation support for the resolved packages.
 This should be used for testing purposes exclusively
-E.g. `cargo r -- install flask /tmp/flask` to create a venv and install the flask and it's into it.
+E.g. `cargo r -- install flask /tmp/flask_env` to create a venv and install the flask and it's into it.
+After which you can run:
+   1. `/tmp/flask_env/bin/python` to start python in the venv.
+   2. `import flask #`, this should import the flask package from the venv.
 There is no detection of existing packages in the venv yet, although this should be relatively straightforward.
 
 
