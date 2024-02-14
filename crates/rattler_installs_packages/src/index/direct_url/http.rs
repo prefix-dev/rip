@@ -24,7 +24,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     http: &Http,
     p: P,
     url: Url,
-    wheel_builder: &WheelBuilder,
+    wheel_builder: Arc<WheelBuilder>,
 ) -> miette::Result<crate::index::package_database::DirectUrlArtifactResponse> {
     let str_name = url.path();
     let url_hash = url.fragment().and_then(parse_hash);
@@ -122,7 +122,7 @@ async fn get_sdist_from_bytes(
     normalized_package_name: &NormalizedPackageName,
     url: Url,
     bytes: Box<dyn ReadAndSeek + Send>,
-    wheel_builder: &WheelBuilder,
+    wheel_builder: Arc<WheelBuilder>,
 ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), SDist)> {
     // it's probably an sdist
     let distribution = PackageName::from(normalized_package_name.clone());

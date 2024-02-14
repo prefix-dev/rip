@@ -364,7 +364,11 @@ mod tests {
             WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
         // Build the wheel
-        wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
+        wheel_builder
+            .clone()
+            .get_sdist_metadata(&sdist)
+            .await
+            .unwrap();
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
 
         let (_, metadata) = wheel.metadata().unwrap();
@@ -493,13 +497,9 @@ mod tests {
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder =
-            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default());
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
-        let result = wheel_builder
-            .unwrap()
-            .get_sdist_metadata(&sdist)
-            .await
-            .unwrap();
+        let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
 
         assert_debug_snapshot!(result.1);
     }
@@ -601,7 +601,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -633,7 +633,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -667,7 +667,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -697,7 +697,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -740,7 +740,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -770,7 +770,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -826,7 +826,7 @@ mod tests {
 
         let wheel_metadata = package_db
             .0
-            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
+            .get_metadata(artifact_info.as_slice(), Some(wheel_builder))
             .await
             .unwrap()
             .unwrap();
@@ -870,7 +870,7 @@ mod tests {
 
         let (whl, _) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -932,7 +932,7 @@ mod tests {
 
         let (whl, _) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -974,7 +974,7 @@ mod tests {
 
         let (whl, _) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -1019,7 +1019,7 @@ mod tests {
 
         let wheel_metadata = package_db
             .0
-            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
+            .get_metadata(artifact_info.as_slice(), Some(wheel_builder))
             .await
             .unwrap()
             .unwrap();
@@ -1061,7 +1061,7 @@ mod tests {
 
         let wheel_metadata = package_db
             .0
-            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
+            .get_metadata(artifact_info.as_slice(), Some(wheel_builder))
             .await
             .unwrap()
             .unwrap();
@@ -1103,7 +1103,7 @@ mod tests {
 
         let (_, direct_url_json) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
         let mut json = direct_url_json.unwrap();
@@ -1149,7 +1149,7 @@ mod tests {
 
         let (_, direct_url_json) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -1188,7 +1188,7 @@ mod tests {
 
         let (_, direct_url_json) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -1227,7 +1227,7 @@ mod tests {
 
         let (_, direct_url_json) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 

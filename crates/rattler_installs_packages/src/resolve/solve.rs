@@ -3,6 +3,7 @@ use crate::python_env::WheelTags;
 use crate::resolve::dependency_provider::PypiDependencyProvider;
 use crate::resolve::pypi_version_types::PypiVersion;
 use crate::types::PackageName;
+use crate::wheel_builder::WheelBuilder;
 use crate::{types::ArtifactInfo, types::Extra, types::NormalizedPackageName};
 use elsa::FrozenMap;
 use pep440_rs::Version;
@@ -56,6 +57,7 @@ pub async fn resolve(
     requirements: impl IntoIterator<Item = &Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
+    wheel_builder: Arc<WheelBuilder>,
     options: ResolveOptions,
 ) -> miette::Result<Vec<PinnedPackage>> {
     let requirements: Vec<_> = requirements.into_iter().cloned().collect();
@@ -65,6 +67,7 @@ pub async fn resolve(
             &requirements,
             env_markers,
             compatible_tags,
+            wheel_builder,
             options,
         )
     })
@@ -83,6 +86,7 @@ fn resolve_inner<'r>(
     requirements: impl IntoIterator<Item = &'r Requirement>,
     env_markers: Arc<MarkerEnvironment>,
     compatible_tags: Option<Arc<WheelTags>>,
+    wheel_buider: Arc<WheelBuilder>,
     options: ResolveOptions,
 ) -> miette::Result<Vec<PinnedPackage>> {
     // Construct the pool
@@ -136,6 +140,7 @@ fn resolve_inner<'r>(
         env_markers,
         compatible_tags,
         name_to_url,
+        wheel_buider,
         options,
     )?;
 

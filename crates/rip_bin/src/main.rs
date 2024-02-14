@@ -207,12 +207,21 @@ async fn actual_main() -> miette::Result<()> {
         ..Default::default()
     };
 
+    let wheel_builder = WheelBuilder::new(
+        package_db.clone(),
+        env_markers.clone(),
+        Some(compatible_tags.clone()),
+        resolve_opts.clone(),
+    )
+    .into_diagnostic()?;
+
     // Solve the environment
     let blueprint = match resolve(
         package_db.clone(),
         &args.specs,
         env_markers.clone(),
         Some(compatible_tags.clone()),
+        wheel_builder.clone(),
         resolve_opts.clone(),
     )
     .await
@@ -279,13 +288,6 @@ async fn actual_main() -> miette::Result<()> {
 
         let venv = rattler_installs_packages::python_env::VEnv::create(&install, python_location)
             .into_diagnostic()?;
-        let wheel_builder = WheelBuilder::new(
-            package_db.clone(),
-            env_markers,
-            Some(compatible_tags),
-            resolve_opts,
-        )
-        .into_diagnostic()?;
 
         for pinned_package in blueprint
             .clone()
@@ -299,7 +301,7 @@ async fn actual_main() -> miette::Result<()> {
             );
             let artifact_info = pinned_package.artifacts.first().unwrap();
             let (artifact, direct_url_json) = package_db
-                .get_wheel(artifact_info, Some(&wheel_builder))
+                .get_wheel(artifact_info, Some(wheel_builder.clone()))
                 .await?;
             venv.install_wheel(
                 &artifact,

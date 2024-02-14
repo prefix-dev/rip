@@ -16,6 +16,7 @@ use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Debug)]
 enum DeleteOrPersist {
@@ -214,7 +215,7 @@ impl BuildEnvironment {
     /// for that requirement.
     pub(crate) async fn install_extra_requirements(
         &self,
-        wheel_builder: &WheelBuilder,
+        wheel_builder: Arc<WheelBuilder>,
     ) -> Result<(), WheelBuildError> {
         // Get extra requirements if any
         let extra_requirements = self.get_extra_requirements()?;
@@ -245,6 +246,7 @@ impl BuildEnvironment {
                 all_requirements.iter(),
                 wheel_builder.env_markers.clone(),
                 wheel_builder.wheel_tags.clone(),
+                wheel_builder.clone(),
                 options,
             )
             .await
@@ -263,7 +265,7 @@ impl BuildEnvironment {
                 let artifact_info = package_info.artifacts.first().unwrap();
                 let (artifact, direct_url_json) = wheel_builder
                     .package_db
-                    .get_wheel(artifact_info, Some(wheel_builder))
+                    .get_wheel(artifact_info, Some(wheel_builder.clone()))
                     .await
                     .expect("could not get artifact");
 
@@ -359,7 +361,7 @@ impl BuildEnvironment {
     /// Setup the build environment so that we can build a wheel from an sdist
     pub(crate) async fn setup(
         sdist: &impl ArtifactFromSource,
-        wheel_builder: &WheelBuilder,
+        wheel_builder: Arc<WheelBuilder>,
     ) -> Result<BuildEnvironment, WheelBuildError> {
         // Setup a work directory and a new env dir
         let work_dir = tempfile::tempdir()?;
@@ -408,6 +410,7 @@ impl BuildEnvironment {
             build_requirements.iter(),
             wheel_builder.env_markers.clone(),
             wheel_builder.wheel_tags.clone(),
+            wheel_builder.clone(),
             options,
         )
         .await
@@ -425,7 +428,7 @@ impl BuildEnvironment {
 
             let (artifact, _) = wheel_builder
                 .package_db
-                .get_wheel(artifact_info, Some(wheel_builder))
+                .get_wheel(artifact_info, Some(wheel_builder.clone()))
                 .await
                 .map_err(WheelBuildError::CouldNotGetArtifact)?;
 

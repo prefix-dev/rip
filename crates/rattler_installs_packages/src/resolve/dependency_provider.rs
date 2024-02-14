@@ -14,7 +14,7 @@ use crate::{
 };
 use elsa::FrozenMap;
 use itertools::Itertools;
-use miette::{Diagnostic, IntoDiagnostic, MietteDiagnostic};
+use miette::{Diagnostic, MietteDiagnostic};
 use parking_lot::Mutex;
 use pep440_rs::{Operator, VersionSpecifier, VersionSpecifiers};
 use pep508_rs::{MarkerEnvironment, Requirement, VersionOrUrl};
@@ -53,18 +53,9 @@ impl PypiDependencyProvider {
         markers: Arc<MarkerEnvironment>,
         compatible_tags: Option<Arc<WheelTags>>,
         name_to_url: FrozenMap<NormalizedPackageName, String>,
+        wheel_builder: Arc<WheelBuilder>,
         options: ResolveOptions,
     ) -> miette::Result<Self> {
-        let wheel_builder = Arc::new(
-            WheelBuilder::new(
-                package_db.clone(),
-                markers.clone(),
-                compatible_tags.clone(),
-                options.clone(),
-            )
-            .into_diagnostic()?,
-        );
-
         Ok(Self {
             pool: Rc::new(pool),
             package_db,
@@ -512,7 +503,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             let lease = self.aquire_lease_to_run().await;
             async move {
                 if let Some((ai, metadata)) = package_db
-                    .get_metadata(&artifacts, Some(&wheel_builder))
+                    .get_metadata(&artifacts, Some(wheel_builder))
                     .await?
                 {
                     drop(lease);

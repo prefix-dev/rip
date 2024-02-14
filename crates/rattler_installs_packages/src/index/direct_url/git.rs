@@ -17,7 +17,7 @@ use url::Url;
 pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     p: P,
     url: Url,
-    wheel_builder: &WheelBuilder,
+    wheel_builder: Arc<WheelBuilder>,
 ) -> miette::Result<DirectUrlArtifactResponse> {
     let normalized_package_name = p.into();
 

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::index::http::Http;
 use crate::index::package_database::DirectUrlArtifactResponse;
 use crate::types::NormalizedPackageName;
@@ -13,7 +15,7 @@ pub(crate) async fn fetch_artifact_and_metadata_by_direct_url<P: Into<Normalized
     http: &Http,
     p: P,
     url: Url,
-    wheel_builder: &WheelBuilder,
+    wheel_builder: Arc<WheelBuilder>,
 ) -> miette::Result<DirectUrlArtifactResponse> {
     let p = p.into();
 
