@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::{
     fmt::{Display, Formatter},
-    io::IsTerminal,
     path::PathBuf,
     process::Command,
     str::FromStr,
@@ -221,11 +220,6 @@ fn git_command(sub_cmd: &str) -> Command {
     let mut command = Command::new("git");
     command.arg(sub_cmd);
 
-    if std::io::stdin().is_terminal() {
-        command.stdout(std::process::Stdio::inherit());
-        command.stderr(std::process::Stdio::inherit());
-        command.arg("--progress");
-    }
     command
 }
 
