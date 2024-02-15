@@ -656,7 +656,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    pub async fn build_rich_sdist_but_without_metadata_in_path_as_source_dependency() {
+    pub async fn sdist_without_name() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../test-data/sdists/rich_without_metadata_in_path.tar.gz");
 
@@ -1295,7 +1295,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    pub async fn test_zip_timestamps_before_1980_error() {
+    pub async fn test_zip_timestamps_1980() {
         let url = Url::parse("https://files.pythonhosted.org/packages/c0/3f/d7af728f075fb08564c5949a9c95e44352e23dee646869fa104a3b2060a3/tomli-2.0.1.tar.gz").unwrap();
 
         let package_db = get_package_db();
