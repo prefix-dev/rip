@@ -1293,4 +1293,44 @@ mod tests {
 
         assert_debug_snapshot!(direct_url_json);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn test_zip_timestamps_before_1980_error() {
+        let url = Url::parse("https://files.pythonhosted.org/packages/c0/3f/d7af728f075fb08564c5949a9c95e44352e23dee646869fa104a3b2060a3/tomli-2.0.1.tar.gz").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let wheel_builder = WheelBuilder::new(
+            package_db.0.clone(),
+            env_markers,
+            None,
+            ResolveOptions::default(),
+            HashMap::default(),
+        )
+        .unwrap();
+
+        let norm_name = PackageName::from_str("tomli").unwrap();
+        let sdist_remote_filename = SDistFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            format: SDistFormat::TarGz,
+        };
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::SDist(sdist_remote_filename),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let (wheel, _) = package_db
+            .0
+            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .await
+            .unwrap();
+
+        assert_debug_snapshot!(wheel.metadata());
+    }
 }

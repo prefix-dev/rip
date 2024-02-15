@@ -7,3 +7,4 @@
 .pixi
 # other venvs
 .venv*/
+dist/*

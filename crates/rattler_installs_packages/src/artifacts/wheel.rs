@@ -280,6 +280,7 @@ impl Wheel {
 
         let root_is_purelib = match &parsed
             .take("Root-Is-Purelib")
+            .map(|key| key.to_lowercase())
             .map_err(|_| WheelCoreMetaDataError::MissingKey(String::from("Root-Is-Purelib")))?[..]
         {
             "true" => true,
