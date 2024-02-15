@@ -10,11 +10,12 @@ use std::collections::HashSet;
 use std::env;
 use std::str::FromStr;
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::{collections::HashMap, path::PathBuf};
 
 use parking_lot::Mutex;
 use pep508_rs::MarkerEnvironment;
+use tokio::sync::Notify;
 
 use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion};
 use crate::resolve::solve_options::{OnWheelBuildFailure, ResolveOptions};
@@ -24,13 +25,20 @@ use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelCacheKey};
 use crate::{artifacts::Wheel, index::PackageDb, python_env::WheelTags, types::WheelCoreMetadata};
 pub use error::WheelBuildError;
+use tokio::sync::broadcast;
 
 type BuildCache = Mutex<HashMap<SourceArtifactName, Arc<BuildEnvironment>>>;
+type OptionalBuildEnv = Option<Arc<BuildEnvironment>>;
+type BuildEnvironmentSender = broadcast::Sender<OptionalBuildEnv>;
+type BuildEnvironmentReceiver = broadcast::Receiver<OptionalBuildEnv>;
 
 /// A builder for wheels
 pub struct WheelBuilder {
     /// A cache for virtualenvs that might be reused later in the process
     venv_cache: BuildCache,
+
+    /// A cache for in-flight virtualenvs
+    in_setup_venv: Mutex<HashMap<SourceArtifactName, Weak<BuildEnvironmentSender>>>,
 
     /// The package database to use
     package_db: Arc<PackageDb>,
@@ -87,6 +95,7 @@ impl WheelBuilder {
 
         Ok(Self {
             venv_cache: Mutex::new(HashMap::new()),
+            in_setup_venv: Mutex::new(HashMap::new()),
             package_db,
             env_markers,
             wheel_tags,
@@ -108,7 +117,9 @@ impl WheelBuilder {
         &self,
         sdist: &impl ArtifactFromSource,
     ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
-        if let Some(venv) = self.venv_cache.lock().get(&sdist.artifact_name()) {
+        // Either we have the venv cached or not yet
+        let name = sdist.artifact_name();
+        if let Some(venv) = self.venv_cache.lock().get(&name) {
             tracing::debug!(
                 "using cached virtual env for: {:?}",
                 sdist.distribution_name()
@@ -116,27 +127,103 @@ impl WheelBuilder {
             return Ok(venv.clone());
         }
 
+        // Even though there is no build environment yet.
+        // Check if another task is already setting up the build environment
+        // if so wait for it to finish
+        enum BuildEnvState {
+            // No build environment yet
+            New(Arc<BuildEnvironmentSender>),
+            // Currently setting up the build environment
+            SettingUp(BuildEnvironmentReceiver),
+        }
+
+        // Check if we are inflight
+        let state = {
+            let mut lock = self.in_setup_venv.lock();
+            match lock.get(&name) {
+                // We are setting up lets wait for the broadcast
+                Some(notify) => {
+                    // If the notify is still alive, we are setting up
+                    if let Some(sender) = notify.upgrade() {
+                        BuildEnvState::SettingUp(sender.subscribe())
+                    } else {
+                        // Otherwise a panic happened, so we need to re-setup
+                        let (tx, _) = broadcast::channel(1);
+                        let tx = Arc::new(tx);
+                        lock.insert(name.clone(), Arc::downgrade(&tx));
+                        BuildEnvState::New(tx)
+                    }
+                }
+                // We are the first one here, so lets tell the other tasks to wait
+                None => {
+                    let (tx, _) = broadcast::channel(1);
+                    let tx = Arc::new(tx);
+                    lock.insert(name.clone(), Arc::downgrade(&tx));
+                    BuildEnvState::New(tx)
+                }
+            }
+        };
+        // Drop the lock to allow other tasks to continue getting to this point
+
+        // If we are SettingUp wait for the response
+        let tx = match state {
+            BuildEnvState::SettingUp(mut rx) => {
+                tracing::debug!(
+                    "waiting for in-flight virtual env for: {:?}",
+                    sdist.distribution_name()
+                );
+                // Wait for a value to return
+                // If the .recv() has an error all senders have been dropped
+                // this implies that the setup has panicked
+                return if let Some(build_env) = rx.recv().await.map_err(|_| {
+                    WheelBuildError::Error(
+                        "panic during setup of original build environment".to_string(),
+                    )
+                })? {
+                    Ok(build_env)
+                } else {
+                    // Error while setting up a build env
+                    // but not a panic
+                    Err(WheelBuildError::Error(
+                        "error during setup of original build environment".to_string(),
+                    ))
+                };
+            }
+            BuildEnvState::New(notify) => notify,
+        };
+
+        // Otherwise we need to do the work
         tracing::debug!("creating virtual env for: {:?}", sdist.distribution_name());
 
-        let mut build_environment = BuildEnvironment::setup(sdist, self).await?;
+        // Wrap this in a future to capture the result
+        let future = (|| async {
+            let mut build_environment = BuildEnvironment::setup(sdist, self).await?;
+            build_environment.install_build_files(sdist)?;
+            // Install extra requirements if any
+            build_environment.install_extra_requirements(self).await?;
+            Ok(build_environment)
+        })();
 
-        build_environment.install_build_files(sdist)?;
+        match future.await {
+            Ok(build_environment) => {
+                let build_environment = Arc::new(build_environment);
+                // Insert into the venv cache
+                self.venv_cache
+                    .lock()
+                    .insert(sdist.artifact_name().clone(), build_environment.clone());
 
-        // Install extra requirements if any
-        build_environment.install_extra_requirements(self).await?;
+                // Notify others that a result is available
+                let _ = tx.send(Some(build_environment.clone()));
 
-        // Insert into the venv cache
-        self.venv_cache
-            .lock()
-            .insert(sdist.artifact_name().clone(), Arc::new(build_environment));
-
-        // Return the cached values
-        return self
-            .venv_cache
-            .lock()
-            .get(&sdist.artifact_name())
-            .cloned()
-            .ok_or_else(|| WheelBuildError::Error("Could not get venv from cache".to_string()));
+                Ok(build_environment)
+            }
+            Err(e) => {
+                // Notify others that a result is available
+                // It's fine that its none because the error is also propagated
+                let _ = tx.send(None);
+                Err(e)
+            }
+        }
     }
 
     /// Get the paths to the saved build environments
@@ -171,8 +258,7 @@ impl WheelBuilder {
 
     /// Get the metadata for a given sdist by using the build_backend in a virtual env
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
-
-    #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
+    #[tracing::instrument(skip_all, fields(name = % sdist.distribution_name(), version = % sdist.version()))]
     pub async fn get_sdist_metadata<S: ArtifactFromSource>(
         &self,
         sdist: &S,
@@ -226,7 +312,7 @@ impl WheelBuilder {
 
     /// Build a wheel from an sdist by using the build_backend in a virtual env.
     /// This function uses the `build_wheel` entry point of the build backend.
-    #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
+    #[tracing::instrument(skip_all, fields(name = % sdist.distribution_name(), version = % sdist.version()))]
     pub async fn build_wheel<S: ArtifactFromSource>(
         &self,
         sdist: &S,
@@ -316,6 +402,7 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
     use tempfile::TempDir;
+    use tracing_test::traced_test;
 
     fn get_package_db() -> (Arc<PackageDb>, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
@@ -410,8 +497,8 @@ mod tests {
     }
 
     // Skipped for now will fix this in a later PR
+    #[traced_test]
     #[tokio::test(flavor = "multi_thread")]
-    #[ignore]
     pub async fn build_sdist_metadata_concurrently() {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
