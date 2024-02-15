@@ -97,6 +97,7 @@ impl Default for GitRev {
 /// cleaned url with revision and subdirectory
 /// parsed from
 /// git+https://github.com/example/repo.git@1.0.0#subdirectry=some
+#[derive(Debug)]
 pub struct ParsedUrl {
     /// Url to the git repository
     pub git_url: GitUrl,
@@ -166,10 +167,10 @@ impl ParsedUrl {
 
     fn clean_url(url: &str) -> String {
         // Find the index of ".git" in the repository URL, or use the length if ".git" is not present
-        let repo_index = url
-            .find(".git")
-            .map(|index| index + 4)
-            .unwrap_or_else(|| url.len());
+        let repo_index = url.find(".git").map(|index| index + 4).unwrap_or_else(|| {
+            // .git is missing, remove @ if present
+            url.find('@').unwrap_or(url.len())
+        });
 
         // Remove everything after ".git"
         let clean_url = url.chars().take(repo_index).collect();
