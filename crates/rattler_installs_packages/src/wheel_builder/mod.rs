@@ -7,7 +7,6 @@ mod wheel_cache;
 use fs_err as fs;
 
 use std::collections::HashSet;
-use std::env;
 use std::str::FromStr;
 
 use std::sync::Arc;
@@ -65,25 +64,11 @@ impl WheelBuilder {
         env_markers: Arc<MarkerEnvironment>,
         wheel_tags: Option<Arc<WheelTags>>,
         resolve_options: ResolveOptions,
-        mut env_variables: HashMap<String, String>,
+        env_variables: HashMap<String, String>,
     ) -> Result<Self, ParsePythonInterpreterVersionError> {
         let resolve_options = resolve_options.clone();
 
         let python_version = resolve_options.python_location.version()?;
-
-        let source_date_epoch_key = "SOURCE_DATE_EPOCH".to_owned();
-        // when unpacking tomli-2.0.1.tar.gz we face the issue that
-        // python std zipfile library does not support timestamps before 1980
-        // so we are passing one as SOURCE_DATE_EPOCH env variable
-        // so flit_core could use it
-        // https://github.com/alexcrichton/tar-rs/issues/349
-        if let std::collections::hash_map::Entry::Vacant(_) =
-            env_variables.entry(source_date_epoch_key.clone())
-        {
-            if env::var(&source_date_epoch_key).is_err() || resolve_options.clean_env {
-                env_variables.insert(source_date_epoch_key, "1707928508".to_owned());
-            }
-        }
 
         Ok(Self {
             venv_cache: Mutex::new(HashMap::new()),
