@@ -391,14 +391,13 @@ impl WheelBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::{SDist, Wheel};
+    use crate::artifacts::SDist;
     use crate::index::{PackageDb, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
     use crate::resolve::solve_options::{OnWheelBuildFailure, ResolveOptions};
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
     use crate::wheel_builder::WheelBuilder;
     use futures::future::TryJoinAll;
-    use pep508_rs::MarkerEnvironment;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
     use std::collections::HashMap;
