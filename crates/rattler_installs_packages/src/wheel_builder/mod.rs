@@ -15,7 +15,6 @@ use std::{collections::HashMap, path::PathBuf};
 
 use parking_lot::Mutex;
 use pep508_rs::MarkerEnvironment;
-use tokio::sync::Notify;
 
 use crate::python_env::{ParsePythonInterpreterVersionError, PythonInterpreterVersion};
 use crate::resolve::solve_options::{OnWheelBuildFailure, ResolveOptions};
@@ -196,15 +195,15 @@ impl WheelBuilder {
         tracing::debug!("creating virtual env for: {:?}", sdist.distribution_name());
 
         // Wrap this in a future to capture the result
-        let future = (|| async {
+        let future = || async {
             let mut build_environment = BuildEnvironment::setup(sdist, self).await?;
             build_environment.install_build_files(sdist)?;
             // Install extra requirements if any
             build_environment.install_extra_requirements(self).await?;
             Ok(build_environment)
-        })();
+        };
 
-        match future.await {
+        match future().await {
             Ok(build_environment) => {
                 let build_environment = Arc::new(build_environment);
                 // Insert into the venv cache
@@ -287,7 +286,8 @@ impl WheelBuilder {
         build_environment: &BuildEnvironment,
         sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
-        let output = build_environment.run_command("WheelMetadata")?;
+        let output_dir = tempfile::tempdir()?;
+        let output = build_environment.run_command("WheelMetadata", output_dir.path())?;
         if !output.status.success() {
             if output.status.code() == Some(50) {
                 tracing::warn!("SDist build backend does not support metadata generation");
@@ -301,10 +301,12 @@ impl WheelBuilder {
             return Err(WheelBuildError::Error(stdout.to_string()));
         }
 
-        let result = fs::read_to_string(build_environment.work_dir().join("metadata_result"))?;
+        // Read the outputted file
+        let result = fs::read_to_string(output_dir.path().join("metadata_result"))?;
         let folder = PathBuf::from(result.trim());
         let path = folder.join("METADATA");
 
+        // Read the metadata
         let metadata = fs::read(path)?;
         let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice())?;
         Ok((metadata, wheel_metadata))
@@ -337,8 +339,9 @@ impl WheelBuilder {
         build_environment: &BuildEnvironment,
         sdist: &S,
     ) -> Result<Wheel, WheelBuildError> {
+        let output_dir = tempfile::tempdir()?;
         // Run the wheel stage
-        let output = build_environment.run_command("Wheel")?;
+        let output = build_environment.run_command("Wheel", output_dir.path())?;
 
         // Check for success
         if !output.status.success() {
@@ -347,10 +350,9 @@ impl WheelBuilder {
         }
 
         // This is where the wheel file is located
-        let wheel_file: PathBuf =
-            fs::read_to_string(build_environment.work_dir().join("wheel_result"))?
-                .trim()
-                .into();
+        let wheel_file: PathBuf = fs::read_to_string(output_dir.path().join("wheel_result"))?
+            .trim()
+            .into();
 
         // Get the name of the package
         let package_name: NormalizedPackageName = PackageName::from_str(&sdist.distribution_name())
@@ -402,7 +404,6 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
     use tempfile::TempDir;
-    use tracing_test::traced_test;
 
     fn get_package_db() -> (Arc<PackageDb>, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
@@ -496,8 +497,8 @@ mod tests {
         assert!(path.exists());
     }
 
-    // Skipped for now will fix this in a later PR
-    #[traced_test]
+    // Enable this if you need to know what's going on
+    // #[traced_test]
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_sdist_metadata_concurrently() {
         let path =
@@ -539,7 +540,53 @@ mod tests {
                 }
             }
             Err(e) => {
-                panic!("Failed to build wheels concurrently: {}", e);
+                panic!("Failed to build sdists concurrently: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheels_concurrently() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+
+        let wheel_builder = Arc::new(
+            WheelBuilder::new(
+                package_db.0,
+                env_markers,
+                None,
+                ResolveOptions::default(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
+
+        let mut handles = vec![];
+
+        for _ in 0..10 {
+            let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+            let wheel_builder = wheel_builder.clone();
+            handles.push(tokio::spawn(async move {
+                wheel_builder.build_wheel(&sdist).await
+            }));
+        }
+
+        let result = handles.into_iter().collect::<TryJoinAll<_>>().await;
+        match result {
+            Ok(results) => {
+                for result in results {
+                    assert!(
+                        result.is_ok(),
+                        "error during concurrent wheel build: {:?}",
+                        result.err()
+                    );
+                }
+            }
+            Err(e) => {
+                panic!("Failed to build sdists concurrently: {}", e);
             }
         }
     }
