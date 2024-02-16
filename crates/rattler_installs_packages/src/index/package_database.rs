@@ -173,7 +173,7 @@ impl PackageDb {
                 url,
                 wheel_builder,
             } => {
-                self.get_artifact_by_direct_url(name, url, wheel_builder)
+                self.get_artifact_by_direct_url(name, url, &wheel_builder)
                     .await
             }
         }
@@ -184,7 +184,7 @@ impl PackageDb {
     pub async fn get_metadata<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
-        wheel_builder: Option<Arc<WheelBuilder>>,
+        wheel_builder: Option<&Arc<WheelBuilder>>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         // Check if we already have information about any of the artifacts cached.
         // Return if we do
@@ -209,19 +209,15 @@ impl PackageDb {
         // network to get to the information.
         // Let's try to get information for any wheels that we have
         // first
-        let result = self
-            .get_metadata_wheels(artifacts, wheel_builder.clone())
-            .await?;
+        let result = self.get_metadata_wheels(artifacts, wheel_builder).await?;
         if result.is_some() {
             return Ok(result);
         }
 
         // No wheels found with metadata, try to get metadata from sdists
         // by building them or using the appropriate hooks
-        if let Some(wheel_builder) = wheel_builder.clone() {
-            let sdist = self
-                .get_metadata_sdists(artifacts, wheel_builder.clone())
-                .await?;
+        if let Some(wheel_builder) = wheel_builder {
+            let sdist = self.get_metadata_sdists(artifacts, wheel_builder).await?;
             if sdist.is_some() {
                 return Ok(sdist);
             }
@@ -251,7 +247,7 @@ impl PackageDb {
                     &self.http,
                     artifact_info.filename.distribution_name(),
                     artifact_info.url.clone(),
-                    builder.clone(),
+                    &builder,
                 )
                 .await?;
 
@@ -319,7 +315,7 @@ impl PackageDb {
         &self,
         p: P,
         url: Url,
-        wheel_builder: Arc<WheelBuilder>,
+        wheel_builder: &Arc<WheelBuilder>,
     ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
         let p = p.into();
 
@@ -431,7 +427,7 @@ impl PackageDb {
     async fn get_metadata_wheels<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
-        wheel_builder: Option<Arc<WheelBuilder>>,
+        wheel_builder: Option<&Arc<WheelBuilder>>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let wheels = artifacts
             .iter()
@@ -454,7 +450,7 @@ impl PackageDb {
             }
 
             let metadata = if ai.is_direct_url {
-                if let Some(wheel_builder) = wheel_builder.clone() {
+                if let Some(wheel_builder) = wheel_builder {
                     let response = super::direct_url::fetch_artifact_and_metadata_by_direct_url(
                         &self.http,
                         ai.filename.distribution_name(),
@@ -498,7 +494,7 @@ impl PackageDb {
     async fn get_metadata_sdists<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
-        wheel_builder: Arc<WheelBuilder>,
+        wheel_builder: &Arc<WheelBuilder>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let sdists = artifacts
             .iter()
@@ -514,7 +510,7 @@ impl PackageDb {
                     &self.http,
                     artifact_info.filename.distribution_name(),
                     artifact_info.url.clone(),
-                    wheel_builder.clone(),
+                    wheel_builder,
                 )
                 .await;
                 match response {
@@ -525,7 +521,7 @@ impl PackageDb {
                 let artifact = self
                     .get_cached_artifact::<SDist>(artifact_info, CacheMode::Default)
                     .await?;
-                wheel_builder.clone().get_sdist_metadata(&artifact).await
+                wheel_builder.get_sdist_metadata(&artifact).await
             };
 
             match metadata {
@@ -554,7 +550,7 @@ impl PackageDb {
     async fn get_metadata_stree<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
-        wheel_builder: Arc<WheelBuilder>,
+        wheel_builder: &Arc<WheelBuilder>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let stree = artifacts
             .iter()
@@ -578,7 +574,7 @@ impl PackageDb {
                 &self.http,
                 stree_name.distribution.clone(),
                 artifact_info.url.clone(),
-                wheel_builder.clone(),
+                wheel_builder,
             )
             .await;
 

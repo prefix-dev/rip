@@ -499,7 +499,7 @@ impl<'p> DependencyProvider<PypiVersionSet, PypiPackageName> for &'p PypiDepende
             let lease = self.aquire_lease_to_run().await;
             async move {
                 if let Some((ai, metadata)) = package_db
-                    .get_metadata(&artifacts, Some(wheel_builder))
+                    .get_metadata(&artifacts, Some(&wheel_builder))
                     .await?
                 {
                     drop(lease);

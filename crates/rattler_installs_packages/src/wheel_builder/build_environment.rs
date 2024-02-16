@@ -218,7 +218,7 @@ impl BuildEnvironment {
     /// for that requirement.
     pub(crate) async fn install_extra_requirements(
         &self,
-        wheel_builder: Arc<WheelBuilder>,
+        wheel_builder: &Arc<WheelBuilder>,
     ) -> Result<(), WheelBuildError> {
         // Get extra requirements if any
         // Because we are using the build environment to get the extra requirements

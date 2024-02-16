@@ -15,7 +15,7 @@ pub(crate) async fn fetch_artifact_and_metadata_by_direct_url<P: Into<Normalized
     http: &Http,
     p: P,
     url: Url,
-    wheel_builder: Arc<WheelBuilder>,
+    wheel_builder: &Arc<WheelBuilder>,
 ) -> miette::Result<DirectUrlArtifactResponse> {
     let p = p.into();
 

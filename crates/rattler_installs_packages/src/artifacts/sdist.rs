@@ -813,7 +813,7 @@ mod tests {
 
         let wheel_metadata = package_db
             .0
-            .get_metadata(artifact_info.as_slice(), Some(wheel_builder))
+            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
             .await
             .unwrap()
             .unwrap();
@@ -1006,7 +1006,7 @@ mod tests {
 
         let wheel_metadata = package_db
             .0
-            .get_metadata(artifact_info.as_slice(), Some(wheel_builder))
+            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
             .await
             .unwrap()
             .unwrap();
@@ -1048,7 +1048,7 @@ mod tests {
 
         let wheel_metadata = package_db
             .0
-            .get_metadata(artifact_info.as_slice(), Some(wheel_builder))
+            .get_metadata(artifact_info.as_slice(), Some(&wheel_builder))
             .await
             .unwrap()
             .unwrap();
