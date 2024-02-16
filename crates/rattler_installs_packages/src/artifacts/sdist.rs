@@ -266,8 +266,7 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::artifacts::SDist;
-    use crate::index::PackageDb;
-    use crate::index::{ArtifactRequest, PackageSourcesBuilder};
+    use crate::index::ArtifactRequest;
     use crate::python_env::{Pep508EnvMakers, PythonLocation, VEnv};
     use crate::resolve::solve_options::{ResolveOptions, SDistResolution};
     use crate::resolve::PypiVersion;
@@ -277,30 +276,16 @@ mod tests {
         WheelFilename, Yanked,
     };
     use crate::types::{SDistFilename, SDistFormat};
+    use crate::utils::{get_package_db, setup};
     use crate::wheel_builder::WheelBuilder;
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use pep440_rs::Version;
-    use reqwest::Client;
-    use reqwest_middleware::ClientWithMiddleware;
     use std::collections::{HashMap, HashSet};
     use std::path::Path;
     use std::str::FromStr;
     use std::sync::Arc;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::tempdir;
     use url::Url;
-
-    fn get_package_db() -> (Arc<PackageDb>, TempDir) {
-        let tempdir = tempfile::tempdir().unwrap();
-        let client = ClientWithMiddleware::from(Client::new());
-
-        let url = url::Url::parse("https://pypi.org/simple/").unwrap();
-        let sources = PackageSourcesBuilder::new(url).build().unwrap();
-
-        (
-            Arc::new(PackageDb::new(sources, client, tempdir.path()).unwrap()),
-            tempdir,
-        )
-    }
 
     #[tokio::test]
     pub async fn correct_metadata_fake_flask() {
@@ -345,14 +330,8 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
         let result = wheel_builder
             .get_sdist_metadata::<SDist>(&sdist)
@@ -371,17 +350,15 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
         // Build the wheel
-        wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
+        wheel_builder
+            .clone()
+            .get_sdist_metadata(&sdist)
+            .await
+            .unwrap();
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
 
         let (_, metadata) = wheel.metadata().unwrap();
@@ -394,16 +371,10 @@ mod tests {
 
         let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
-        let package_db = get_package_db();
+        let (package_db, _tmp_dir) = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db, env_markers, None, ResolveOptions::default()).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -429,15 +400,9 @@ mod tests {
 
         // In order to build wheel, we need to pass specific ENV that setup.py expect
         mandatory_env.insert("MY_ENV_VAR".to_string(), "SOME_VALUE".to_string());
+        let options = resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            mandatory_env,
-        )
-        .unwrap();
+        let wheel_builder = WheelBuilder::new(package_db.0, env_markers, None, options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -468,15 +433,9 @@ mod tests {
 
         // In order to build wheel, we need to pass specific ENV that setup.py expect
         mandatory_env.insert(String::from("MY_ENV_VAR"), String::from("SOME_VALUE"));
+        let options = resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            mandatory_env,
-        )
-        .unwrap();
+        let wheel_builder = WheelBuilder::new(package_db.0, env_markers, None, options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -503,15 +462,9 @@ mod tests {
         // Do not pass any mandatory env for wheel builder, and do not inherit
         // this should fail
         let mandatory_env = HashMap::new();
+        let options = resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            mandatory_env,
-        )
-        .unwrap();
+        let wheel_builder = WheelBuilder::new(package_db.0, env_markers, None, options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await;
@@ -530,19 +483,10 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        );
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
 
-        let result = wheel_builder
-            .unwrap()
-            .get_sdist_metadata(&sdist)
-            .await
-            .unwrap();
+        let result = wheel_builder.get_sdist_metadata(&sdist).await.unwrap();
 
         assert_debug_snapshot!(result.1);
     }
@@ -599,14 +543,8 @@ mod tests {
             ..Default::default()
         };
 
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            HashMap::default(),
-        )
-        .unwrap();
+        let wheel_builder =
+            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -641,7 +579,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -651,7 +588,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -674,7 +611,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -684,7 +620,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -709,7 +645,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -719,7 +654,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -740,7 +675,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -750,7 +684,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -784,7 +718,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -794,7 +727,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -815,7 +748,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -825,7 +757,7 @@ mod tests {
             .available_artifacts(ArtifactRequest::DirectUrl {
                 name: norm_name.into(),
                 url: url.clone(),
-                wheel_builder: Arc::new(wheel_builder),
+                wheel_builder,
             })
             .await
             .unwrap();
@@ -859,7 +791,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -904,7 +835,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -927,7 +857,7 @@ mod tests {
 
         let (whl, _) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -967,7 +897,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -990,7 +919,7 @@ mod tests {
 
         let (whl, _) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -1013,7 +942,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1033,7 +961,7 @@ mod tests {
 
         let (whl, _) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -1056,7 +984,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1101,7 +1028,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1144,7 +1070,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1165,7 +1090,7 @@ mod tests {
 
         let (_, direct_url_json) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
         let mut json = direct_url_json.unwrap();
@@ -1190,7 +1115,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1212,7 +1136,7 @@ mod tests {
 
         let (_, direct_url_json) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -1230,7 +1154,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1252,7 +1175,7 @@ mod tests {
 
         let (_, direct_url_json) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -1270,7 +1193,6 @@ mod tests {
             env_markers,
             None,
             ResolveOptions::default(),
-            HashMap::default(),
         )
         .unwrap();
 
@@ -1292,7 +1214,7 @@ mod tests {
 
         let (_, direct_url_json) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 
@@ -1304,15 +1226,7 @@ mod tests {
         let url = Url::parse("https://files.pythonhosted.org/packages/c0/3f/d7af728f075fb08564c5949a9c95e44352e23dee646869fa104a3b2060a3/tomli-2.0.1.tar.gz").unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0.clone(),
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let (wheel_builder, _tmpdir) = setup(ResolveOptions::default()).await;
 
         let norm_name = PackageName::from_str("tomli").unwrap();
         let sdist_remote_filename = SDistFilename {
@@ -1332,7 +1246,7 @@ mod tests {
 
         let (wheel, _) = package_db
             .0
-            .get_wheel(&artifact_info, Some(&wheel_builder))
+            .get_wheel(&artifact_info, Some(wheel_builder))
             .await
             .unwrap();
 

@@ -177,16 +177,22 @@ pub async fn execute(package_db: Arc<PackageDb>, commands: Commands) -> miette::
         ..Default::default()
     };
 
+    let wheel_builder = WheelBuilder::new(
+        package_db.clone(),
+        env_markers.clone(),
+        Some(compatible_tags.clone()),
+        resolve_opts.clone(),
+    )
+    .into_diagnostic()?;
+
     // Solve the environment
     let blueprint = match rattler_installs_packages::resolve::resolve(
         package_db.clone(),
         &args.specs,
         env_markers.clone(),
         Some(compatible_tags.clone()),
-        HashMap::default(),
-        HashMap::default(),
+        wheel_builder.clone(),
         resolve_opts.clone(),
-        HashMap::default(),
     )
     .await
     {
@@ -258,15 +264,6 @@ pub async fn execute(package_db: Arc<PackageDb>, commands: Commands) -> miette::
 
     // Install if requested
     if let Some(target) = target {
-        let wheel_builder = WheelBuilder::new(
-            package_db.clone(),
-            env_markers,
-            Some(compatible_tags),
-            resolve_opts,
-            Default::default(),
-        )
-        .into_diagnostic()?;
-
         install_packages(
             package_db,
             wheel_builder,
@@ -283,7 +280,7 @@ pub async fn execute(package_db: Arc<PackageDb>, commands: Commands) -> miette::
 /// Install resolved packages into a virtual environment
 pub async fn install_packages(
     package_db: Arc<PackageDb>,
-    wheel_builder: WheelBuilder,
+    wheel_builder: Arc<WheelBuilder>,
     pinned_packages: Vec<PinnedPackage>,
     python_location: PythonLocation,
     target: PathBuf,
@@ -326,7 +323,7 @@ pub async fn install_packages(
         // );
         let artifact_info = pinned_package.artifacts.first().unwrap();
         let (artifact, direct_url_json) = package_db
-            .get_wheel(artifact_info, Some(&wheel_builder))
+            .get_wheel(artifact_info, Some(wheel_builder.clone()))
             .await?;
         venv.install_wheel(
             &artifact,

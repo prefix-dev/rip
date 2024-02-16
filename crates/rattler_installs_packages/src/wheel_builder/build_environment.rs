@@ -16,6 +16,7 @@ use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Debug)]
 enum DeleteOrPersist {
@@ -217,7 +218,7 @@ impl BuildEnvironment {
     /// for that requirement.
     pub(crate) async fn install_extra_requirements(
         &self,
-        wheel_builder: &WheelBuilder,
+        wheel_builder: &Arc<WheelBuilder>,
     ) -> Result<(), WheelBuildError> {
         // Get extra requirements if any
         // Because we are using the build environment to get the extra requirements
@@ -238,16 +239,22 @@ impl BuildEnvironment {
             let locked_packages = HashMap::default();
             // Todo: use the previous resolve for the favored packages?
             let favored_packages = HashMap::default();
+
+            let options = wheel_builder
+                .resolve_options
+                .clone()
+                .with_favored_packages(favored_packages)
+                .with_locked_packages(locked_packages)
+                .with_env_variables(self.env_variables.clone());
+
             let all_requirements = combined_requirements.to_vec();
             let extra_resolved_wheels = resolve(
                 wheel_builder.package_db.clone(),
                 all_requirements.iter(),
                 wheel_builder.env_markers.clone(),
                 wheel_builder.wheel_tags.clone(),
-                locked_packages,
-                favored_packages,
-                wheel_builder.resolve_options.clone(),
-                self.env_variables.clone(),
+                wheel_builder.clone(),
+                options,
             )
             .await
             .map_err(|e| WheelBuildError::CouldNotResolveEnvironment(all_requirements, e))?;
@@ -265,7 +272,7 @@ impl BuildEnvironment {
                 let artifact_info = package_info.artifacts.first().unwrap();
                 let result = wheel_builder
                     .package_db
-                    .get_wheel(artifact_info, Some(wheel_builder))
+                    .get_wheel(artifact_info, Some(wheel_builder.clone()))
                     .await;
                 match result {
                     Ok((wheel, direct_url_json)) => {
@@ -369,7 +376,7 @@ impl BuildEnvironment {
     /// Setup the build environment so that we can build a wheel from an sdist
     pub(crate) async fn setup(
         sdist: &impl ArtifactFromSource,
-        wheel_builder: &WheelBuilder,
+        wheel_builder: Arc<WheelBuilder>,
     ) -> Result<BuildEnvironment, WheelBuildError> {
         // Setup a work directory and a new env dir
         let work_dir = tempfile::tempdir()?;
@@ -405,16 +412,22 @@ impl BuildEnvironment {
                 .map(|r| r.to_string())
                 .collect::<Vec<_>>()
         );
+
+        let options = wheel_builder
+            .resolve_options
+            .clone()
+            .with_favored_packages(HashMap::default())
+            .with_locked_packages(HashMap::default())
+            .with_env_variables(HashMap::default());
+
         // Resolve the build environment
         let resolved_wheels = resolve(
             wheel_builder.package_db.clone(),
             build_requirements.iter(),
             wheel_builder.env_markers.clone(),
             wheel_builder.wheel_tags.clone(),
-            HashMap::default(),
-            HashMap::default(),
-            wheel_builder.resolve_options.clone(),
-            Default::default(),
+            wheel_builder.clone(),
+            options,
         )
         .await
         .map_err(|e| {
@@ -431,7 +444,7 @@ impl BuildEnvironment {
 
             let (artifact, _) = wheel_builder
                 .package_db
-                .get_wheel(artifact_info, Some(wheel_builder))
+                .get_wheel(artifact_info, Some(wheel_builder.clone()))
                 .await
                 .map_err(WheelBuildError::CouldNotGetArtifact)?;
 
@@ -451,7 +464,7 @@ impl BuildEnvironment {
                 .join(format!("{}-{}", sdist.distribution_name(), sdist.version(),));
 
         let env_variables = if let Some(backend_path) = &build_system.backend_path {
-            let mut env_variables = wheel_builder.env_variables.clone();
+            let mut env_variables = wheel_builder.resolve_options.env_variables.clone();
             // insert env var for the backend path that will be used by the build frontend
             env_variables.insert(
                 "PEP517_BACKEND_PATH".into(),
@@ -461,7 +474,7 @@ impl BuildEnvironment {
             );
             env_variables
         } else {
-            wheel_builder.env_variables.clone()
+            wheel_builder.resolve_options.env_variables.clone()
         };
 
         Ok(BuildEnvironment {

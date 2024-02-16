@@ -2,6 +2,10 @@ mod read_and_seek;
 mod streaming_or_local;
 
 mod seek_slice;
+#[cfg(test)]
+mod test;
+#[cfg(test)]
+pub use test::{get_package_db, setup};
 
 use std::path::{Component, Path, PathBuf};
 

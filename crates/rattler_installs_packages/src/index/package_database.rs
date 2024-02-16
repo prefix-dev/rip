@@ -31,7 +31,6 @@ use std::borrow::Borrow;
 use std::path::PathBuf;
 
 use itertools::Itertools;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::{fmt::Display, io::Read, path::Path};
 
@@ -174,7 +173,7 @@ impl PackageDb {
                 url,
                 wheel_builder,
             } => {
-                self.get_artifact_by_direct_url(name, url, wheel_builder.deref())
+                self.get_artifact_by_direct_url(name, url, &wheel_builder)
                     .await
             }
         }
@@ -185,7 +184,7 @@ impl PackageDb {
     pub async fn get_metadata<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
-        wheel_builder: Option<&WheelBuilder>,
+        wheel_builder: Option<&Arc<WheelBuilder>>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         // Check if we already have information about any of the artifacts cached.
         // Return if we do
@@ -239,7 +238,7 @@ impl PackageDb {
     pub async fn get_wheel(
         &self,
         artifact_info: &ArtifactInfo,
-        builder: Option<&'async_recursion WheelBuilder>,
+        builder: Option<Arc<WheelBuilder>>,
     ) -> miette::Result<(Wheel, Option<DirectUrlJson>)> {
         // TODO: add support for this currently there are not saved
         if artifact_info.is_direct_url {
@@ -248,7 +247,7 @@ impl PackageDb {
                     &self.http,
                     artifact_info.filename.distribution_name(),
                     artifact_info.url.clone(),
-                    builder,
+                    &builder,
                 )
                 .await?;
 
@@ -316,7 +315,7 @@ impl PackageDb {
         &self,
         p: P,
         url: Url,
-        wheel_builder: &WheelBuilder,
+        wheel_builder: &Arc<WheelBuilder>,
     ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
         let p = p.into();
 
@@ -428,7 +427,7 @@ impl PackageDb {
     async fn get_metadata_wheels<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
-        wheel_builder: Option<&WheelBuilder>,
+        wheel_builder: Option<&Arc<WheelBuilder>>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let wheels = artifacts
             .iter()
@@ -495,7 +494,7 @@ impl PackageDb {
     async fn get_metadata_sdists<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
-        wheel_builder: &WheelBuilder,
+        wheel_builder: &Arc<WheelBuilder>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let sdists = artifacts
             .iter()
@@ -551,7 +550,7 @@ impl PackageDb {
     async fn get_metadata_stree<'a, A: Borrow<ArtifactInfo>>(
         &self,
         artifacts: &'a [A],
-        wheel_builder: &WheelBuilder,
+        wheel_builder: &Arc<WheelBuilder>,
     ) -> miette::Result<Option<(&'a A, WheelCoreMetadata)>> {
         let stree = artifacts
             .iter()

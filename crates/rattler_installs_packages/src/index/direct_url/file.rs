@@ -22,7 +22,7 @@ use url::Url;
 pub(crate) async fn get_sdist_from_file_path(
     normalized_package_name: &NormalizedPackageName,
     path: &PathBuf,
-    wheel_builder: &WheelBuilder,
+    wheel_builder: &Arc<WheelBuilder>,
 ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), SDist)> {
     let distribution = PackageName::from(normalized_package_name.clone());
 
@@ -71,7 +71,7 @@ pub(crate) async fn get_stree_from_file_path(
     normalized_package_name: &NormalizedPackageName,
     url: Url,
     path: Option<PathBuf>,
-    wheel_builder: &WheelBuilder,
+    wheel_builder: &Arc<WheelBuilder>,
 ) -> miette::Result<((Vec<u8>, WheelCoreMetadata), STree)> {
     let distribution = PackageName::from(normalized_package_name.clone());
     let path = match path {
@@ -113,7 +113,7 @@ pub(crate) async fn get_stree_from_file_path(
 pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     p: P,
     url: Url,
-    wheel_builder: &WheelBuilder,
+    wheel_builder: &Arc<WheelBuilder>,
 ) -> miette::Result<DirectUrlArtifactResponse> {
     let path = if let Ok(path) = url.to_file_path() {
         path

@@ -52,9 +52,6 @@ pub struct WheelBuilder {
     /// to build a sdist. E.g. `hatchling` requires `hatchling` as build system.
     resolve_options: ResolveOptions,
 
-    /// The passed environment variables
-    env_variables: HashMap<String, String>,
-
     /// Saved build environments
     /// This is used to save build environments for debugging
     /// only if the `save_on_failure` option is set in resolve options
@@ -71,23 +68,21 @@ impl WheelBuilder {
         env_markers: Arc<MarkerEnvironment>,
         wheel_tags: Option<Arc<WheelTags>>,
         resolve_options: ResolveOptions,
-        env_variables: HashMap<String, String>,
-    ) -> Result<Self, ParsePythonInterpreterVersionError> {
+    ) -> Result<Arc<Self>, ParsePythonInterpreterVersionError> {
         let resolve_options = resolve_options.clone();
 
         let python_version = resolve_options.python_location.version()?;
 
-        Ok(Self {
+        Ok(Arc::new(Self {
             venv_cache: Mutex::new(HashMap::new()),
             in_setup_venv: Mutex::new(HashMap::new()),
             package_db,
             env_markers,
             wheel_tags,
             resolve_options,
-            env_variables,
             saved_build_envs: Mutex::new(HashSet::new()),
             python_version,
-        })
+        }))
     }
 
     /// Get the python interpreter version
@@ -98,7 +93,7 @@ impl WheelBuilder {
     /// Get a prepared virtualenv for building a wheel (or extracting metadata) from an `[SDist]`
     /// This function also caches the virtualenvs, so that they can be reused later.
     async fn setup_build_venv(
-        &self,
+        self: &Arc<Self>,
         sdist: &impl ArtifactFromSource,
     ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
         // Either we have the venv cached or not yet
@@ -181,7 +176,7 @@ impl WheelBuilder {
 
         // Wrap this in a future to capture the result
         let future = || async {
-            let mut build_environment = BuildEnvironment::setup(sdist, self).await?;
+            let mut build_environment = BuildEnvironment::setup(sdist, self.clone()).await?;
             build_environment.install_build_files(sdist)?;
             // Install extra requirements if any
             build_environment.install_extra_requirements(self).await?;
@@ -217,7 +212,7 @@ impl WheelBuilder {
 
     /// Handle's a build failure by either saving the build environment or deleting it
     fn handle_build_failure<T>(
-        &self,
+        self: &Arc<WheelBuilder>,
         result: Result<T, WheelBuildError>,
         build_environment: &BuildEnvironment,
     ) -> Result<T, WheelBuildError> {
@@ -244,7 +239,7 @@ impl WheelBuilder {
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
     #[tracing::instrument(skip_all, fields(name = % sdist.distribution_name(), version = % sdist.version()))]
     pub async fn get_sdist_metadata<S: ArtifactFromSource>(
-        &self,
+        self: &Arc<Self>,
         sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
         // See if we have a locally built wheel for this sdist
@@ -267,7 +262,7 @@ impl WheelBuilder {
     }
 
     async fn get_sdist_metadata_internal<S: ArtifactFromSource>(
-        &self,
+        self: &Arc<Self>,
         build_environment: &BuildEnvironment,
         sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
@@ -301,7 +296,7 @@ impl WheelBuilder {
     /// This function uses the `build_wheel` entry point of the build backend.
     #[tracing::instrument(skip_all, fields(name = % sdist.distribution_name(), version = % sdist.version()))]
     pub async fn build_wheel<S: ArtifactFromSource>(
-        &self,
+        self: &Arc<Self>,
         sdist: &S,
     ) -> Result<Wheel, WheelBuildError> {
         // Check if we have already built this wheel locally and use that instead
@@ -314,13 +309,16 @@ impl WheelBuilder {
         let build_environment = self.setup_build_venv(sdist).await?;
         // Capture the result of the build
         // to handle different failure modes
-        let result = self.build_wheel_internal(&build_environment, sdist).await;
+        let result = self
+            .clone()
+            .build_wheel_internal(&build_environment, sdist)
+            .await;
 
         self.handle_build_failure(result, &build_environment)
     }
 
     async fn build_wheel_internal<S: ArtifactFromSource>(
-        &self,
+        self: &Arc<Self>,
         build_environment: &BuildEnvironment,
         sdist: &S,
     ) -> Result<Wheel, WheelBuildError> {
@@ -385,7 +383,6 @@ mod tests {
     use futures::future::TryJoinAll;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
-    use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -410,16 +407,13 @@ mod tests {
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
 
         (
-            Arc::new(
-                WheelBuilder::new(
-                    package_db.clone(),
-                    env_markers.clone(),
-                    None,
-                    resolve_options,
-                    HashMap::default(),
-                )
-                .unwrap(),
-            ),
+            WheelBuilder::new(
+                package_db.clone(),
+                env_markers.clone(),
+                None,
+                resolve_options,
+            )
+            .unwrap(),
             tempdir,
         )
     }
@@ -433,11 +427,11 @@ mod tests {
 
         let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
 
+        let key = WheelCacheKey::from_sdist(&sdist, wheel_builder.python_version()).unwrap();
         // Build the wheel
         wheel_builder.build_wheel(&sdist).await.unwrap();
 
         // See if we can retrieve it from the cache
-        let key = WheelCacheKey::from_sdist(&sdist, wheel_builder.python_version()).unwrap();
         wheel_builder
             .package_db
             .local_wheel_cache()
@@ -470,7 +464,7 @@ mod tests {
 
         // Build the wheel
         // this should fail because we don't have the right environment
-        let result = wheel_builder.build_wheel(&sdist).await;
+        let result = wheel_builder.clone().build_wheel(&sdist).await;
         assert!(result.is_err());
 
         let saved_build_envs = wheel_builder.saved_build_envs();
@@ -495,6 +489,7 @@ mod tests {
         for _ in 0..10 {
             let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
             let wheel_builder = wheel_builder.clone();
+            // reference to self
             handles.push(tokio::spawn(async move {
                 wheel_builder.get_sdist_metadata(&sdist).await
             }));
