@@ -57,12 +57,14 @@ impl StreamingOrLocal {
         match self {
             StreamingOrLocal::Streaming(mut streaming) => streaming.read_to_end(bytes).await,
             StreamingOrLocal::Local(mut local) => {
-                match tokio::task::spawn_blocking(move || {
+                let read_to_end = move || {
                     let mut bytes = Vec::new();
                     local.read_to_end(&mut bytes).map(|_| bytes)
-                })
-                .map_err(JoinError::try_into_panic)
-                .await
+                };
+
+                match tokio::task::spawn_blocking(read_to_end)
+                    .map_err(JoinError::try_into_panic)
+                    .await
                 {
                     Ok(Ok(result)) => {
                         *bytes = result;
@@ -71,7 +73,7 @@ impl StreamingOrLocal {
                     Ok(Err(err)) => Err(err),
                     // Resume the panic on the main task
                     Err(Ok(panic)) => std::panic::resume_unwind(panic),
-                    Err(Err(_)) => Err(std::io::ErrorKind::Interrupted.into()),
+                    Err(Err(_)) => Err(io::ErrorKind::Interrupted.into()),
                 }
             }
         }
