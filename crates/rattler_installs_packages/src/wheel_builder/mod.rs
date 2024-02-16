@@ -391,12 +391,13 @@ impl WheelBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::artifacts::SDist;
+    use crate::artifacts::{SDist, Wheel};
     use crate::index::{PackageDb, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
     use crate::resolve::solve_options::ResolveOptions;
+    use crate::types::WheelCoreMetadata;
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
-    use crate::wheel_builder::WheelBuilder;
+    use crate::wheel_builder::{WheelBuildError, WheelBuilder};
     use futures::future::TryJoinAll;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
@@ -404,6 +405,7 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
     use tempfile::TempDir;
+    use tokio_util::either::Either;
 
     fn get_package_db() -> (Arc<PackageDb>, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
@@ -583,6 +585,67 @@ mod tests {
                         "error during concurrent wheel build: {:?}",
                         result.err()
                     );
+                }
+            }
+            Err(e) => {
+                panic!("Failed to build sdists concurrently: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheels_interleaved() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+
+        let wheel_builder = Arc::new(
+            WheelBuilder::new(
+                package_db.0,
+                env_markers,
+                None,
+                ResolveOptions::default(),
+                Default::default(),
+            )
+            .unwrap(),
+        );
+
+        let mut handles = vec![];
+
+        for x in 0..10 {
+            let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+            let wheel_builder = wheel_builder.clone();
+            handles.push(tokio::spawn(async move {
+                if x % 2 == 0 {
+                    Either::Left(wheel_builder.build_wheel(&sdist).await)
+                } else {
+                    Either::Right(wheel_builder.get_sdist_metadata(&sdist).await)
+                }
+            }));
+        }
+
+        let result = handles.into_iter().collect::<TryJoinAll<_>>().await;
+        match result {
+            Ok(results) => {
+                for result in results {
+                    match result {
+                        Either::Left(result) => {
+                            assert!(
+                                result.is_ok(),
+                                "error during concurrent wheel build: {:?}",
+                                result.err()
+                            );
+                        }
+                        Either::Right(result) => {
+                            assert!(
+                                result.is_ok(),
+                                "error during concurrent metadata build: {:?}",
+                                result.err()
+                            );
+                        }
+                    }
                 }
             }
             Err(e) => {
