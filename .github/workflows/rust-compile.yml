@@ -149,7 +149,7 @@ jobs:
           pixi init
           pixi add "python==3.7.5"
           cd ../
-          cargo run -- boltons --only-sdists -p /d/a/rip/rip/pixi_old/.pixi/env/python.exe
+          cargo run -- resolve boltons --only-sdists -p /d/a/rip/rip/pixi_old/.pixi/env/python.exe
 
       - name: Run pixi latest python test
         if: contains(matrix.name, 'Windows')
@@ -160,4 +160,4 @@ jobs:
           pixi init
           pixi add python
           cd ../
-          cargo run -- boltons --only-sdists -p /d/a/rip/rip/pixi_new/.pixi/env/python.exe
+          cargo run -- resolve boltons --only-sdists -p /d/a/rip/rip/pixi_new/.pixi/env/python.exe

@@ -205,6 +205,11 @@ impl ArtifactFromSource for SDist {
         let archives = generic_archive_reader(&mut lock, self.name.format)?;
         match archives {
             Archives::TarArchive(mut archive) => {
+                // when unpacking tomli-2.0.1.tar.gz we face the issue that
+                // python std zipfile library does not support timestamps before 1980
+                // happens when unpacking the `tomli-2.0.1` source distribution
+                // https://github.com/alexcrichton/tar-rs/issues/349
+                archive.set_preserve_mtime(false);
                 archive.unpack(work_dir)?;
                 Ok(())
             }
@@ -272,30 +277,16 @@ mod tests {
         WheelFilename, Yanked,
     };
     use crate::types::{SDistFilename, SDistFormat};
+    use crate::utils::{get_package_db, setup};
     use crate::wheel_builder::WheelBuilder;
     use insta::{assert_debug_snapshot, assert_ron_snapshot};
     use pep440_rs::Version;
-    use reqwest::Client;
-    use reqwest_middleware::ClientWithMiddleware;
     use std::collections::{HashMap, HashSet};
     use std::path::Path;
     use std::str::FromStr;
     use std::sync::Arc;
     use tempfile::{tempdir, TempDir};
     use url::Url;
-
-    fn get_package_db() -> (Arc<PackageDb>, TempDir) {
-        let tempdir = tempfile::tempdir().unwrap();
-        let client = ClientWithMiddleware::from(Client::new());
-
-        let url = url::Url::parse("https://pypi.org/simple/").unwrap();
-        let sources = PackageSourcesBuilder::new(url).build().unwrap();
-
-        (
-            Arc::new(PackageDb::new(sources, client, tempdir.path()).unwrap()),
-            tempdir,
-        )
-    }
 
     #[tokio::test]
     pub async fn correct_metadata_fake_flask() {
@@ -381,10 +372,10 @@ mod tests {
 
         let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
-        let package_db = get_package_db();
+        let (package_db, _tmp_dir) = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let wheel_builder =
-            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
+            WheelBuilder::new(package_db, env_markers, None, ResolveOptions::default()).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -402,7 +393,7 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let mut resolve_options = ResolveOptions {
+        let resolve_options = ResolveOptions {
             ..Default::default()
         };
 
@@ -410,10 +401,9 @@ mod tests {
 
         // In order to build wheel, we need to pass specific ENV that setup.py expect
         mandatory_env.insert("MY_ENV_VAR".to_string(), "SOME_VALUE".to_string());
-        resolve_options.with_env_variables(mandatory_env);
+        let options = resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder =
-            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
+        let wheel_builder = WheelBuilder::new(package_db.0, env_markers, None, options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -435,7 +425,7 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let mut resolve_options = ResolveOptions {
+        let resolve_options = ResolveOptions {
             clean_env: true,
             ..Default::default()
         };
@@ -444,10 +434,9 @@ mod tests {
 
         // In order to build wheel, we need to pass specific ENV that setup.py expect
         mandatory_env.insert(String::from("MY_ENV_VAR"), String::from("SOME_VALUE"));
-        resolve_options.with_env_variables(mandatory_env);
+        let options = resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder =
-            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
+        let wheel_builder = WheelBuilder::new(package_db.0, env_markers, None, options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -466,7 +455,7 @@ mod tests {
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let mut resolve_options = ResolveOptions {
+        let resolve_options = ResolveOptions {
             clean_env: true,
             ..Default::default()
         };
@@ -474,10 +463,9 @@ mod tests {
         // Do not pass any mandatory env for wheel builder, and do not inherit
         // this should fail
         let mandatory_env = HashMap::new();
-        resolve_options.with_env_variables(mandatory_env);
+        let options = resolve_options.with_env_variables(mandatory_env);
 
-        let wheel_builder =
-            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
+        let wheel_builder = WheelBuilder::new(package_db.0, env_markers, None, options).unwrap();
 
         // Build the wheel
         let wheel = wheel_builder.build_wheel(&sdist).await;
@@ -611,7 +599,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    pub async fn build_rich_sdist_but_without_metadata_in_path_as_source_dependency() {
+    pub async fn sdist_without_name() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../test-data/sdists/rich_without_metadata_in_path.tar.gz");
 
@@ -1232,5 +1220,38 @@ mod tests {
             .unwrap();
 
         assert_debug_snapshot!(direct_url_json);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn test_zip_timestamps_1980() {
+        let url = Url::parse("https://files.pythonhosted.org/packages/c0/3f/d7af728f075fb08564c5949a9c95e44352e23dee646869fa104a3b2060a3/tomli-2.0.1.tar.gz").unwrap();
+
+        let package_db = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+        let (wheel_builder, _tmpdir) = setup(ResolveOptions::default()).await;
+
+        let norm_name = PackageName::from_str("tomli").unwrap();
+        let sdist_remote_filename = SDistFilename {
+            distribution: norm_name,
+            version: Version::from_str("0.0.0").unwrap(),
+            format: SDistFormat::TarGz,
+        };
+        let artifact_info = ArtifactInfo {
+            filename: ArtifactName::SDist(sdist_remote_filename),
+            url: url.clone(),
+            is_direct_url: true,
+            hashes: None,
+            requires_python: None,
+            dist_info_metadata: DistInfoMetadata::default(),
+            yanked: Yanked::default(),
+        };
+
+        let (wheel, _) = package_db
+            .0
+            .get_wheel(&artifact_info, Some(wheel_builder))
+            .await
+            .unwrap();
+
+        assert_debug_snapshot!(wheel.metadata());
     }
 }

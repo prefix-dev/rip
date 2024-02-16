@@ -9,7 +9,7 @@ use fs_err as fs;
 use std::collections::HashSet;
 use std::str::FromStr;
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::{collections::HashMap, path::PathBuf};
 
 use parking_lot::Mutex;
@@ -23,13 +23,20 @@ use crate::wheel_builder::build_environment::BuildEnvironment;
 pub use crate::wheel_builder::wheel_cache::{WheelCache, WheelCacheKey};
 use crate::{artifacts::Wheel, index::PackageDb, python_env::WheelTags, types::WheelCoreMetadata};
 pub use error::WheelBuildError;
+use tokio::sync::broadcast;
 
 type BuildCache = Mutex<HashMap<SourceArtifactName, Arc<BuildEnvironment>>>;
+type OptionalBuildEnv = Option<Arc<BuildEnvironment>>;
+type BuildEnvironmentSender = broadcast::Sender<OptionalBuildEnv>;
+type BuildEnvironmentReceiver = broadcast::Receiver<OptionalBuildEnv>;
 
 /// A builder for wheels
 pub struct WheelBuilder {
     /// A cache for virtualenvs that might be reused later in the process
     venv_cache: BuildCache,
+
+    /// A cache for in-flight virtualenvs
+    in_setup_venv: Mutex<HashMap<SourceArtifactName, Weak<BuildEnvironmentSender>>>,
 
     /// The package database to use
     package_db: Arc<PackageDb>,
@@ -68,6 +75,7 @@ impl WheelBuilder {
 
         Ok(Arc::new(Self {
             venv_cache: Mutex::new(HashMap::new()),
+            in_setup_venv: Mutex::new(HashMap::new()),
             package_db,
             env_markers,
             wheel_tags,
@@ -88,7 +96,9 @@ impl WheelBuilder {
         self: Arc<Self>,
         sdist: &impl ArtifactFromSource,
     ) -> Result<Arc<BuildEnvironment>, WheelBuildError> {
-        if let Some(venv) = self.venv_cache.lock().get(&sdist.artifact_name()) {
+        // Either we have the venv cached or not yet
+        let name = sdist.artifact_name();
+        if let Some(venv) = self.venv_cache.lock().get(&name) {
             tracing::debug!(
                 "using cached virtual env for: {:?}",
                 sdist.distribution_name()
@@ -96,29 +106,105 @@ impl WheelBuilder {
             return Ok(venv.clone());
         }
 
+        // Even though there is no build environment yet.
+        // Check if another task is already setting up the build environment
+        // if so wait for it to finish
+        enum BuildEnvState {
+            // No build environment yet
+            New(Arc<BuildEnvironmentSender>),
+            // Currently setting up the build environment
+            SettingUp(BuildEnvironmentReceiver),
+        }
+
+        // Check if we are inflight
+        let state = {
+            let mut lock = self.in_setup_venv.lock();
+            match lock.get(&name) {
+                // We are setting up lets wait for the broadcast
+                Some(notify) => {
+                    // If the notify is still alive, we are setting up
+                    if let Some(sender) = notify.upgrade() {
+                        BuildEnvState::SettingUp(sender.subscribe())
+                    } else {
+                        // Otherwise a panic happened, so we need to re-setup
+                        let (tx, _) = broadcast::channel(1);
+                        let tx = Arc::new(tx);
+                        lock.insert(name.clone(), Arc::downgrade(&tx));
+                        BuildEnvState::New(tx)
+                    }
+                }
+                // We are the first one here, so lets tell the other tasks to wait
+                None => {
+                    let (tx, _) = broadcast::channel(1);
+                    let tx = Arc::new(tx);
+                    lock.insert(name.clone(), Arc::downgrade(&tx));
+                    BuildEnvState::New(tx)
+                }
+            }
+        };
+        // Drop the lock to allow other tasks to continue getting to this point
+
+        // If we are SettingUp wait for the response
+        let tx = match state {
+            BuildEnvState::SettingUp(mut rx) => {
+                tracing::debug!(
+                    "waiting for in-flight virtual env for: {:?}",
+                    sdist.distribution_name()
+                );
+                // Wait for a value to return
+                // If the .recv() has an error all senders have been dropped
+                // this implies that the setup has panicked
+                return if let Some(build_env) = rx.recv().await.map_err(|_| {
+                    WheelBuildError::Error(
+                        "panic during setup of original build environment".to_string(),
+                    )
+                })? {
+                    Ok(build_env)
+                } else {
+                    // Error while setting up a build env
+                    // but not a panic
+                    Err(WheelBuildError::Error(
+                        "error during setup of original build environment".to_string(),
+                    ))
+                };
+            }
+            BuildEnvState::New(notify) => notify,
+        };
+
+        // Otherwise we need to do the work
         tracing::debug!("creating virtual env for: {:?}", sdist.distribution_name());
 
-        let mut build_environment = BuildEnvironment::setup(sdist, self.clone()).await?;
+        // Wrap this in a future to capture the result
+        let future = || async {
+            let mut build_environment = BuildEnvironment::setup(sdist, self.clone()).await?;
+            build_environment.install_build_files(sdist)?;
+            // Install extra requirements if any
+            build_environment
+                .install_extra_requirements(self.clone())
+                .await?;
+            Ok(build_environment)
+        };
 
-        build_environment.install_build_files(sdist)?;
+        match future().await {
+            Ok(build_environment) => {
+                let build_environment = Arc::new(build_environment);
+                // Insert into the venv cache
+                self.venv_cache
+                    .lock()
+                    .insert(sdist.artifact_name().clone(), build_environment.clone());
 
-        // Install extra requirements if any
-        build_environment
-            .install_extra_requirements(self.clone())
-            .await?;
+                // Notify others that a result is available
+                let _ = tx.send(Some(build_environment.clone()));
 
-        // Insert into the venv cache
-        self.venv_cache
-            .lock()
-            .insert(sdist.artifact_name().clone(), Arc::new(build_environment));
-
-        // Return the cached values
-        return self
-            .venv_cache
-            .lock()
-            .get(&sdist.artifact_name())
-            .cloned()
-            .ok_or_else(|| WheelBuildError::Error("Could not get venv from cache".to_string()));
+                Ok(build_environment)
+            }
+            Err(e) => {
+                // Notify others that a result is available
+                // It's fine that its none because the error is also propagated
+                let _ = tx.send(None);
+                Err(e)
+            }
+        }
     }
 
     /// Get the paths to the saved build environments
@@ -153,8 +239,7 @@ impl WheelBuilder {
 
     /// Get the metadata for a given sdist by using the build_backend in a virtual env
     /// This function uses the `prepare_metadata_for_build_wheel` entry point of the build backend.
-
-    #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
+    #[tracing::instrument(skip_all, fields(name = % sdist.distribution_name(), version = % sdist.version()))]
     pub async fn get_sdist_metadata<S: ArtifactFromSource>(
         self: Arc<Self>,
         sdist: &S,
@@ -184,7 +269,8 @@ impl WheelBuilder {
         build_environment: &BuildEnvironment,
         sdist: &S,
     ) -> Result<(Vec<u8>, WheelCoreMetadata), WheelBuildError> {
-        let output = build_environment.run_command("WheelMetadata")?;
+        let output_dir = tempfile::tempdir()?;
+        let output = build_environment.run_command("WheelMetadata", output_dir.path())?;
         if !output.status.success() {
             if output.status.code() == Some(50) {
                 tracing::warn!("SDist build backend does not support metadata generation");
@@ -198,10 +284,12 @@ impl WheelBuilder {
             return Err(WheelBuildError::Error(stdout.to_string()));
         }
 
-        let result = fs::read_to_string(build_environment.work_dir().join("metadata_result"))?;
+        // Read the outputted file
+        let result = fs::read_to_string(output_dir.path().join("metadata_result"))?;
         let folder = PathBuf::from(result.trim());
         let path = folder.join("METADATA");
 
+        // Read the metadata
         let metadata = fs::read(path)?;
         let wheel_metadata = WheelCoreMetadata::try_from(metadata.as_slice())?;
         Ok((metadata, wheel_metadata))
@@ -209,7 +297,7 @@ impl WheelBuilder {
 
     /// Build a wheel from an sdist by using the build_backend in a virtual env.
     /// This function uses the `build_wheel` entry point of the build backend.
-    #[tracing::instrument(skip_all, fields(name = %sdist.distribution_name(), version = %sdist.version()))]
+    #[tracing::instrument(skip_all, fields(name = % sdist.distribution_name(), version = % sdist.version()))]
     pub async fn build_wheel<S: ArtifactFromSource>(
         self: Arc<Self>,
         sdist: &S,
@@ -237,8 +325,9 @@ impl WheelBuilder {
         build_environment: &BuildEnvironment,
         sdist: &S,
     ) -> Result<Wheel, WheelBuildError> {
+        let output_dir = tempfile::tempdir()?;
         // Run the wheel stage
-        let output = build_environment.run_command("Wheel")?;
+        let output = build_environment.run_command("Wheel", output_dir.path())?;
 
         // Check for success
         if !output.status.success() {
@@ -247,10 +336,9 @@ impl WheelBuilder {
         }
 
         // This is where the wheel file is located
-        let wheel_file: PathBuf =
-            fs::read_to_string(build_environment.work_dir().join("wheel_result"))?
-                .trim()
-                .into();
+        let wheel_file: PathBuf = fs::read_to_string(output_dir.path().join("wheel_result"))?
+            .trim()
+            .into();
 
         // Get the name of the package
         let package_name: NormalizedPackageName = PackageName::from_str(&sdist.distribution_name())
@@ -292,7 +380,7 @@ mod tests {
     use crate::artifacts::SDist;
     use crate::index::{PackageDb, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
-    use crate::resolve::solve_options::ResolveOptions;
+    use crate::resolve::solve_options::{OnWheelBuildFailure, ResolveOptions};
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
     use crate::wheel_builder::WheelBuilder;
     use futures::future::TryJoinAll;
@@ -302,6 +390,7 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
     use tempfile::TempDir;
+    use tokio_util::either::Either;
 
     fn get_package_db() -> (Arc<PackageDb>, TempDir) {
         let tempdir = tempfile::tempdir().unwrap();
@@ -316,6 +405,23 @@ mod tests {
         )
     }
 
+    // Setup the test environment
+    pub async fn setup(resolve_options: ResolveOptions) -> (Arc<WheelBuilder>, TempDir) {
+        let (package_db, tempdir) = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+
+        (
+            WheelBuilder::new(
+                package_db.clone(),
+                env_markers.clone(),
+                None,
+                resolve_options,
+            )
+            .unwrap(),
+            tempdir,
+        )
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_with_cache() {
         let path =
@@ -323,10 +429,7 @@ mod tests {
 
         let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
-        let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder =
-            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
+        let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
 
         // Build the wheel
         wheel_builder.clone().build_wheel(&sdist).await.unwrap();
@@ -357,17 +460,11 @@ mod tests {
             .join("../../test-data/sdists/tampered-rich-13.6.0.tar.gz");
 
         let sdist = SDist::from_path(&path, &"tampered-rich".parse().unwrap()).unwrap();
-
-        let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let resolve_options = ResolveOptions {
-            on_wheel_build_failure:
-                crate::resolve::solve_options::OnWheelBuildFailure::SaveBuildEnv,
+        let (wheel_builder, _temp) = setup(ResolveOptions {
+            on_wheel_build_failure: OnWheelBuildFailure::SaveBuildEnv,
             ..Default::default()
-        };
-
-        let wheel_builder =
-            WheelBuilder::new(package_db.0, env_markers, None, resolve_options).unwrap();
+        })
+        .await;
 
         // Build the wheel
         // this should fail because we don't have the right environment
@@ -383,19 +480,14 @@ mod tests {
         assert!(path.exists());
     }
 
-    // Skipped for now will fix this in a later PR
+    // Enable this if you need to know what's going on
+    // #[traced_test]
     #[tokio::test(flavor = "multi_thread")]
-    #[ignore]
     pub async fn build_sdist_metadata_concurrently() {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
-        let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-
-        let wheel_builder =
-            WheelBuilder::new(package_db.0, env_markers, None, ResolveOptions::default()).unwrap();
-
+        let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
         let mut handles = vec![];
 
         for _ in 0..10 {
@@ -419,7 +511,89 @@ mod tests {
                 }
             }
             Err(e) => {
-                panic!("Failed to build wheels concurrently: {}", e);
+                panic!("Failed to build sdists concurrently: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheels_concurrently() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
+        let mut handles = vec![];
+
+        for _ in 0..10 {
+            let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+            let wheel_builder = wheel_builder.clone();
+            handles.push(tokio::spawn(async move {
+                wheel_builder.build_wheel(&sdist).await
+            }));
+        }
+
+        let result = handles.into_iter().collect::<TryJoinAll<_>>().await;
+        match result {
+            Ok(results) => {
+                for result in results {
+                    assert!(
+                        result.is_ok(),
+                        "error during concurrent wheel build: {:?}",
+                        result.err()
+                    );
+                }
+            }
+            Err(e) => {
+                panic!("Failed to build sdists concurrently: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    pub async fn build_wheels_interleaved() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
+
+        let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
+
+        let mut handles = vec![];
+
+        for x in 0..10 {
+            let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
+            let wheel_builder = wheel_builder.clone();
+            handles.push(tokio::spawn(async move {
+                if x % 2 == 0 {
+                    Either::Left(wheel_builder.build_wheel(&sdist).await)
+                } else {
+                    Either::Right(wheel_builder.get_sdist_metadata(&sdist).await)
+                }
+            }));
+        }
+
+        let result = handles.into_iter().collect::<TryJoinAll<_>>().await;
+        match result {
+            Ok(results) => {
+                for result in results {
+                    match result {
+                        Either::Left(result) => {
+                            assert!(
+                                result.is_ok(),
+                                "error during concurrent wheel build: {:?}",
+                                result.err()
+                            );
+                        }
+                        Either::Right(result) => {
+                            assert!(
+                                result.is_ok(),
+                                "error during concurrent metadata build: {:?}",
+                                result.err()
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                panic!("Failed to build sdists concurrently: {}", e);
             }
         }
     }

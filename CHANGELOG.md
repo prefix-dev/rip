@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2024-02-15
+### 📃 Details
+
+#### Fixed
+- Print packagedb error during wheel build
+- Issue with zip and artifact:from_file
+- Supress git clone output and long test names
+
+## [0.8.0] - 2024-02-13
+### ✨ Highlights
+
+We've sped up the resolution code significantly, turns out the cache reading operations were quite slow due to the number of syscalls.
+These have now been reduced and the bottleneck has been eliminated.
+
+### 📃 Details
+
+#### Added
+- Increase performance by reducing number of syscalls in http cache (#216)
+- Always writes a `direct_url.json` when a dependency is specified from source
+
+#### Fixed
+- Limits the amount of concurrent tasks with the new async resolvo code
+- Correctly limits the concurrency, by limiting the `tokio::spawn`'s in all cases
+
 ## [0.7.0] - 2024-02-09
 ### ✨ Highlights
 

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::{
     fmt::{Display, Formatter},
-    io::IsTerminal,
     path::PathBuf,
     process::Command,
     str::FromStr,
@@ -97,6 +96,7 @@ impl Default for GitRev {
 /// cleaned url with revision and subdirectory
 /// parsed from
 /// git+https://github.com/example/repo.git@1.0.0#subdirectry=some
+#[derive(Debug)]
 pub struct ParsedUrl {
     /// Url to the git repository
     pub git_url: GitUrl,
@@ -166,10 +166,10 @@ impl ParsedUrl {
 
     fn clean_url(url: &str) -> String {
         // Find the index of ".git" in the repository URL, or use the length if ".git" is not present
-        let repo_index = url
-            .find(".git")
-            .map(|index| index + 4)
-            .unwrap_or_else(|| url.len());
+        let repo_index = url.find(".git").map(|index| index + 4).unwrap_or_else(|| {
+            // .git is missing, remove @ if present
+            url.find('@').unwrap_or(url.len())
+        });
 
         // Remove everything after ".git"
         let clean_url = url.chars().take(repo_index).collect();
@@ -220,11 +220,6 @@ fn git_command(sub_cmd: &str) -> Command {
     let mut command = Command::new("git");
     command.arg(sub_cmd);
 
-    if std::io::stdin().is_terminal() {
-        command.stdout(std::process::Stdio::inherit());
-        command.stderr(std::process::Stdio::inherit());
-        command.arg("--progress");
-    }
     command
 }
 

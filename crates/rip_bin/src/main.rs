@@ -1,123 +1,51 @@
-use fs_err as fs;
-use rattler_installs_packages::resolve::solve_options::{PreReleaseResolution, ResolveOptions};
-use rip_bin::{global_multi_progress, IndicatifWriter};
-use serde::Serialize;
-use std::collections::HashMap;
-use std::default::Default;
-use std::io::Write;
-use std::path::PathBuf;
+use rip_bin::{cli, global_multi_progress, IndicatifWriter};
+
 use std::str::FromStr;
 use std::sync::Arc;
 
-use clap::Parser;
-use itertools::Itertools;
-use miette::{Context, IntoDiagnostic};
+use clap::{Parser, Subcommand};
+use miette::Context;
 use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+use rattler_installs_packages::index::PackageSourcesBuilder;
+
+use rattler_installs_packages::normalize_index_url;
+use reqwest::Client;
+use reqwest_middleware::ClientWithMiddleware;
+use rip_bin::cli::wheels::wheels;
+use tracing::metadata::LevelFilter;
 use url::Url;
 
-use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
-use rattler_installs_packages::index::PackageSourcesBuilder;
-use rattler_installs_packages::python_env::{PythonLocation, WheelTags};
-use rattler_installs_packages::resolve::solve_options::OnWheelBuildFailure;
-use rattler_installs_packages::wheel_builder::WheelBuilder;
-use rattler_installs_packages::{
-    normalize_index_url, python_env::Pep508EnvMakers, resolve, resolve::resolve, types::Requirement,
-};
-
-#[derive(Serialize, Debug)]
-struct Solution {
-    resolved: bool,
-    packages: HashMap<String, String>,
-    error: Option<String>,
-}
-
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[clap(num_args = 1.., required = true)]
-    specs: Vec<Requirement>,
+#[command(version, about, long_about = None)]
+#[command(propagate_version = true)]
+struct Cli {
+    /// Subcommand to run
+    #[command(subcommand)]
+    command: Commands,
 
-    /// Create a venv and install into this environment
-    /// Does not check for any installed packages for now
-    #[clap(long)]
-    install_into: Option<PathBuf>,
+    /// Sets the logging level
+    #[command(flatten)]
+    verbose: clap_verbosity_flag::Verbosity,
 
     /// Base URL of the Python Package Index (default <https://pypi.org/simple>). This should point
     /// to a repository compliant with PEP 503 (the simple repository API).
-    #[clap(default_value = "https://pypi.org/simple/", long)]
+    #[clap(default_value = "https://pypi.org/simple/", long, global = true)]
     index_url: Url,
-
-    /// Verbose logging from resolvo
-    #[clap(short)]
-    verbose: bool,
-
-    /// How to handle sidsts
-    #[clap(flatten)]
-    sdist_resolution: SDistResolutionArgs,
-
-    /// Path to the python interpreter to use for resolving environment markers and creating venvs
-    #[clap(long, short)]
-    python_interpreter: Option<PathBuf>,
-
-    #[arg(short = 'c', long)]
-    /// Disable inheritance of env variables.
-    clean_env: bool,
-
-    #[arg(long)]
-    /// Save failed wheel build environments
-    save_on_failure: bool,
-
-    /// Prefer pre-releases over normal releases
-    #[clap(long)]
-    pre: bool,
-
-    #[clap(long)]
-    json: bool,
 }
 
-#[derive(Parser)]
-#[group(multiple = false)]
-struct SDistResolutionArgs {
-    /// Prefer any version with wheels over any version with sdists
-    #[clap(long)]
-    prefer_wheels: bool,
+#[derive(Subcommand)]
+enum Commands {
+    /// Options w.r.t locally built wheels
+    Wheels(cli::wheels::Args),
 
-    /// Prefer any version with sdists over any version with wheels
-    #[clap(long)]
-    prefer_sdists: bool,
-
-    /// Only select versions with wheels, ignore versions with sdists
-    #[clap(long)]
-    only_wheels: bool,
-
-    /// Only select versions with sdists, ignore versions with wheels
-    #[clap(long)]
-    only_sdists: bool,
-}
-
-use resolve::solve_options::SDistResolution;
-impl From<SDistResolutionArgs> for SDistResolution {
-    fn from(value: SDistResolutionArgs) -> Self {
-        if value.only_sdists {
-            SDistResolution::OnlySDists
-        } else if value.only_wheels {
-            SDistResolution::OnlyWheels
-        } else if value.prefer_sdists {
-            SDistResolution::PreferSDists
-        } else if value.prefer_wheels {
-            SDistResolution::PreferWheels
-        } else {
-            SDistResolution::Normal
-        }
-    }
+    #[command(flatten)]
+    InstallOrResolve(cli::resolve::Commands),
 }
 
 async fn actual_main() -> miette::Result<()> {
-    use reqwest::Client;
-    use reqwest_middleware::ClientWithMiddleware;
-
-    let args = Args::parse();
+    let args = Cli::parse();
 
     // Setup tracing subscriber
     tracing_subscriber::registry()
@@ -149,189 +77,10 @@ async fn actual_main() -> miette::Result<()> {
             })?,
     );
 
-    // Determine the environment markers for the current machine
-    let env_markers = Arc::new(match args.python_interpreter {
-        Some(ref python) => {
-            let python = fs::canonicalize(python).into_diagnostic()?;
-            Pep508EnvMakers::from_python(&python).await.into_diagnostic()
-                .wrap_err_with(|| {
-                    format!(
-                        "failed to determine environment markers for the current machine (could not run Python in path: {:?})"
-                        , python
-                    )
-                })?
-        }
-        None => Pep508EnvMakers::from_env().await.into_diagnostic()
-            .wrap_err_with(|| {
-                "failed to determine environment markers for the current machine (could not run Python)"
-            })?,
-    }.0);
-    tracing::debug!(
-        "extracted the following environment markers from the system python interpreter:\n{:#?}",
-        env_markers
-    );
-
-    let python_location = match args.python_interpreter {
-        Some(python_interpreter) => PythonLocation::Custom(python_interpreter),
-        None => PythonLocation::System,
-    };
-
-    let compatible_tags =
-        WheelTags::from_python(python_location.executable().into_diagnostic()?.as_path())
-            .await
-            .into_diagnostic()
-            .map(Arc::new)?;
-    tracing::debug!(
-        "extracted the following compatible wheel tags from the system python interpreter: {}",
-        compatible_tags.tags().format(", ")
-    );
-
-    let on_wheel_build_failure = if args.save_on_failure {
-        OnWheelBuildFailure::SaveBuildEnv
-    } else {
-        OnWheelBuildFailure::DeleteBuildEnv
-    };
-
-    let pre_release_resolution = if args.pre {
-        PreReleaseResolution::Allow
-    } else {
-        PreReleaseResolution::from_specs(&args.specs)
-    };
-
-    let resolve_opts = ResolveOptions {
-        sdist_resolution: args.sdist_resolution.into(),
-        python_location: python_location.clone(),
-        clean_env: args.clean_env,
-        on_wheel_build_failure,
-        pre_release_resolution,
-        ..Default::default()
-    };
-
-    let wheel_builder = WheelBuilder::new(
-        package_db.clone(),
-        env_markers.clone(),
-        Some(compatible_tags.clone()),
-        resolve_opts.clone(),
-    )
-    .into_diagnostic()?;
-
-    // Solve the environment
-    let blueprint = match resolve(
-        package_db.clone(),
-        &args.specs,
-        env_markers.clone(),
-        Some(compatible_tags.clone()),
-        wheel_builder.clone(),
-        resolve_opts.clone(),
-    )
-    .await
-    {
-        Ok(blueprint) => blueprint,
-        Err(err) => {
-            return if args.json {
-                let solution = Solution {
-                    resolved: false,
-                    packages: HashMap::default(),
-                    error: Some(format!("{}", err)),
-                };
-                println!("{}", serde_json::to_string_pretty(&solution).unwrap());
-                Ok(())
-            } else {
-                Err(err.wrap_err("Could not solve for requested requirements"))
-            }
-        }
-    };
-
-    // Output the selected versions
-    println!("{}:", console::style("Resolved environment").bold());
-    for spec in args.specs.iter() {
-        println!("- {}", spec);
+    match args.command {
+        Commands::InstallOrResolve(cmds) => cli::resolve::execute(package_db.clone(), cmds).await,
+        Commands::Wheels(args) => wheels(package_db.clone(), args),
     }
-
-    println!();
-    let mut tabbed_stdout = tabwriter::TabWriter::new(std::io::stdout());
-    writeln!(
-        tabbed_stdout,
-        "{}\t{}",
-        console::style("Name").bold(),
-        console::style("Version").bold()
-    )
-    .into_diagnostic()?;
-    for pinned_package in blueprint.iter().sorted_by(|a, b| a.name.cmp(&b.name)) {
-        write!(tabbed_stdout, "{name}", name = pinned_package.name.as_str()).into_diagnostic()?;
-        if !pinned_package.extras.is_empty() {
-            write!(
-                tabbed_stdout,
-                "[{}]",
-                pinned_package.extras.iter().map(|e| e.as_str()).join(",")
-            )
-            .into_diagnostic()?;
-        }
-        writeln!(
-            tabbed_stdout,
-            "\t{version}",
-            version = pinned_package.version
-        )
-        .into_diagnostic()?;
-    }
-    tabbed_stdout.flush().into_diagnostic()?;
-
-    // Try to install into this environment
-    if let Some(install) = args.install_into {
-        println!(
-            "\n\nInstalling into: {}",
-            console::style(install.display()).bold()
-        );
-        if !install.exists() {
-            std::fs::create_dir_all(&install).into_diagnostic()?;
-        }
-
-        let venv = rattler_installs_packages::python_env::VEnv::create(&install, python_location)
-            .into_diagnostic()?;
-
-        for pinned_package in blueprint
-            .clone()
-            .into_iter()
-            .sorted_by(|a, b| a.name.cmp(&b.name))
-        {
-            println!(
-                "\ninstalling: {} - {}",
-                console::style(pinned_package.name).bold().green(),
-                console::style(pinned_package.version).italic()
-            );
-            let artifact_info = pinned_package.artifacts.first().unwrap();
-            let (artifact, direct_url_json) = package_db
-                .get_wheel(artifact_info, Some(wheel_builder.clone()))
-                .await?;
-            venv.install_wheel(
-                &artifact,
-                &UnpackWheelOptions {
-                    direct_url_json,
-                    ..Default::default()
-                },
-            )
-            .into_diagnostic()?;
-        }
-    }
-
-    println!(
-        "\n{}",
-        console::style("Successfully installed environment!").bold()
-    );
-
-    if args.json {
-        let solution = Solution {
-            resolved: true,
-            packages: blueprint
-                .into_iter()
-                .map(|p| (p.name.to_string(), p.version.to_string()))
-                .collect(),
-            error: None,
-        };
-        println!("{}", serde_json::to_string_pretty(&solution).unwrap());
-    }
-
-    Ok(())
 }
 
 #[tokio::main]
@@ -342,13 +91,23 @@ async fn main() {
 }
 
 /// Constructs a default [`EnvFilter`] that is used when the user did not specify a custom RUST_LOG.
-pub fn get_default_env_filter(verbose: bool) -> EnvFilter {
-    let mut result = EnvFilter::new("rip=info")
-        .add_directive(Directive::from_str("rattler_installs_packages=info").unwrap());
+pub fn get_default_env_filter(verbose: clap_verbosity_flag::Verbosity) -> EnvFilter {
+    // Always log info for rattler_installs_packages
+    let (rip, rest) = match verbose.log_level_filter() {
+        clap_verbosity_flag::LevelFilter::Off => (LevelFilter::OFF, LevelFilter::OFF),
+        clap_verbosity_flag::LevelFilter::Error => (LevelFilter::INFO, LevelFilter::ERROR),
+        clap_verbosity_flag::LevelFilter::Warn => (LevelFilter::INFO, LevelFilter::WARN),
+        clap_verbosity_flag::LevelFilter::Info => (LevelFilter::INFO, LevelFilter::INFO),
+        clap_verbosity_flag::LevelFilter::Debug => (LevelFilter::DEBUG, LevelFilter::DEBUG),
+        clap_verbosity_flag::LevelFilter::Trace => (LevelFilter::TRACE, LevelFilter::TRACE),
+    };
 
-    if verbose {
-        result = result.add_directive(Directive::from_str("resolvo=info").unwrap());
-    }
-
-    result
+    EnvFilter::builder()
+        .with_default_directive(rest.into())
+        .from_env()
+        .expect("failed to get env filter")
+        .add_directive(
+            Directive::from_str(&format!("rattler_installs_packages={}", rip))
+                .expect("cannot parse directive"),
+        )
 }

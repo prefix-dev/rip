@@ -148,6 +148,7 @@ impl FileStore {
 ///
 /// Internally the writer writes to a temporary file that is persisted to the final location to
 /// ensure that the final path is never corrupted.
+#[derive(Debug)]
 pub struct LockedWriter<'a> {
     path: &'a Path,
     f: tempfile::NamedTempFile,

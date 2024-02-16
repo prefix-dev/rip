@@ -2,7 +2,9 @@
 
 use crate::{python_env::PythonLocation, types::NormalizedPackageName};
 use pep508_rs::{Requirement, VersionOrUrl};
+use std::sync::Arc;
 use std::{collections::HashMap, str::FromStr};
+use tokio::sync::Semaphore;
 
 use crate::types::PackageName;
 
@@ -190,7 +192,7 @@ pub enum OnWheelBuildFailure {
 /// Additional options that may influence the solver. In general passing [`Default::default`] to
 /// the [`super::resolve`] function should provide sane defaults, however if you want to fine tune the
 /// resolver you can do so via this struct.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct ResolveOptions {
     /// Defines how to handle sdists during resolution. By default sdists will be treated the same
     /// as wheels.
@@ -211,6 +213,9 @@ pub struct ResolveOptions {
     /// pre-releases are not allowed (only if there are no other versions available for a given dependency).
     pub pre_release_resolution: PreReleaseResolution,
 
+    /// Limits the amount of concurrent tasks when resolving.
+    pub max_concurrent_tasks: Arc<Semaphore>,
+
     /// Defines locked packages that should be used
     pub locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
 
@@ -221,28 +226,58 @@ pub struct ResolveOptions {
     pub env_variables: HashMap<String, String>,
 }
 
+impl Default for ResolveOptions {
+    fn default() -> Self {
+        Self {
+            sdist_resolution: SDistResolution::default(),
+            python_location: PythonLocation::default(),
+            clean_env: false,
+            on_wheel_build_failure: OnWheelBuildFailure::default(),
+            pre_release_resolution: PreReleaseResolution::default(),
+            max_concurrent_tasks: Arc::new(Semaphore::new(30)),
+            locked_packages: HashMap::default(),
+            favored_packages: HashMap::default(),
+            env_variables: HashMap::default(),
+        }
+    }
+}
+
 impl ResolveOptions {
-    /// Change resolve options locked packages
+    /// Create a new instance of `ResolveOptions` with the given `max_concurrent_tasks`.
+    pub fn with_max_concurrent_tasks(self, max_concurrent_tasks: usize) -> Self {
+        Self {
+            max_concurrent_tasks: Arc::new(Semaphore::new(max_concurrent_tasks)),
+            ..self
+        }
+    }
+
+    /// Create a new instance of `ResolveOptions` with the given `locked_packages`
     pub fn with_locked_packages(
-        &mut self,
+        self,
         locked_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-    ) -> &mut Self {
-        self.locked_packages = locked_packages;
-        self
+    ) -> Self {
+        Self {
+            locked_packages,
+            ..self
+        }
     }
 
-    /// Change resolve options favored packages
+    /// Create a new instance of `ResolveOptions` with the given `favored_packages`
     pub fn with_favored_packages(
-        &mut self,
+        self,
         favored_packages: HashMap<NormalizedPackageName, PinnedPackage>,
-    ) -> &mut Self {
-        self.favored_packages = favored_packages;
-        self
+    ) -> Self {
+        Self {
+            favored_packages,
+            ..self
+        }
     }
 
-    /// Change env variables of resolve options
-    pub fn with_env_variables(&mut self, env_variables: HashMap<String, String>) -> &mut Self {
-        self.env_variables = env_variables;
-        self
+    /// Create a new instance of `ResolveOptions` with the given `env_variables`
+    pub fn with_env_variables(self, env_variables: HashMap<String, String>) -> Self {
+        Self {
+            env_variables,
+            ..self
+        }
     }
 }

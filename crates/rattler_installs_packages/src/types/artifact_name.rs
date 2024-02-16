@@ -489,6 +489,7 @@ impl ArtifactName {
     /// it uses the normalized package name to check where to split the string
     pub fn from_filename(
         input: &str,
+        url: Option<Url>,
         normalized_package_name: &NormalizedPackageName,
     ) -> Result<Self, ParseArtifactNameError> {
         if input.ends_with(".whl") {
@@ -507,6 +508,14 @@ impl ArtifactName {
                 input,
                 normalized_package_name,
             )?))
+        } else if let Some(url) = url {
+            let distribution = PackageName::from(normalized_package_name.clone());
+
+            Ok(ArtifactName::STree(STreeFilename {
+                distribution,
+                version: Version::from_str("0.0.0").expect("0.0.0 version should be parseable"),
+                url,
+            }))
         } else {
             Err(ParseArtifactNameError::InvalidExtension(input.to_string()))
         }

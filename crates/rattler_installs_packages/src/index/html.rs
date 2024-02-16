@@ -37,7 +37,7 @@ fn into_artifact_info(
     let url = base.join(href.as_ref()).ok()?;
     let filename = url.path_segments().and_then(|mut s| s.next_back());
     let filename = filename
-        .map(|s| ArtifactName::from_filename(s, normalized_package_name))?
+        .map(|s| ArtifactName::from_filename(s, None, normalized_package_name))?
         .ok()?;
 
     // We found a valid link

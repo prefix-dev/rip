@@ -3,6 +3,8 @@ use std::io;
 use std::sync::OnceLock;
 use tracing_subscriber::fmt::MakeWriter;
 
+pub mod cli;
+
 /// Returns a global instance of [`indicatif::MultiProgress`].
 ///
 /// Although you can always create an instance yourself any logging will interrupt pending

@@ -184,8 +184,11 @@ impl BuildEnvironment {
     /// This uses the `GetRequiresForBuildWheel` entry point of the build backend.
     /// this might not be available for all build backends.
     /// and it can also return an empty list of requirements.
-    fn get_extra_requirements(&self) -> Result<HashSet<Requirement>, WheelBuildError> {
-        let output = self.run_command("GetRequiresForBuildWheel")?;
+    fn get_extra_requirements(
+        &self,
+        output_dir: &Path,
+    ) -> Result<HashSet<Requirement>, WheelBuildError> {
+        let output = self.run_command("GetRequiresForBuildWheel", output_dir)?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(WheelBuildError::Error(stderr.to_string()));
@@ -218,7 +221,10 @@ impl BuildEnvironment {
         wheel_builder: Arc<WheelBuilder>,
     ) -> Result<(), WheelBuildError> {
         // Get extra requirements if any
-        let extra_requirements = self.get_extra_requirements()?;
+        // Because we are using the build environment to get the extra requirements
+        // and we should only do this once
+        // its fine to use the work_dir as the output_dir
+        let extra_requirements = self.get_extra_requirements(&self.work_dir())?;
 
         // Combine previous requirements with extra requirements
         let combined_requirements = HashSet::from_iter(self.build_requirements.iter().cloned())
@@ -234,8 +240,9 @@ impl BuildEnvironment {
             // Todo: use the previous resolve for the favored packages?
             let favored_packages = HashMap::default();
 
-            let mut options = wheel_builder.resolve_options.clone();
-            options
+            let options = wheel_builder
+                .resolve_options
+                .clone()
                 .with_favored_packages(favored_packages)
                 .with_locked_packages(locked_packages)
                 .with_env_variables(self.env_variables.clone());
@@ -263,26 +270,35 @@ impl BuildEnvironment {
                     package_info.version
                 );
                 let artifact_info = package_info.artifacts.first().unwrap();
-                let (artifact, direct_url_json) = wheel_builder
+                let result = wheel_builder
                     .package_db
                     .get_wheel(artifact_info, Some(wheel_builder.clone()))
-                    .await
-                    .expect("could not get artifact");
-
-                self.venv.install_wheel(
-                    &artifact,
-                    &UnpackWheelOptions {
-                        direct_url_json,
-                        ..Default::default()
-                    },
-                )?;
+                    .await;
+                match result {
+                    Ok((wheel, direct_url_json)) => {
+                        self.venv.install_wheel(
+                            &wheel,
+                            &UnpackWheelOptions {
+                                direct_url_json,
+                                ..Default::default()
+                            },
+                        )?;
+                    }
+                    Err(e) => {
+                        panic!("could not get artifact: {}", e)
+                    }
+                }
             }
         }
         Ok(())
     }
 
     /// Run a command in the build environment
-    pub(crate) fn run_command(&self, stage: &str) -> Result<Output, WheelBuildError> {
+    pub(crate) fn run_command(
+        &self,
+        stage: &str,
+        output_dir: &Path,
+    ) -> Result<Output, WheelBuildError> {
         // We modify the environment of the user
         // so that we can use the scripts directory to run the build frontend
         // e.g maturin depends on an executable in the scripts directory
@@ -316,7 +332,6 @@ impl BuildEnvironment {
         if self.clean_env {
             base_command.env_clear();
         }
-        let work_dir = self.work_dir.path();
         base_command
             .current_dir(&self.package_dir)
             // pass all env variables defined by user
@@ -325,10 +340,10 @@ impl BuildEnvironment {
             // it will overwritten by more actual one
             .env("PATH", path_var)
             // Script to run
-            .arg(work_dir.join("build_frontend.py"))
+            .arg(self.work_dir().join("build_frontend.py"))
             // The working directory to use
             // will contain the output of the build
-            .arg(work_dir.as_path())
+            .arg(output_dir)
             // Build system entry point
             .arg(&self.entry_point)
             // Building Wheel or Metadata
@@ -398,8 +413,9 @@ impl BuildEnvironment {
                 .collect::<Vec<_>>()
         );
 
-        let mut options = wheel_builder.resolve_options.clone();
-        options
+        let options = wheel_builder
+            .resolve_options
+            .clone()
             .with_favored_packages(HashMap::default())
             .with_locked_packages(HashMap::default())
             .with_env_variables(HashMap::default());
