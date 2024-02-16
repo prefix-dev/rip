@@ -394,11 +394,11 @@ mod tests {
     use crate::artifacts::{SDist, Wheel};
     use crate::index::{PackageDb, PackageSourcesBuilder};
     use crate::python_env::{Pep508EnvMakers, PythonInterpreterVersion};
-    use crate::resolve::solve_options::ResolveOptions;
-    use crate::types::WheelCoreMetadata;
+    use crate::resolve::solve_options::{OnWheelBuildFailure, ResolveOptions};
     use crate::wheel_builder::wheel_cache::WheelCacheKey;
-    use crate::wheel_builder::{WheelBuildError, WheelBuilder};
+    use crate::wheel_builder::WheelBuilder;
     use futures::future::TryJoinAll;
+    use pep508_rs::MarkerEnvironment;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
     use std::collections::HashMap;
@@ -420,6 +420,26 @@ mod tests {
         )
     }
 
+    // Setup the test environment
+    pub async fn setup(resolve_options: ResolveOptions) -> (Arc<WheelBuilder>, TempDir) {
+        let (package_db, tempdir) = get_package_db();
+        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
+
+        (
+            Arc::new(
+                WheelBuilder::new(
+                    package_db.clone(),
+                    env_markers.clone(),
+                    None,
+                    resolve_options,
+                    HashMap::default(),
+                )
+                .unwrap(),
+            ),
+            tempdir,
+        )
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_with_cache() {
         let path =
@@ -427,16 +447,7 @@ mod tests {
 
         let sdist = SDist::from_path(&path, &"rich".parse().unwrap()).unwrap();
 
-        let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            ResolveOptions::default(),
-            HashMap::default(),
-        )
-        .unwrap();
+        let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
 
         // Build the wheel
         wheel_builder.build_wheel(&sdist).await.unwrap();
@@ -467,23 +478,11 @@ mod tests {
             .join("../../test-data/sdists/tampered-rich-13.6.0.tar.gz");
 
         let sdist = SDist::from_path(&path, &"tampered-rich".parse().unwrap()).unwrap();
-
-        let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-        let resolve_options = ResolveOptions {
-            on_wheel_build_failure:
-                crate::resolve::solve_options::OnWheelBuildFailure::SaveBuildEnv,
+        let (wheel_builder, _temp) = setup(ResolveOptions {
+            on_wheel_build_failure: OnWheelBuildFailure::SaveBuildEnv,
             ..Default::default()
-        };
-
-        let wheel_builder = WheelBuilder::new(
-            package_db.0,
-            env_markers,
-            None,
-            resolve_options,
-            Default::default(),
-        )
-        .unwrap();
+        })
+        .await;
 
         // Build the wheel
         // this should fail because we don't have the right environment
@@ -506,20 +505,7 @@ mod tests {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
-        let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-
-        let wheel_builder = Arc::new(
-            WheelBuilder::new(
-                package_db.0,
-                env_markers,
-                None,
-                ResolveOptions::default(),
-                Default::default(),
-            )
-            .unwrap(),
-        );
-
+        let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
         let mut handles = vec![];
 
         for _ in 0..10 {
@@ -552,20 +538,7 @@ mod tests {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
-        let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-
-        let wheel_builder = Arc::new(
-            WheelBuilder::new(
-                package_db.0,
-                env_markers,
-                None,
-                ResolveOptions::default(),
-                Default::default(),
-            )
-            .unwrap(),
-        );
-
+        let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
         let mut handles = vec![];
 
         for _ in 0..10 {
@@ -598,19 +571,7 @@ mod tests {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-data/sdists/rich-13.6.0.tar.gz");
 
-        let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
-
-        let wheel_builder = Arc::new(
-            WheelBuilder::new(
-                package_db.0,
-                env_markers,
-                None,
-                ResolveOptions::default(),
-                Default::default(),
-            )
-            .unwrap(),
-        );
+        let (wheel_builder, _temp) = setup(ResolveOptions::default()).await;
 
         let mut handles = vec![];
 
