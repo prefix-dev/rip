@@ -205,6 +205,11 @@ impl ArtifactFromSource for SDist {
         let archives = generic_archive_reader(&mut lock, self.name.format)?;
         match archives {
             Archives::TarArchive(mut archive) => {
+                // when unpacking tomli-2.0.1.tar.gz we face the issue that
+                // python std zipfile library does not support timestamps before 1980
+                // happens when unpacking the `tomli-2.0.1` source distribution
+                // https://github.com/alexcrichton/tar-rs/issues/349
+                archive.set_preserve_mtime(false);
                 archive.unpack(work_dir)?;
                 Ok(())
             }
