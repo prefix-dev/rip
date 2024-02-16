@@ -386,7 +386,6 @@ mod tests {
     use futures::future::TryJoinAll;
     use reqwest::Client;
     use reqwest_middleware::ClientWithMiddleware;
-    use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;
     use tempfile::TempDir;

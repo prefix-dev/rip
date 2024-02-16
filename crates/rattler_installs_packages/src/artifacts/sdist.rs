@@ -266,8 +266,7 @@ fn generic_archive_reader(
 #[cfg(test)]
 mod tests {
     use crate::artifacts::SDist;
-    use crate::index::PackageDb;
-    use crate::index::{ArtifactRequest, PackageSourcesBuilder};
+    use crate::index::ArtifactRequest;
     use crate::python_env::{Pep508EnvMakers, PythonLocation, VEnv};
     use crate::resolve::solve_options::{ResolveOptions, SDistResolution};
     use crate::resolve::PypiVersion;
@@ -285,7 +284,7 @@ mod tests {
     use std::path::Path;
     use std::str::FromStr;
     use std::sync::Arc;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::tempdir;
     use url::Url;
 
     #[tokio::test]
@@ -1227,7 +1226,6 @@ mod tests {
         let url = Url::parse("https://files.pythonhosted.org/packages/c0/3f/d7af728f075fb08564c5949a9c95e44352e23dee646869fa104a3b2060a3/tomli-2.0.1.tar.gz").unwrap();
 
         let package_db = get_package_db();
-        let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);
         let (wheel_builder, _tmpdir) = setup(ResolveOptions::default()).await;
 
         let norm_name = PackageName::from_str("tomli").unwrap();
