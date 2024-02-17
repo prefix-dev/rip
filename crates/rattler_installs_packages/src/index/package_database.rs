@@ -55,6 +55,9 @@ pub struct PackageDb {
 
     /// Reference to the cache directory for all caches
     cache_dir: PathBuf,
+
+    /// Option to that determines if we always want to check if there are new available artifacts
+    check_available_artifacts: CheckAvailablePackages,
 }
 
 /// Type of request to get from the `available_artifacts` function.
@@ -72,6 +75,17 @@ pub enum ArtifactRequest {
     },
 }
 
+/// Specifies if we always want to check if there are new available artifacts
+/// for a package or if we use the time that the server says the request is fresh
+#[derive(Default, Eq, PartialEq, Copy, Clone)]
+pub enum CheckAvailablePackages {
+    /// Always check if there are new available artifacts
+    #[default]
+    Always,
+    /// Trust the time that the server says the request is fresh
+    UseServerTime,
+}
+
 pub(crate) struct DirectUrlArtifactResponse {
     pub(crate) artifact_info: Arc<ArtifactInfo>,
     pub(crate) artifact_versions: VersionArtifacts,
@@ -86,6 +100,7 @@ impl PackageDb {
         package_sources: PackageSources,
         client: ClientWithMiddleware,
         cache_dir: &Path,
+        check_available_artifacts: CheckAvailablePackages,
     ) -> miette::Result<Self> {
         let http = Http::new(
             client,
@@ -102,6 +117,7 @@ impl PackageDb {
             artifacts: Default::default(),
             local_wheel_cache,
             cache_dir: cache_dir.to_owned(),
+            check_available_artifacts,
         })
     }
 
@@ -134,7 +150,7 @@ impl PackageDb {
                     .map(|url| url.join(&format!("{}/", p.as_str())).expect("invalid url"))
                     .collect_vec();
                 let request_iter = stream::iter(urls)
-                    .map(|url| fetch_simple_api(&http, url))
+                    .map(|url| fetch_simple_api(&http, url, self.check_available_artifacts))
                     .buffer_unordered(10)
                     .filter_map(|result| async { result.transpose() });
 
@@ -722,9 +738,17 @@ impl PackageDb {
     }
 }
 
-async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<ProjectInfo>> {
+async fn fetch_simple_api(
+    http: &Http,
+    url: Url,
+    check_available_artifacts: CheckAvailablePackages,
+) -> miette::Result<Option<ProjectInfo>> {
     let mut headers = HeaderMap::new();
-    headers.insert(CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
+    // If we always want to check if there are new available artifacts, we'll set the cache control
+    // to max-age=0, so that we always get a non-cached server response.
+    if CheckAvailablePackages::Always == check_available_artifacts {
+        headers.insert(CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
+    }
 
     let response = match http
         .request(url.to_owned(), Method::GET, headers, CacheMode::Default)
@@ -853,6 +877,7 @@ mod test {
             url.into(),
             ClientWithMiddleware::from(Client::new()),
             cache_dir.path(),
+            CheckAvailablePackages::default(),
         )
         .unwrap();
 
@@ -910,6 +935,7 @@ mod test {
             sources,
             ClientWithMiddleware::from(Client::new()),
             cache_dir.path(),
+            Default::default(),
         )
         .unwrap();
 

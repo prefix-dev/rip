@@ -8,7 +8,7 @@ use miette::Context;
 use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use rattler_installs_packages::index::PackageSourcesBuilder;
+use rattler_installs_packages::index::{CheckAvailablePackages, PackageSourcesBuilder};
 
 use rattler_installs_packages::normalize_index_url;
 use reqwest::Client;
@@ -33,6 +33,12 @@ struct Cli {
     /// to a repository compliant with PEP 503 (the simple repository API).
     #[clap(default_value = "https://pypi.org/simple/", long, global = true)]
     index_url: Url,
+
+    /// Species whether to always check for new package versions
+    /// or if we have a server response for a package, use the
+    /// age provided by the server to determine should send a request
+    #[clap(long, global = true)]
+    use_server_timeout: bool,
 }
 
 #[derive(Subcommand)]
@@ -66,15 +72,26 @@ async fn actual_main() -> miette::Result<()> {
     let index_url = normalize_index_url(args.index_url.clone());
     let sources = PackageSourcesBuilder::new(index_url).build()?;
 
+    let check_available_packages = if args.use_server_timeout {
+        CheckAvailablePackages::UseServerTime
+    } else {
+        CheckAvailablePackages::Always
+    };
+
     let client = ClientWithMiddleware::from(Client::new());
     let package_db = Arc::new(
-        rattler_installs_packages::index::PackageDb::new(sources, client, &cache_dir)
-            .wrap_err_with(|| {
-                format!(
-                    "failed to construct package database for index {}",
-                    args.index_url
-                )
-            })?,
+        rattler_installs_packages::index::PackageDb::new(
+            sources,
+            client,
+            &cache_dir,
+            check_available_packages,
+        )
+        .wrap_err_with(|| {
+            format!(
+                "failed to construct package database for index {}",
+                args.index_url
+            )
+        })?,
     );
 
     match args.command {
