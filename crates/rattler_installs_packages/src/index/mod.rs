@@ -6,6 +6,7 @@ mod direct_url;
 mod git_interop;
 pub mod html;
 mod http;
+mod lazy_metadata;
 mod package_database;
 mod package_sources;
 

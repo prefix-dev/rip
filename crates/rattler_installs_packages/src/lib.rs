@@ -11,6 +11,8 @@ pub mod types;
 pub mod python_env;
 
 pub mod index;
+
+pub mod install;
 mod utils;
 
 pub mod resolve;
@@ -20,5 +22,4 @@ pub mod wheel_builder;
 mod win;
 
 pub mod artifacts;
-
 pub use utils::normalize_index_url;

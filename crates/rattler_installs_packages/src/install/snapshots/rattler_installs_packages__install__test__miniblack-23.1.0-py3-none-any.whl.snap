@@ -1,5 +1,5 @@
 ---
-source: crates/rattler_installs_packages/src/artifacts/wheel.rs
+source: crates/rattler_installs_packages/src/install/mod.rs
 expression: record_content
 ---
 ../../../bin/black,sha256=G2L8O1CciVzKcy6rDIj66_vauFAGNMXYpKPgqaow3XE,212
@@ -13,3 +13,4 @@ miniblack-23.1.0.dist-info/WHEEL,sha256=rE4t8wm7r0N5wTLLeSbOvJha-KwM1ALPuB-FmvNa
 miniblack-23.1.0.dist-info/entry_points.txt,sha256=qBIyywHwGRkJj7kieq86kqf77rz3qGC4Joj36lHnxwc,78
 miniblack-23.1.0.dist-info/licenses/AUTHORS.md,sha256=cpHlH2nYyIXWEnA0LccoGenN-g5HZ7341klZ7MwbdIU,8043
 miniblack-23.1.0.dist-info/licenses/LICENSE,sha256=nAQo8MO0d5hQz1vZbhGqqK_HLUqG1KNiI9erouWNbgA,1080
+

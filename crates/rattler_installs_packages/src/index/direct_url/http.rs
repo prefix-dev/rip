@@ -73,7 +73,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
     let (metadata_bytes, metadata, artifact) = if str_name.ends_with(".whl") {
         let wheel = Wheel::from_url_and_bytes(url.path(), &normalized_package_name, bytes)?;
 
-        let (data_bytes, metadata) = wheel.metadata()?;
+        let (data_bytes, metadata) = wheel.metadata().into_diagnostic()?;
 
         (data_bytes, metadata, ArtifactType::Wheel(wheel))
     } else {

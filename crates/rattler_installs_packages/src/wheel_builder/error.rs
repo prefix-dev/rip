@@ -1,4 +1,4 @@
-use crate::artifacts::wheel::UnpackError;
+use crate::install::UnpackError;
 use crate::python_env::VEnvError;
 use crate::types::{ParseArtifactNameError, WheelCoreMetaDataError};
 use crate::wheel_builder::wheel_cache;

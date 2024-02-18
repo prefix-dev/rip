@@ -34,6 +34,7 @@ use itertools::Itertools;
 use std::sync::Arc;
 use std::{fmt::Display, io::Read, path::Path};
 
+use crate::index::lazy_metadata::lazy_read_wheel_metadata;
 use url::Url;
 
 type VersionArtifacts = IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>;
@@ -116,7 +117,7 @@ impl PackageDb {
     }
 
     /// Downloads and caches information about available artifacts of a package from the index.
-    pub async fn available_artifacts<'wb>(
+    pub async fn available_artifacts(
         &self,
         request: ArtifactRequest,
     ) -> miette::Result<&IndexMap<PypiVersion, Vec<Arc<ArtifactInfo>>>> {
@@ -470,7 +471,7 @@ impl PackageDb {
                 let artifact = self
                     .get_cached_artifact::<Wheel>(ai, CacheMode::Default)
                     .await?;
-                artifact.metadata()
+                artifact.metadata().into_diagnostic()
             };
 
             match metadata {
@@ -612,21 +613,25 @@ impl PackageDb {
         let name = WheelFilename::try_as(&artifact_info.filename)
             .expect("the specified artifact does not refer to type requested to read");
 
-        if let Ok((mut reader, _)) = AsyncHttpRangeReader::new(
+        // Construct an async reader
+        let Ok((mut reader, _)) = AsyncHttpRangeReader::new(
             self.http.client.clone(),
             artifact_info.url.clone(),
             CheckSupportMethod::Head,
         )
         .await
-        {
-            match Wheel::read_metadata_bytes(name, &mut reader).await {
-                Ok((blob, metadata)) => {
-                    self.put_metadata_in_cache(artifact_info, &blob).await?;
-                    return Ok(Some(metadata));
-                }
-                Err(err) => {
-                    tracing::warn!("failed to sparsely read wheel file: {err}, falling back to downloading the whole file");
-                }
+        else {
+            return Ok(None);
+        };
+
+        // Try to read the metadata lazily
+        match lazy_read_wheel_metadata(name, &mut reader).await {
+            Ok((blob, metadata)) => {
+                self.put_metadata_in_cache(artifact_info, &blob).await?;
+                return Ok(Some(metadata));
+            }
+            Err(err) => {
+                tracing::warn!("failed to sparsely read wheel file: {err}, falling back to downloading the whole file");
             }
         }
 
