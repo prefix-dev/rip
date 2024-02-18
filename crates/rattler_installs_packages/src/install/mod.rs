@@ -702,7 +702,7 @@ fn write_generated_file(
 
     #[cfg(unix)]
     {
-        use fs::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::OpenOptionsExt;
         if _executable {
             options.mode(0o777);
         } else {
@@ -740,7 +740,7 @@ fn write_wheel_file(
     options.write(true).create(true);
     #[cfg(unix)]
     {
-        use fs::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::OpenOptionsExt;
         if _executable {
             options.mode(0o777);
         } else {
