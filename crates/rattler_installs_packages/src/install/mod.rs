@@ -33,7 +33,7 @@ pub use install_paths::InstallPaths;
 
 #[derive(Debug, Error)]
 #[allow(missing_docs)]
-pub enum UnpackError {
+pub enum InstallError {
     #[error(transparent)]
     FailedToParseWheelVitals(#[from] WheelVitalsError),
 
@@ -68,7 +68,7 @@ pub enum UnpackError {
     FailedToWriteDirectUrlJson(#[from] serde_json::Error),
 }
 
-impl UnpackError {
+impl InstallError {
     pub(crate) fn from_zip_error(file: String, error: ZipError) -> Self {
         match error {
             ZipError::Io(err) => Self::IoError(file, err),
@@ -77,11 +77,11 @@ impl UnpackError {
     }
 }
 
-/// Additional optional settings to pass to [`Wheel::unpack`].
+/// Additional optional settings to pass to [`install_wheel`].
 ///
-/// Not all options in this struct are relevant. Typically you will default a number of fields.
+/// Not all options in this struct are relevant. Typically, you will default a number of fields.
 #[derive(Default)]
-pub struct UnpackWheelOptions<'i> {
+pub struct InstallWheelOptions<'i> {
     /// When specified an INSTALLER file is written to the dist-info folder of the package.
     /// INSTALLER files are used to track the installer of a package. See [PEP 376](https://peps.python.org/pep-0376/) for more information.
     pub installer: Option<String>,
@@ -109,7 +109,7 @@ pub struct UnpackWheelOptions<'i> {
 
 #[derive(Debug)]
 /// Information about a wheel that has been unpacked into the destination directory.
-pub struct UnpackedWheel {
+pub struct InstalledWheel {
     /// The path to the *.dist-info directory of the unpacked wheel.
     pub dist_info: PathBuf,
 }
@@ -122,8 +122,8 @@ pub fn install_wheel(
     dest: &Path,
     paths: &InstallPaths,
     python_executable: &Path,
-    options: &UnpackWheelOptions,
-) -> Result<UnpackedWheel, UnpackError> {
+    options: &InstallWheelOptions,
+) -> Result<InstalledWheel, InstallError> {
     let mut archive = wheel.archive.lock();
 
     // Locate the dist-info folder
@@ -135,7 +135,7 @@ pub fn install_wheel(
     // Read the WHEEL from the archive.
     let wheel_path = format!("{dist_info_prefix}.dist-info/WHEEL");
     let wheel_metadata = read_entry_to_end(&mut archive, &wheel_path)
-        .map_err(|err| UnpackError::ZipError(wheel_path, err))?;
+        .map_err(|err| InstallError::ZipError(wheel_path, err))?;
 
     // Parse the contents of the wheel and verify its version.
     let mut parsed = parse_format_metadata_and_check_version(&wheel_metadata, "Wheel-Version")?;
@@ -143,7 +143,7 @@ pub fn install_wheel(
     // Find the value for Root-Is-Purelib
     let root_is_purelib = parse_root_is_purelib(&mut parsed)
         .map_err(WheelVitalsError::InvalidMetadata)
-        .map_err(UnpackError::FailedToParseWheelVitals)?;
+        .map_err(InstallError::FailedToParseWheelVitals)?;
 
     // Construct a path transformer, this is used to move files into the right location.
     let transformer = WheelPathTransformer {
@@ -184,7 +184,7 @@ pub fn install_wheel(
     for index in 0..archive.len() {
         let mut zip_entry = archive
             .by_index(index)
-            .map_err(|e| UnpackError::from_zip_error(format!("<index {index}>"), e))?;
+            .map_err(|e| InstallError::from_zip_error(format!("<index {index}>"), e))?;
         let Some(relative_path) = zip_entry.enclosed_name().map(ToOwned::to_owned) else {
             // Skip invalid paths
             continue;
@@ -213,7 +213,7 @@ pub fn install_wheel(
         // If the entry refers to a directory we simply create it.
         if zip_entry.is_dir() {
             fs::create_dir_all(&destination)
-                .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
+                .map_err(|err| InstallError::IoError(destination.display().to_string(), err))?;
             continue;
         }
 
@@ -234,7 +234,7 @@ pub fn install_wheel(
             let mut buf_reader = BufReader::new(zip_entry);
             let script_start = buf_reader
                 .fill_buf()
-                .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
+                .map_err(|err| InstallError::IoError(destination.display().to_string(), err))?;
 
             // Check if the script is a python script or a native binary
             if script_start.starts_with(b"#!python") {
@@ -248,13 +248,13 @@ pub fn install_wheel(
                 // Read the shebang line from the script
                 buf_reader
                     .read_line(&mut String::new())
-                    .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
+                    .map_err(|err| InstallError::IoError(destination.display().to_string(), err))?;
 
                 // Read the rest of the script
                 let mut script = Vec::new();
                 buf_reader
                     .read_to_end(&mut script)
-                    .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
+                    .map_err(|err| InstallError::IoError(destination.display().to_string(), err))?;
 
                 // Generate the launcher
                 let trampoline = trampoline_maker.make_trampoline(launcher_type, &script)?;
@@ -287,7 +287,7 @@ pub fn install_wheel(
                         let _ = pyc_tx.send((cloned_destination, result));
                     })
                     .map_err(|err| {
-                        UnpackError::ByteCodeCompilationFailed(
+                        InstallError::ByteCodeCompilationFailed(
                             destination.display().to_string(),
                             err,
                         )
@@ -309,7 +309,7 @@ pub fn install_wheel(
                 })
                 .and_then(|entry| entry.hash.as_ref())
                 .ok_or_else(|| {
-                    UnpackError::RecordFile(format!(
+                    InstallError::RecordFile(format!(
                         "missing hash for {} (expected {})",
                         relative_path.display(),
                         encoded_hash
@@ -318,7 +318,7 @@ pub fn install_wheel(
 
             // Ensure that the hashes match
             if &encoded_hash != recorded_hash {
-                return Err(UnpackError::RecordFile(format!(
+                return Err(InstallError::RecordFile(format!(
                     "hash mismatch for {}. Recorded: {}, Actual: {}",
                     relative_path.display(),
                     recorded_hash,
@@ -403,7 +403,7 @@ pub fn install_wheel(
                 continue;
             }
             Err(err @ CompilationError::HostQuit) => {
-                return Err(UnpackError::ByteCodeCompilationFailed(
+                return Err(InstallError::ByteCodeCompilationFailed(
                     source.display().to_string(),
                     err,
                 ));
@@ -423,7 +423,7 @@ pub fn install_wheel(
     Record::from_iter(resulting_records)
         .write_to_path(&site_packages.join(record_relative_path))?;
 
-    Ok(UnpackedWheel {
+    Ok(InstalledWheel {
         dist_info: site_packages.join(format!("{dist_info_prefix}.dist-info")),
     })
 }
@@ -481,11 +481,11 @@ fn write_script_entrypoint(
     trampoline_maker: &TrampolineMaker,
     launcher_type: LauncherType,
     records: &mut Vec<RecordEntry>,
-) -> Result<(), UnpackError> {
+) -> Result<(), InstallError> {
     // Make sure the script directory exists
     let scripts_dir = dest.join(install_paths.scripts());
     fs::create_dir_all(&scripts_dir)
-        .map_err(|err| UnpackError::IoError(scripts_dir.display().to_string(), err))?;
+        .map_err(|err| InstallError::IoError(scripts_dir.display().to_string(), err))?;
 
     for entry_point in entry_points {
         // Determine the name of the script
@@ -546,7 +546,7 @@ impl TrampolineMaker {
         &self,
         launcher_type: LauncherType,
         script: &[u8],
-    ) -> Result<Vec<u8>, UnpackError> {
+    ) -> Result<Vec<u8>, InstallError> {
         let shebang = get_shebang(&self.python_executable);
         match self.kind {
             TrampolineMakerKind::Windows { arch } => {
@@ -554,7 +554,7 @@ impl TrampolineMaker {
                     Some(windows_launcher_arch) => windows_launcher_arch,
                     None => match WindowsLauncherArch::current() {
                         Some(arch) => arch,
-                        None => return Err(UnpackError::UnsupportedWindowsArchitecture),
+                        None => return Err(InstallError::UnsupportedWindowsArchitecture),
                     },
                 };
 
@@ -594,13 +594,13 @@ impl Scripts {
         archive: &mut ZipArchive<Box<dyn ReadAndSeek + Send>>,
         dist_info_prefix: &str,
         extras: Option<&HashSet<Extra>>,
-    ) -> Result<Self, UnpackError> {
+    ) -> Result<Self, InstallError> {
         // Read the `entry_points.txt` file from the archive
         let entry_points_path = format!("{dist_info_prefix}.dist-info/entry_points.txt");
         let mut entry_points_file = match archive.by_name(&entry_points_path) {
             Err(ZipError::FileNotFound) => return Ok(Default::default()),
             Ok(file) => file,
-            Err(err) => return Err(UnpackError::from_zip_error(entry_points_path, err)),
+            Err(err) => return Err(InstallError::from_zip_error(entry_points_path, err)),
         };
 
         // Parse the `entry_points.txt` file as an ini file.
@@ -609,13 +609,13 @@ impl Scripts {
             entry_points_file
                 .read_to_string(&mut ini_contents)
                 .map_err(|err| {
-                    UnpackError::EntryPointsInvalid(format!(
+                    InstallError::EntryPointsInvalid(format!(
                         "failed to read entry_points.txt contents: {}",
                         err
                     ))
                 })?;
             Ini::new_cs().read(ini_contents).map_err(|err| {
-                UnpackError::EntryPointsInvalid(format!(
+                InstallError::EntryPointsInvalid(format!(
                     "failed to parse entry_points.txt contents: {}",
                     err
                 ))
@@ -671,17 +671,17 @@ impl Scripts {
 fn parse_entry_points_from_ini_section(
     entry_points: HashMap<String, Option<String>>,
     extras: Option<&HashSet<Extra>>,
-) -> Result<Vec<EntryPoint>, UnpackError> {
+) -> Result<Vec<EntryPoint>, InstallError> {
     let mut result = Vec::new();
     for (script_name, entry_point) in entry_points {
         let entry_point = entry_point.ok_or_else(|| {
-            UnpackError::EntryPointsInvalid(format!("missing entry point for {}", script_name))
+            InstallError::EntryPointsInvalid(format!("missing entry point for {}", script_name))
         })?;
         match EntryPoint::parse(script_name.clone(), &entry_point, extras) {
             Ok(None) => {}
             Ok(Some(entry_point)) => result.push(entry_point),
             Err(err) => {
-                return Err(UnpackError::EntryPointsInvalid(format!(
+                return Err(InstallError::EntryPointsInvalid(format!(
                     "failed to parse entry point for {}: {}",
                     script_name, err
                 )));
@@ -696,7 +696,7 @@ fn write_generated_file(
     site_packages: &Path,
     content: impl AsRef<[u8]>,
     _executable: bool,
-) -> Result<RecordEntry, UnpackError> {
+) -> Result<RecordEntry, InstallError> {
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
 
@@ -719,7 +719,7 @@ fn write_generated_file(
             let (_, digest) = file.finalize();
             Ok((content.len(), digest))
         })
-        .map_err(|err| UnpackError::IoError(relative_path.display().to_string(), err))?;
+        .map_err(|err| InstallError::IoError(relative_path.display().to_string(), err))?;
 
     Ok(RecordEntry {
         path: relative_path.display().to_string().replace('\\', "/"),
@@ -733,7 +733,7 @@ fn write_wheel_file(
     mut reader: &mut impl Read,
     destination: &Path,
     _executable: bool,
-) -> Result<(Option<u64>, Option<String>), UnpackError> {
+) -> Result<(Option<u64>, Option<String>), InstallError> {
     let mut reader = rattler_digest::HashingReader::<_, Sha256>::new(&mut reader);
 
     let mut options = fs::OpenOptions::new();
@@ -749,13 +749,13 @@ fn write_wheel_file(
     }
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)
-            .map_err(|err| UnpackError::IoError(parent.display().to_string(), err))?;
+            .map_err(|err| InstallError::IoError(parent.display().to_string(), err))?;
     }
     let mut file = options
         .open(destination)
-        .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
+        .map_err(|err| InstallError::IoError(destination.display().to_string(), err))?;
     let size = std::io::copy(&mut reader, &mut file)
-        .map_err(|err| UnpackError::IoError(destination.display().to_string(), err))?;
+        .map_err(|err| InstallError::IoError(destination.display().to_string(), err))?;
     let (_, digest) = reader.finalize();
     Ok((
         Some(size),
@@ -785,7 +785,7 @@ impl<'a> WheelPathTransformer<'a> {
     /// Given a path from a wheel zip, analyze the path and determine its final destination path.
     ///
     /// Returns `None` if the path should be ignored.
-    fn analyze_path(&self, path: &Path) -> Result<Option<(PathBuf, bool)>, UnpackError> {
+    fn analyze_path(&self, path: &Path) -> Result<Option<(PathBuf, bool)>, InstallError> {
         let (category, rest_of_path) = if let Ok(data_path) = path.strip_prefix(&self.data) {
             let mut components = data_path.components();
             if let Some(category) = components.next() {
@@ -809,7 +809,9 @@ impl<'a> WheelPathTransformer<'a> {
 
         match self.paths.match_category(category.as_ref(), self.name) {
             Some(basepath) => Ok(Some((basepath.join(rest_of_path), category == "scripts"))),
-            None => Err(UnpackError::UnsupportedDataDirectory(category.into_owned())),
+            None => Err(InstallError::UnsupportedDataDirectory(
+                category.into_owned(),
+            )),
         }
     }
 }
@@ -887,7 +889,7 @@ mod test {
             tmpdir.path(),
             &install_paths,
             Path::new("/invalid"),
-            &UnpackWheelOptions {
+            &InstallWheelOptions {
                 installer: Some(String::from(INSTALLER)),
                 byte_code_compiler,
                 ..Default::default()
@@ -996,7 +998,7 @@ mod test {
         let wheel = venv
             .install_wheel(
                 &wheel,
-                &UnpackWheelOptions {
+                &InstallWheelOptions {
                     direct_url_json: Some(direct_url),
                     ..Default::default()
                 },

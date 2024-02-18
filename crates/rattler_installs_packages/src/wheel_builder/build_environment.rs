@@ -1,4 +1,4 @@
-use crate::install::UnpackWheelOptions;
+use crate::install::InstallWheelOptions;
 use crate::types::ArtifactFromSource;
 
 use crate::python_env::{PythonLocation, VEnv};
@@ -279,7 +279,7 @@ impl BuildEnvironment {
                     Ok((wheel, direct_url_json)) => {
                         self.venv.install_wheel(
                             &wheel,
-                            &UnpackWheelOptions {
+                            &InstallWheelOptions {
                                 direct_url_json,
                                 ..Default::default()
                             },
@@ -451,7 +451,7 @@ impl BuildEnvironment {
 
             venv.install_wheel(
                 &artifact,
-                &UnpackWheelOptions {
+                &InstallWheelOptions {
                     installer: None,
                     ..Default::default()
                 },

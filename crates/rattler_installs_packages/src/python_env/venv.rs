@@ -3,7 +3,9 @@
 //! Later on we can look into actually creating the environment by linking to the python library,
 //! and creating the necessary files. See: [VEnv](https://packaging.python.org/en/latest/specifications/virtual-environments/#declaring-installation-environments-as-python-virtual-environments)
 use crate::artifacts::wheel::Wheel;
-use crate::install::{install_wheel, InstallPaths, UnpackError, UnpackWheelOptions, UnpackedWheel};
+use crate::install::{
+    install_wheel, InstallError, InstallPaths, InstallWheelOptions, InstalledWheel,
+};
 use crate::python_env::{
     system_python_executable, FindPythonError, ParsePythonInterpreterVersionError,
     PythonInterpreterVersion,
@@ -93,8 +95,8 @@ impl VEnv {
     pub fn install_wheel(
         &self,
         wheel: &Wheel,
-        options: &UnpackWheelOptions,
-    ) -> Result<UnpackedWheel, UnpackError> {
+        options: &InstallWheelOptions,
+    ) -> Result<InstalledWheel, InstallError> {
         install_wheel(
             wheel,
             &self.location,
