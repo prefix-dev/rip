@@ -24,7 +24,15 @@ pub fn system_python_executable() -> Result<&'static PathBuf, FindPythonError> {
         // When installed with homebrew on macOS, the python3 executable is called `python3` instead
         // Also on some ubuntu installs this is the case
         // For windows it should just be python
-        let output = match std::process::Command::new("python3")
+        let path = which::which("python3")
+            .or_else(|_| which::which("python"))
+            .map_err(|_| FindPythonError::NotFound)?;
+
+        // The found binary may not actually refer to the actual python executable,
+        // this can be because its symlinked, or it's actually a script that invokes python.
+        //
+        // Execute the binary itself to determine where the interpreter is located.
+        let output = match std::process::Command::new(path)
             .arg("-c")
             .arg("import sys; print(sys.executable, end='')")
             .output()
