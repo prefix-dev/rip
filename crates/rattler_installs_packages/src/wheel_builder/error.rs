@@ -1,4 +1,4 @@
-use crate::artifacts::wheel::UnpackError;
+use crate::install::InstallError;
 use crate::python_env::VEnvError;
 use crate::types::{ParseArtifactNameError, WheelCoreMetaDataError};
 use crate::wheel_builder::wheel_cache;
@@ -13,7 +13,7 @@ pub enum WheelBuildError {
     Error(String),
 
     #[error("could not install artifact in virtual environment: {0}")]
-    UnpackError(#[from] UnpackError),
+    UnpackError(#[from] InstallError),
 
     #[error("could not build wheel: {0}")]
     IoError(#[from] std::io::Error),

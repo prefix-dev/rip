@@ -1,6 +1,6 @@
 ---
 source: crates/rattler_installs_packages/src/artifacts/sdist.rs
-expression: wheel_metadata.unwrap().1
+expression: wheel_metadata.1
 ---
 WheelCoreMetadata {
     name: PackageName {

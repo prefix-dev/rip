@@ -2,8 +2,10 @@
 //! Now just use the python venv command to create the virtual environment.
 //! Later on we can look into actually creating the environment by linking to the python library,
 //! and creating the necessary files. See: [VEnv](https://packaging.python.org/en/latest/specifications/virtual-environments/#declaring-installation-environments-as-python-virtual-environments)
-use crate::artifacts::wheel::{InstallPaths, UnpackWheelOptions, Wheel};
-use crate::artifacts::wheel::{UnpackError, UnpackedWheel};
+use crate::artifacts::wheel::Wheel;
+use crate::install::{
+    install_wheel, InstallError, InstallPaths, InstallWheelOptions, InstalledWheel,
+};
 use crate::python_env::{
     system_python_executable, FindPythonError, ParsePythonInterpreterVersionError,
     PythonInterpreterVersion,
@@ -93,9 +95,10 @@ impl VEnv {
     pub fn install_wheel(
         &self,
         wheel: &Wheel,
-        options: &UnpackWheelOptions,
-    ) -> Result<UnpackedWheel, UnpackError> {
-        wheel.unpack(
+        options: &InstallWheelOptions,
+    ) -> Result<InstalledWheel, InstallError> {
+        install_wheel(
+            wheel,
             &self.location,
             &self.install_paths,
             &self.python_executable(),

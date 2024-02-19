@@ -133,7 +133,7 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
             .map_err(|e| WheelBuildError::Error(format!("Could not build wheel: {}", e)))
             .into_diagnostic()?;
 
-        let (data_bytes, metadata) = wheel.metadata()?;
+        let (data_bytes, metadata) = wheel.metadata().into_diagnostic()?;
         (data_bytes, metadata, ArtifactType::Wheel(wheel))
     } else if path.is_file() {
         let (wheel_metadata, sdist) =

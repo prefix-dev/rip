@@ -1,5 +1,5 @@
 ---
-source: crates/rattler_installs_packages/src/artifacts/wheel.rs
+source: crates/rattler_installs_packages/src/install/mod.rs
 expression: record_content
 ---
 selenium-4.1.0.dist-info/INSTALLER,sha256=FpzDrzfcP6oI1mbsvYAjw7hT2I4P4wr99k5NKqmKJt0,10
@@ -304,3 +304,4 @@ selenium/webdriver/wpewebkit/__init__.py,sha256=3TKaBBK08eiCsGGFFcZlZwwjHHcmj2YO
 selenium/webdriver/wpewebkit/options.py,sha256=Gq8FSHACASh5WQ1YJW3gnxwwgX3b1t-y_5FZDGVqnEw,2223
 selenium/webdriver/wpewebkit/service.py,sha256=IeL5O3fwuc4cQ4v32cl7HTKSjgyMOAhNMdtxgu-5TX0,1642
 selenium/webdriver/wpewebkit/webdriver.py,sha256=kn9dWCH_yJ5XsK-frumG0pMVlPn5wO0N968n_763fjg,2796
+

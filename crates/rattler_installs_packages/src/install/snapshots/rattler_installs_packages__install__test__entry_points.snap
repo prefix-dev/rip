@@ -1,5 +1,5 @@
 ---
-source: crates/rattler_installs_packages/src/artifacts/wheel.rs
+source: crates/rattler_installs_packages/src/install/mod.rs
 expression: stdout
 ---
 borg : '=='
@@ -10,3 +10,4 @@ paranoid : '@@'
 tired : '--'
 wired : 'OO'
 young : '..'
+

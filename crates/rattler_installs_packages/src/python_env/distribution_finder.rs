@@ -4,7 +4,7 @@
 //! The implementation is based on the <https://packaging.python.org/en/latest/specifications/recording-installed-packages>
 //! which is based on [PEP 376](https://peps.python.org/pep-0376/) and [PEP 627](https://peps.python.org/pep-0627/).
 
-use crate::artifacts::wheel::InstallPaths;
+use crate::install::InstallPaths;
 use crate::python_env::WheelTag;
 use crate::{types::NormalizedPackageName, types::PackageName, types::RFC822ish};
 use fs_err as fs;

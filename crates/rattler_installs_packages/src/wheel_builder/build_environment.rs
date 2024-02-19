@@ -1,4 +1,4 @@
-use crate::artifacts::wheel::UnpackWheelOptions;
+use crate::install::InstallWheelOptions;
 use crate::types::ArtifactFromSource;
 
 use crate::python_env::{PythonLocation, VEnv};
@@ -83,6 +83,7 @@ impl TempBuildEnvironment {
 
 // include static build_frontend.py string
 const BUILD_FRONTEND_PY: &str = include_str!("./wheel_builder_frontend.py");
+
 /// A build environment for building wheels
 /// This struct contains the virtualenv and everything that is needed
 /// to execute the PEP517 build backend hools
@@ -278,7 +279,7 @@ impl BuildEnvironment {
                     Ok((wheel, direct_url_json)) => {
                         self.venv.install_wheel(
                             &wheel,
-                            &UnpackWheelOptions {
+                            &InstallWheelOptions {
                                 direct_url_json,
                                 ..Default::default()
                             },
@@ -450,7 +451,7 @@ impl BuildEnvironment {
 
             venv.install_wheel(
                 &artifact,
-                &UnpackWheelOptions {
+                &InstallWheelOptions {
                     installer: None,
                     ..Default::default()
                 },

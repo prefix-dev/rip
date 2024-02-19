@@ -2,8 +2,8 @@ use clap::{Parser, Subcommand};
 use fs_err as fs;
 use itertools::Itertools;
 use miette::{Context, IntoDiagnostic};
-use rattler_installs_packages::artifacts::wheel::UnpackWheelOptions;
 use rattler_installs_packages::index::PackageDb;
+use rattler_installs_packages::install::InstallWheelOptions;
 use rattler_installs_packages::python_env::{Pep508EnvMakers, PythonLocation, WheelTags};
 use rattler_installs_packages::resolve::solve_options::{
     OnWheelBuildFailure, PreReleaseResolution, ResolveOptions, SDistResolution,
@@ -327,7 +327,7 @@ pub async fn install_packages(
             .await?;
         venv.install_wheel(
             &artifact,
-            &UnpackWheelOptions {
+            &InstallWheelOptions {
                 direct_url_json,
                 ..Default::default()
             },
