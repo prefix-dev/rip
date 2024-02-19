@@ -396,7 +396,7 @@ mod tests {
         let sources = PackageSourcesBuilder::new(url).build().unwrap();
 
         (
-            Arc::new(PackageDb::new(sources, client, tempdir.path()).unwrap()),
+            Arc::new(PackageDb::new(sources, client, tempdir.path(), Default::default()).unwrap()),
             tempdir,
         )
     }
