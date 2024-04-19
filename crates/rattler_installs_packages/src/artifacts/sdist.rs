@@ -709,7 +709,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     pub async fn build_rich_git_reference_source_code() {
-        let url = Url::parse("git+https://github.com/Textualize/rich.git").unwrap();
+        let url = Url::parse("git+https://github.com/Textualize/rich.git@v13.7.0").unwrap();
 
         let package_db = get_package_db();
         let env_markers = Arc::new(Pep508EnvMakers::from_env().await.unwrap().0);

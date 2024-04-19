@@ -11,14 +11,14 @@ rust-version.workspace = true
 
 [dependencies]
 url = "2.5.0"
-thiserror = "1.0.56"
-rattler_digest = "0.17.0"
-reqwest = { version = "0.11.24", default-features = false, features = ["blocking", "rustls"] }
-tempfile = "3.10.0"
+thiserror = "1.0.58"
+rattler_digest = "0.19.3"
+reqwest = { version = "0.12.3", default-features = false, features = ["blocking", "rustls-tls"] }
+tempfile = "3.10.1"
 dirs = "5.0.1"
 fslock = "0.2.1"
 data-encoding = "2.5.0"
-tokio = "1.36.0"
+tokio = "1.37.0"
 
 [package.metadata.release]
 release = false

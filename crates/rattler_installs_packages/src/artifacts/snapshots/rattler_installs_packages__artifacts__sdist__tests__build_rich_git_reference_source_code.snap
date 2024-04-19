@@ -31,7 +31,7 @@ STree(
                 ),
             ),
             port: None,
-            path: "/Textualize/rich.git",
+            path: "/Textualize/rich.git@v13.7.0",
             query: None,
             fragment: None,
         },
