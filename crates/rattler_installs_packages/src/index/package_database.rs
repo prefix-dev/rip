@@ -618,6 +618,7 @@ impl PackageDb {
             self.http.client.clone(),
             artifact_info.url.clone(),
             CheckSupportMethod::Head,
+            HeaderMap::default(),
         )
         .await
         else {

@@ -18,42 +18,42 @@ native-tls = ['reqwest/native-tls']
 rustls-tls = ['reqwest/rustls-tls']
 
 [dependencies]
-async-trait = "0.1.77"
-bytes = "1.5.0"
+async-trait = "0.1.80"
+bytes = "1.6.0"
 ciborium = "0.2.2"
 csv = "1.3.0"
 data-encoding = "2.5.0"
 dunce = "1.0.4"
 elsa = "1.10.0"
-fs4 = "0.7.0"
+fs4 = "0.8.2"
 futures = "0.3.30"
 html-escape = "0.2.13"
 # reqwest needs an update to 1.0.0
-http = "0.2.1"
-http-cache-semantics = { version = "1.0.1", default-features = false, features = ["with_serde", "reqwest"] }
+http = "1.1.0"
+http-cache-semantics = { version = "2.1.0", default-features = false, features = ["serde", "reqwest"] }
 include_dir = "0.7.3"
-indexmap = { version = "2.2.2", features = ["serde"] }
+indexmap = { version = "2.2.6", features = ["serde"] }
 itertools = "0.12.1"
-miette = "7.0.0"
+miette = "7.2.0"
 mime = "0.3.17"
 once_cell = "1.19.0"
 parking_lot = "0.12.1"
 peg = "0.8.2"
 pep440_rs = { version = "0.4.0", features = ["serde"] }
 pep508_rs = { version = "0.3.0", features = ["serde"] }
-pin-project-lite = "0.2.13"
-rattler_digest = { version = "0.17.0", features = ["serde"] }
-regex = "1.10.3"
-reqwest = { version = "0.11.24", default-features = false, features = ["json", "stream"] }
-reqwest-middleware = "0.2.4"
-serde = "1.0.196"
-serde_json = "1.0.113"
-serde_with = "3.6.0"
-smallvec = { version = "1.13.1", features = ["const_generics", "const_new"] }
-tempfile = "3.10.0"
-thiserror = "1.0.56"
+pin-project-lite = "0.2.14"
+rattler_digest = { version = "0.19.3", features = ["serde"] }
+regex = "1.10.4"
+reqwest = { version = "0.12.3", default-features = false, features = ["json", "stream"] }
+reqwest-middleware = "0.3.0"
+serde = "1.0.198"
+serde_json = "1.0.116"
+serde_with = "3.7.0"
+smallvec = { version = "1.13.2", features = ["const_generics", "const_new"] }
+tempfile = "3.10.1"
+thiserror = "1.0.58"
 tl = "0.7.8"
-tokio = { version = "1.36.0", features = ["process", "rt-multi-thread"] }
+tokio = { version = "1.37.0", features = ["process", "rt-multi-thread"] }
 tokio-util = { version = "0.7.10", features = ["compat"] }
 tracing = { version = "0.1.40", default-features = false, features = ["attributes"] }
 url = { version = "2.5.0", features = ["serde"] }
@@ -67,24 +67,24 @@ pyproject-toml = "0.9.0"
 async-once-cell = "0.5.3"
 configparser = "3.0.4"
 cacache = { version = "13.0.0", default-features = false, features = ["tokio-runtime", "mmap"] }
-async-recursion = "1.0.5"
+async-recursion = "1.1.0"
 fs-err = "2.11.0"
 fs_extra = "1.3.0"
-async_http_range_reader = "0.6.1"
-which = "6.0.0"
+async_http_range_reader = "0.7.1"
+which = "6.0.1"
 
 [dev-dependencies]
-anyhow = "1.0.79"
-axum = "0.7.4"
+anyhow = "1.0.82"
+axum = "0.7.5"
 criterion = "0.5"
-insta = { version = "1.34.0", features = ["ron", "redactions"] }
-miette = { version = "7.0.0", features = ["fancy"] }
+insta = { version = "1.38.0", features = ["ron", "redactions"] }
+miette = { version = "7.2.0", features = ["fancy"] }
 once_cell = "1.19.0"
-rstest = "0.18.2"
+rstest = "0.19.0"
 test-utils = { path = "../test-utils" }
-tokio = { version = "1.36.0", features = ["rt", "macros", "rt-multi-thread"] }
-tokio-test = "0.4.3"
-tower-http = { version = "0.5.1", features = ["add-extension"] }
+tokio = { version = "1.37.0", features = ["rt", "macros", "rt-multi-thread"] }
+tokio-test = "0.4.4"
+tower-http = { version = "0.5.2", features = ["add-extension"] }
 tracing-test = "0.2.4"
 
 [[bench]]
