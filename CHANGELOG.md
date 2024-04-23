@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2024-04-22
+### 📃 Details
+
+#### Changed
+- Expand ResolveOptions and adds ability pass WheelBuilder directly into resolve
+- Use which to find the correct python executable
+- Simplify `Wheel` API
+
+#### Fixed
+- Don't preservere mtime when unpacking tar archive
+
+#### Removed
+- Remove unused snapshots
+
 ## [0.8.1] - 2024-02-15
 ### 📃 Details
 
