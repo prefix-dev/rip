@@ -754,8 +754,6 @@ async fn fetch_simple_api(http: &Http, url: Url) -> miette::Result<Option<Projec
         .unwrap_or("text/html")
         .to_owned();
 
-    let url = response.extensions().get::<Url>().unwrap().to_owned();
-
     // Convert the information from html
     let mut bytes = Vec::new();
     response
