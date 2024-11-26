@@ -30,7 +30,7 @@ itertools = "0.12.1"
 miette = { version = "7.2.0", features = ["fancy"] }
 rattler_installs_packages = { path = "../rattler_installs_packages", default-features = false }
 reqwest = { version = "0.12.3", default-features = false }
-reqwest-middleware = "0.3.0"
+reqwest-middleware = "0.4.0"
 tabwriter = { version = "1.4.0", features = ["ansi_formatting"] }
 tokio = { version = "1.37.0", features = ["rt", "macros", "rt-multi-thread"] }
 tracing = "0.1.40"
