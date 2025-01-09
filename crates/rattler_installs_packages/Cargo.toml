@@ -16,6 +16,7 @@ include = ["src/", "vendor/", "benches/"]
 default = ["native-tls"]
 native-tls = ['reqwest/native-tls']
 rustls-tls = ['reqwest/rustls-tls']
+configparser-indexmap = ["configparser/indexmap"]
 
 [dependencies]
 async-trait = "0.1.80"
