@@ -7,7 +7,7 @@ use crate::{
     types::Version, types::VersionSpecifiers,
 };
 use once_cell::sync::Lazy;
-use pep440_rs::Pep440Error;
+use pep440_rs::{VersionParseError, VersionSpecifiersParseError};
 use pep508_rs::Requirement;
 use std::{collections::HashSet, str::FromStr};
 use thiserror::Error;
@@ -85,13 +85,13 @@ pub enum WheelCoreMetaDataError {
     DuplicateKey(String),
 
     #[error("invalid Metadata-Version: {0}")]
-    InvalidMetadataVersion(String),
+    InvalidMetadataVersion(VersionParseError),
 
     #[error("invalid Version: {0}")]
-    InvalidVersion(String),
+    InvalidVersion(VersionParseError),
 
     #[error("invalid Requires-Python: {0}")]
-    InvalidRequiresPython(#[source] Pep440Error),
+    InvalidRequiresPython(#[source] VersionSpecifiersParseError),
 
     #[error("unsupported METADATA version {0}")]
     UnsupportedVersion(Version),

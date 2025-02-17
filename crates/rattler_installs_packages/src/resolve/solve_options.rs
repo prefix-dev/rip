@@ -2,11 +2,9 @@
 
 use crate::{python_env::PythonLocation, types::NormalizedPackageName};
 use pep508_rs::{Requirement, VersionOrUrl};
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::{collections::HashMap, str::FromStr};
 use tokio::sync::Semaphore;
-
-use crate::types::PackageName;
 
 use super::PinnedPackage;
 
@@ -156,8 +154,8 @@ impl PreReleaseResolution {
             match &spec.version_or_url {
                 Some(VersionOrUrl::VersionSpecifier(v)) => {
                     if v.iter().any(|s| s.version().any_prerelease()) {
-                        let name = PackageName::from_str(&spec.name).expect("invalid package name");
-                        allow_names.push(name.as_str().to_string());
+                        let name = spec.name.clone();
+                        allow_names.push(name.to_string());
                     }
                 }
                 _ => continue,

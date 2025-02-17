@@ -125,6 +125,12 @@ impl From<NormalizedPackageName> for PackageName {
     }
 }
 
+impl From<pep508_rs::PackageName> for NormalizedPackageName {
+    fn from(value: pep508_rs::PackageName) -> Self {
+        Self(value.to_string().into_boxed_str())
+    }
+}
+
 impl Display for NormalizedPackageName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)

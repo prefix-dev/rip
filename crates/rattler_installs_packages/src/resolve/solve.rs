@@ -2,7 +2,6 @@ use crate::index::PackageDb;
 use crate::python_env::WheelTags;
 use crate::resolve::dependency_provider::PypiDependencyProvider;
 use crate::resolve::pypi_version_types::PypiVersion;
-use crate::types::PackageName;
 use crate::wheel_builder::WheelBuilder;
 use crate::{types::ArtifactInfo, types::Extra, types::NormalizedPackageName};
 use elsa::FrozenMap;
@@ -108,8 +107,7 @@ fn resolve_inner<'r>(
         ..
     } in requirements
     {
-        let name = PackageName::from_str(name).expect("invalid package name");
-        let pypi_name = PypiPackageName::Base(name.clone().into());
+        let pypi_name = PypiPackageName::Base(NormalizedPackageName::from(name.clone()));
         let dependency_package_name = pool.intern_package_name(pypi_name.clone());
         let version_set_id = pool.intern_version_set(
             dependency_package_name,
@@ -121,10 +119,11 @@ fn resolve_inner<'r>(
             name_to_url.insert(pypi_name.base().clone(), url.clone().as_str().to_owned());
         }
 
-        for extra in extras.iter().flatten() {
-            let extra: Extra = extra.parse().expect("invalid extra");
-            let dependency_package_name = pool
-                .intern_package_name(PypiPackageName::Extra(name.clone().into(), extra.clone()));
+        for extra in extras.iter() {
+            let dependency_package_name = pool.intern_package_name(PypiPackageName::Extra(
+                name.clone().into(),
+                Extra::from_str(extra.as_ref()).expect("invalid extra"),
+            ));
             let version_set_id = pool.intern_version_set(
                 dependency_package_name,
                 PypiVersionSet::from_spec(version_or_url.clone(), &options.pre_release_resolution),

@@ -357,16 +357,20 @@ impl BuildEnvironment {
         pyproject_toml::BuildSystem {
             requires: vec![
                 Requirement {
-                    name: "setuptools".into(),
-                    extras: None,
-                    marker: None,
+                    name: pep508_rs::PackageName::new("setuptools".to_string())
+                        .expect("invalid package name"),
+                    extras: Default::default(),
+                    marker: Default::default(),
                     version_or_url: None,
+                    origin: None,
                 },
                 Requirement {
-                    name: "wheel".into(),
-                    extras: None,
-                    marker: None,
+                    name: pep508_rs::PackageName::new("wheel".to_string())
+                        .expect("invalid package name"),
+                    extras: Default::default(),
+                    marker: Default::default(),
                     version_or_url: None,
+                    origin: None,
                 },
             ],
             build_backend: Some("setuptools.build_meta:__legacy__".into()),

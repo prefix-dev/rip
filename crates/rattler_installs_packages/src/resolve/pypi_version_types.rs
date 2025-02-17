@@ -104,7 +104,7 @@ impl VersionSet for PypiVersionSet {
 
     fn contains(&self, v: &Self::V) -> bool {
         match (self.spec.as_ref(), v) {
-            (Some(VersionOrUrl::Url(a)), PypiVersion::Url(b)) => a == b,
+            (Some(VersionOrUrl::Url(a)), PypiVersion::Url(b)) => &a.to_url() == b,
             (
                 Some(VersionOrUrl::VersionSpecifier(spec)),
                 PypiVersion::Version {
