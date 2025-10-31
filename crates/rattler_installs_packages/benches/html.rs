@@ -1,4 +1,4 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rattler_installs_packages::index::html::{parse_package_names_html, parse_project_info_html};
 use std::str::FromStr;
 use url::Url;
@@ -78,7 +78,7 @@ fn parse_package_names(c: &mut Criterion) {
         "#;
 
     c.bench_function("parse_package_names", |b| {
-        b.iter(|| parse_package_names_html(black_box(html)))
+        b.iter(|| parse_package_names_html(std::hint::black_box(html)))
     });
 }
 
