@@ -669,11 +669,11 @@ impl DependencyProvider for &PypiDependencyProvider {
                 ),
             );
 
-            if let Some(VersionOrUrl::Url(url)) = version_or_url.clone() {
-                if let Some(given) = url.given() {
-                    self.name_to_url
-                        .insert(package_name.clone().into(), given.to_owned());
-                }
+            if let Some(VersionOrUrl::Url(url)) = version_or_url.clone()
+                && let Some(given) = url.given()
+            {
+                self.name_to_url
+                    .insert(package_name.clone().into(), given.to_owned());
             }
 
             dependencies.requirements.push(ConditionalRequirement {

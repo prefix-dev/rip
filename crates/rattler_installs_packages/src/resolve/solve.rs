@@ -123,10 +123,10 @@ fn resolve_inner<'r>(
             requirement: ResolvoRequirement::Single(version_set_id),
         });
 
-        if let Some(VersionOrUrl::Url(url)) = &version_or_url {
-            if let Some(given) = url.given() {
-                name_to_url.insert(pypi_name.base().clone(), given.to_owned());
-            }
+        if let Some(VersionOrUrl::Url(url)) = &version_or_url
+            && let Some(given) = url.given()
+        {
+            name_to_url.insert(pypi_name.base().clone(), given.to_owned());
         }
 
         for extra in req_extras {
