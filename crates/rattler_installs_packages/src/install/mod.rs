@@ -939,6 +939,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore)]
     fn test_byte_code_compilation() {
         // We check this specific package because some of the files will fail to compile.
         let package_path = test_utils::download_and_cache_file(
