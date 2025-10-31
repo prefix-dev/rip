@@ -63,8 +63,8 @@ jobs:
 
           # - { name: "Linux-s390x",       target: s390x-unknown-linux-gnu,          os: ubuntu-latest, use-cross: true, skip-tests: true }
 
-          - { name: "macOS-x86_64",      target: x86_64-apple-darwin,              os: macOS-latest }
-          # - { name: "macOS-aarch64",     target: aarch64-apple-darwin,             os: macOS-latest,                  skip-tests: true }
+          # - { name: "macOS-x86_64",      target: x86_64-apple-darwin,              os: macOS-latest }
+          - { name: "macOS-aarch64",     target: aarch64-apple-darwin,             os: macOS-latest,                  skip-tests: true }
 
           - { name: "Windows-x86_64",    target: x86_64-pc-windows-msvc,           os: windows-latest }
           # - { name: "Windows-aarch64",   target: aarch64-pc-windows-msvc,          os: windows-latest,                  skip-tests: true }
