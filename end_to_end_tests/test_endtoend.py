@@ -18,25 +18,27 @@ from xprocess import ProcessStarter
 
 class Packse:
     def __init__(self, path):
-        self.path = path
+        self.path = Path(path)
+        self.env = os.environ.copy()
+        self.env["PATH"] = (
+            str(self.path / ".venv/bin") + os.pathsep + self.env.get("PATH", "")
+        )
 
     def path(self):
         return self.path
 
     def run_command(self, command):
-        return check_output(["poetry", "run", "-C", str(self.path), *command]).decode(
-            "utf-8"
-        )
+        return check_output(
+            [self.path / ".venv/bin/python", self.path / ".venv/bin/packse", *command],
+            env=self.env,
+        ).decode("utf-8")
 
     def build_and_upload_scenario(self, name):
-        self.run_command(
-            ["packse", "build", f"{self.path}/scenarios/{name}.json", "--rm"]
-        )
+        self.run_command(["build", f"{self.path}/scenarios/{name}.json", "--rm"])
 
         for folder in glob.glob(f"./dist/*"):
             self.run_command(
                 [
-                    "packse",
                     "publish",
                     str(Path(folder).absolute()),
                     "--anonymous",
@@ -72,7 +74,14 @@ def packse_index(xprocess, packse: packse):
         pattern = "Indexes available at http://localhost:3141/"
 
         # command to start process
-        args = ["poetry", "run", "-C", str(packse.path), "packse", "index", "up"]
+        args = [
+            "env",
+            f"PATH={packse.env['PATH']}",
+            str(packse.path / ".venv/bin/python"),
+            str(packse.path / ".venv/bin/packse"),
+            "index",
+            "up",
+        ]
 
     # ensure process is running and return its logfile
     _logfile = xprocess.ensure("packse_index", Starter)
