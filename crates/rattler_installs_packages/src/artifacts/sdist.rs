@@ -223,7 +223,7 @@ impl ArtifactFromSource for SDist {
 
 enum RawAndGzReader<'a> {
     Raw(&'a mut Box<dyn ReadAndSeek + Send>),
-    Gz(GzDecoder<&'a mut Box<dyn ReadAndSeek + Send>>),
+    Gz(Box<GzDecoder<&'a mut Box<dyn ReadAndSeek + Send>>>),
 }
 
 impl<'a> Read for RawAndGzReader<'a> {
@@ -250,7 +250,7 @@ fn generic_archive_reader(
         SDistFormat::TarGz => {
             let bytes = GzDecoder::new(file);
             Ok(Archives::TarArchive(Box::new(Archive::new(
-                RawAndGzReader::Gz(bytes),
+                RawAndGzReader::Gz(Box::new(bytes)),
             ))))
         }
         SDistFormat::Tar => Ok(Archives::TarArchive(Box::new(Archive::new(
@@ -809,7 +809,7 @@ mod tests {
 
         let artifact_info = vec![ArtifactInfo {
             filename: ArtifactName::STree(stree_file_name),
-            url: url,
+            url,
             is_direct_url: true,
             hashes: None,
             requires_python: None,

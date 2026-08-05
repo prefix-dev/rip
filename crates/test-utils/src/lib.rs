@@ -111,7 +111,7 @@ pub fn download_and_cache_file(url: Url, expected_sha256: &str) -> Result<PathBu
     let (tempfile, hash) = writer.finalize();
 
     // Check if the hash matches
-    let actual_hash = format!("{hash:x}");
+    let actual_hash = data_encoding::HEXLOWER.encode(hash.as_slice());
     if actual_hash != expected_sha256 {
         return Err(Error::HashMismatch(expected_sha256.to_owned(), actual_hash));
     }

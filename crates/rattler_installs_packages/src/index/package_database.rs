@@ -296,7 +296,7 @@ impl PackageDb {
                 let direct_url = if artifact_info.is_direct_url {
                     let direct_url_hash = if let Some(hash) = artifact_info.hashes.clone() {
                         if let Some(sha256) = hash.sha256 {
-                            let str = format!("{:x}", sha256);
+                            let str = data_encoding::HEXLOWER.encode(sha256.as_slice());
                             Some(DirectUrlHashes { sha256: str })
                         } else {
                             None
@@ -862,7 +862,7 @@ mod test {
 
         let router = Router::new()
             .route("/simple", get(get_index))
-            .route("/simple/:package/", get(get_package))
+            .route("/simple/{package}/", get(get_package))
             .layer(AddExtensionLayer::new(package_name.to_string()));
 
         let server = axum::serve(listener, router).into_future();

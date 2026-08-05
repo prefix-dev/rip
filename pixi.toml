@@ -1,4 +1,4 @@
-[project]
+[workspace]
 name = "rip"
 version = "0.1.0"
 description = "Add a short description here"
@@ -7,13 +7,14 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
 [tasks]
-install_packse = "poetry install -C ./test-data/packse"
+install_packse = "env -u CONDA_PREFIX -u VIRTUAL_ENV POETRY_VIRTUALENVS_IN_PROJECT=true poetry install -C \"$PWD/test-data/packse\" && ./test-data/packse/.venv/bin/python -m pip install pytest-xprocess==1.0.2"
 fmt = "ruff format ./end_to_end_tests"
-end_to_end_tests = "pytest ./end_to_end_tests"
+end_to_end_tests = "./test-data/packse/.venv/bin/python -m pytest ./end_to_end_tests"
 
 [dependencies]
-pytest = ">=7.4.4,<7.5"
-pytest-xprocess = ">=0.23.0,<0.24"
-poetry = ">=1.7.1,<1.8"
-ruff = ">=0.1.13,<0.2"
+python = ">=3.12,<3.13"
+pytest = ">=9.1.1,<10"
+pytest-xprocess = ">=1.0.2,<2"
+poetry = ">=1.8.5,<2"
+ruff = ">=0.16.1,<0.17"
 

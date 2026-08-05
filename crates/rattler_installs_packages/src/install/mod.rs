@@ -294,7 +294,7 @@ pub fn install_wheel(
 
         // Make sure the hash matches with what we expect
         if let Some(encoded_hash) = encoded_hash {
-            let relative_path_string = relative_path.display().to_string();
+            let relative_path_string = relative_path.display().to_string().replace('\\', "/");
 
             // Find the record in the RECORD entries
             let recorded_hash = record
@@ -916,7 +916,7 @@ mod test {
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = unpacked.dist_info.join("RECORD");
-        let record_content = fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
+        let record_content = fs::read_to_string(unpacked.tmpdir.path().join(&record_path))
             .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
 
         insta::assert_snapshot!(filename, record_content);
@@ -952,8 +952,21 @@ mod test {
 
         // Determine the location where we would expect the RECORD file to exist
         let record_path = unpacked.dist_info.join("RECORD");
-        let record_content = fs::read_to_string(&unpacked.tmpdir.path().join(&record_path))
+        let record_content = fs::read_to_string(unpacked.tmpdir.path().join(&record_path))
             .unwrap_or_else(|_| panic!("failed to read RECORD from {}", record_path.display()));
+
+        // These Python 2 compatibility modules compile on some Python versions but not others.
+        let record_content = format!(
+            "{}\n",
+            record_content
+                .lines()
+                .filter(|line| {
+                    !line.contains("__pycache__/_pydev_SimpleXMLRPCServer.cpython-")
+                        && !line.contains("__pycache__/_pydev_pkgutil_old.cpython-")
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
 
         // Replace all cpython references with cpython-xxx to ensure that no matter the version of
         // python the snapshot will match.
@@ -1086,7 +1099,7 @@ mod test {
             .iter()
             .flat_map(|(url, sha)| {
                 let url = Url::parse(url).unwrap();
-                let file_name = url.path_segments().unwrap().last().unwrap();
+                let file_name = url.path_segments().unwrap().next_back().unwrap();
                 let file_name = WheelFilename::from_filename(file_name, &package_name).unwrap();
                 file_name
                     .all_tags()

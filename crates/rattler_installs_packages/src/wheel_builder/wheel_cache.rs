@@ -66,7 +66,11 @@ impl WheelCacheKey {
     /// Create a wheel key from bytes, will become '{prefix}:{hash_hexadecimal}'
     pub fn from_bytes(prefix: impl AsRef<str>, bytes: impl AsRef<[u8]>) -> Self {
         let hash = rattler_digest::compute_bytes_digest::<Sha256>(bytes);
-        Self(format!("{}:{:x}", prefix.as_ref(), hash))
+        Self(format!(
+            "{}:{}",
+            prefix.as_ref(),
+            data_encoding::HEXLOWER.encode(hash.as_slice())
+        ))
     }
 
     /// Create a wheel key from a prefix and a string, will become '{prefix}:{string}'
@@ -86,8 +90,10 @@ impl WheelCacheKey {
         Ok(WheelCacheKey::new(
             "sdist",
             format!(
-                "{:x}:v{}.{}",
-                hash, python_interpreter_version.major, python_interpreter_version.minor,
+                "{}:v{}.{}",
+                data_encoding::HEXLOWER.encode(hash.as_slice()),
+                python_interpreter_version.major,
+                python_interpreter_version.minor,
             ),
         ))
     }
