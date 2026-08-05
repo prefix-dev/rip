@@ -108,7 +108,7 @@ fn resolve_inner<'r>(
     } in requirements
     {
         let package_name = PackageName::from_str(name.as_ref()).expect("invalid package name");
-        let pypi_name = PypiPackageName::Base(package_name.clone().into());
+        let pypi_name = PypiPackageName::package(package_name.clone().into());
         let dependency_package_name = pool.intern_package_name(pypi_name.clone());
         let version_set_id = pool.intern_version_set(
             dependency_package_name,
@@ -122,12 +122,12 @@ fn resolve_inner<'r>(
         if let Some(VersionOrUrl::Url(url)) = &version_or_url
             && let Some(given) = url.given()
         {
-            name_to_url.insert(pypi_name.base().clone(), given.to_owned());
+            name_to_url.insert(pypi_name.base_package().clone(), given.to_owned());
         }
 
         for extra in req_extras {
             let extra: Extra = extra.as_ref().parse().expect("invalid extra");
-            let dependency_package_name = pool.intern_package_name(PypiPackageName::Extra(
+            let dependency_package_name = pool.intern_package_name(PypiPackageName::extra_feature(
                 package_name.clone().into(),
                 extra.clone(),
             ));
@@ -178,6 +178,17 @@ fn resolve_inner<'r>(
         let name = provider.pool.resolve_package_name(solvable.name);
         let version = &solvable.record;
 
+        // Skip extra feature solvables - they're not real packages
+        if name.is_extra_feature() {
+            // Record the extra in the base package if it exists
+            if let PypiPackageName::ExtraFeature(base_name, extra) = name
+                && let Some(entry) = result.get_mut(base_name)
+            {
+                entry.extras.insert(extra.clone());
+            }
+            continue;
+        }
+
         let artifacts: Vec<_> = provider
             .cached_artifacts
             .get(&solvable_id)
@@ -195,23 +206,22 @@ fn resolve_inner<'r>(
                     .expect("no artifacts found for direct_url artifact");
                 (info.filename.version(), Some(url.clone()))
             }
+            PypiVersion::Extra { .. } => {
+                // This shouldn't happen since we skip extra features above
+                unreachable!("extra features should have been skipped");
+            }
         };
 
         // Get the entry in the result
-        let entry = result
-            .entry(name.base().clone())
+        result
+            .entry(name.base_package().clone())
             .or_insert_with(|| PinnedPackage {
-                name: name.base().clone(),
+                name: name.base_package().clone(),
                 version,
                 url,
                 artifacts,
                 extras: Default::default(),
             });
-
-        // Add the extra if selected
-        if let PypiPackageName::Extra(_, extra) = name {
-            entry.extras.insert(extra.clone());
-        }
     }
 
     Ok(result.into_values().collect())

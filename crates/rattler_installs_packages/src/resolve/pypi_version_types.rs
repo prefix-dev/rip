@@ -79,6 +79,14 @@ pub enum PypiVersion {
     },
     /// Direct reference for artifact
     Url(Url),
+    /// Virtual solvable representing an extra feature
+    /// This is used to model conditional dependencies (e.g., requests[socks])
+    Extra {
+        /// The base package name
+        package: NormalizedPackageName,
+        /// The extra name
+        extra: Extra,
+    },
 }
 
 impl PypiVersion {
@@ -87,6 +95,7 @@ impl PypiVersion {
         match self {
             PypiVersion::Url(_) => false,
             PypiVersion::Version { version, .. } => version.any_prerelease(),
+            PypiVersion::Extra { .. } => false,
         }
     }
 
@@ -95,6 +104,7 @@ impl PypiVersion {
         match self {
             PypiVersion::Version { .. } => false,
             PypiVersion::Url(url) => url.scheme().contains("git"),
+            PypiVersion::Extra { .. } => false,
         }
     }
 }
@@ -129,6 +139,8 @@ impl PypiVersionSet {
                 },
             ) => self.allows_prerelease || *package_allows_prerelease || !version.any_prerelease(),
             (None, PypiVersion::Url(_)) => true,
+            // Extra features always match when spec is None (used for extra version sets)
+            (None, PypiVersion::Extra { .. }) => true,
             _ => false,
         }
     }
@@ -139,43 +151,60 @@ impl Display for PypiVersion {
         match self {
             PypiVersion::Version { version, .. } => write!(f, "{version}"),
             PypiVersion::Url(u) => write!(f, "{u}"),
+            PypiVersion::Extra { package, extra } => write!(f, "{}[{}]", package, extra.as_str()),
         }
     }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
-/// This can either be a base package name or with an extra
-/// this is used to support optional dependencies
+/// Represents a PyPI package or extra "feature"
+/// Extras are modeled as virtual solvables that enable conditional dependencies
 pub(crate) enum PypiPackageName {
-    /// Regular dependency
-    Base(NormalizedPackageName),
-    /// Optional dependency
-    Extra(NormalizedPackageName, Extra),
+    /// A real package
+    Package(NormalizedPackageName),
+    /// A virtual "extra feature" solvable for conditional dependencies
+    /// Format: package_name + "__extra__" + extra_name
+    ExtraFeature(NormalizedPackageName, Extra),
 }
 
 impl PypiPackageName {
-    /// Returns the actual package (normalized) name without the extra
-    pub fn base(&self) -> &NormalizedPackageName {
+    /// Create a new package name
+    pub fn package(name: NormalizedPackageName) -> Self {
+        Self::Package(name)
+    }
+
+    /// Create a new extra feature name
+    pub fn extra_feature(package: NormalizedPackageName, extra: Extra) -> Self {
+        Self::ExtraFeature(package, extra)
+    }
+
+    /// Returns the base package name
+    pub fn base_package(&self) -> &NormalizedPackageName {
         match self {
-            PypiPackageName::Base(normalized) => normalized,
-            PypiPackageName::Extra(normalized, _) => normalized,
+            PypiPackageName::Package(name) => name,
+            PypiPackageName::ExtraFeature(name, _) => name,
         }
     }
 
-    /// Retrieves the extra if it is available
-    pub fn extra(&self) -> Option<&Extra> {
-        match self {
-            PypiPackageName::Base(_) => None,
-            PypiPackageName::Extra(_, e) => Some(e),
-        }
+    /// Returns true if this is an extra feature
+    pub fn is_extra_feature(&self) -> bool {
+        matches!(self, PypiPackageName::ExtraFeature(_, _))
+    }
+}
+
+impl From<NormalizedPackageName> for PypiPackageName {
+    fn from(name: NormalizedPackageName) -> Self {
+        Self::Package(name)
     }
 }
 
 impl Display for PypiPackageName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            PypiPackageName::Base(name) => write!(f, "{}", name),
-            PypiPackageName::Extra(name, extra) => write!(f, "{}[{}]", name, extra.as_str()),
+            PypiPackageName::Package(name) => write!(f, "{}", name),
+            PypiPackageName::ExtraFeature(name, extra) => {
+                write!(f, "{}[{}]", name, extra.as_str())
+            }
         }
     }
 }

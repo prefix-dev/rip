@@ -16,12 +16,11 @@ use elsa::FrozenMap;
 use itertools::Itertools;
 use miette::{Diagnostic, MietteDiagnostic};
 use parking_lot::Mutex;
-use pep440_rs::{VersionSpecifier, VersionSpecifiers};
-use pep508_rs::{ExtraName, MarkerEnvironment, Requirement, VerbatimUrl, VersionOrUrl};
+use pep508_rs::{ExtraName, MarkerEnvironment, Requirement, VersionOrUrl};
 use resolvo::{
-    Candidates, ConditionalRequirement, Dependencies, DependencyProvider, KnownDependencies,
-    NameId, Requirement as ResolvoRequirement, SolvableId, SolverCache, StringId, VersionSetId,
-    utils::Pool,
+    Candidates, ConditionalRequirement, Dependencies, DependencyProvider,
+    HintDependenciesAvailable, KnownDependencies, NameId, Requirement as ResolvoRequirement,
+    SolvableId, SolverCache, StringId, VersionSetId, utils::Pool,
 };
 use std::{any::Any, borrow::Borrow, cmp::Ordering, rc::Rc, str::FromStr, sync::Arc};
 use thiserror::Error;
@@ -39,6 +38,12 @@ pub(crate) struct PypiDependencyProvider {
 
     options: ResolveOptions,
     should_cancel_with_value: Mutex<Option<MetadataError>>,
+
+    /// Maps extras to their version set IDs for use in conditions
+    /// The key is (package_name, extra_name) and the value is the VersionSetId
+    /// that represents "package[extra] is requested"
+    /// Boxed because FrozenMap requires Deref types
+    extra_conditions: FrozenMap<(NormalizedPackageName, Extra), Box<VersionSetId>>,
 }
 
 impl PypiDependencyProvider {
@@ -63,6 +68,7 @@ impl PypiDependencyProvider {
             name_to_url,
             options,
             should_cancel_with_value: Default::default(),
+            extra_conditions: Default::default(),
         })
     }
 
@@ -205,6 +211,45 @@ impl PypiDependencyProvider {
             .await
             .expect("could not acquire semaphore")
     }
+
+    /// Creates or retrieves a condition ID for a given package extra
+    /// This is used to make dependencies conditional on extras being selected
+    fn extra_condition(
+        &self,
+        package: &NormalizedPackageName,
+        extra: &Extra,
+    ) -> resolvo::ConditionId {
+        use resolvo::Condition;
+
+        // Create the extra feature name
+        let extra_name = PypiPackageName::extra_feature(package.clone(), extra.clone());
+        let name_id = self.pool.intern_package_name(extra_name);
+
+        // Check if we already have a condition for this extra
+        if let Some(boxed_id) = self.extra_conditions.get(&(package.clone(), extra.clone())) {
+            // boxed_id is &Box<VersionSetId>
+            // VersionSetId is a tuple struct with one field (u32), access it directly
+            // Box<T> derefs to &T automatically, so we can copy the inner value
+            let version_set_id = VersionSetId(boxed_id.0);
+            return self
+                .pool
+                .intern_condition(Condition::Requirement(version_set_id));
+        }
+
+        // Create a new version set for this extra (any version of the extra feature)
+        let version_set_id = self.pool.intern_version_set(
+            name_id,
+            PypiVersionSet::from_spec(None, &self.options.pre_release_resolution),
+        );
+
+        // Cache it for future use
+        self.extra_conditions
+            .insert((package.clone(), extra.clone()), Box::new(version_set_id));
+
+        // Return the condition
+        self.pool
+            .intern_condition(Condition::Requirement(version_set_id))
+    }
 }
 
 #[derive(Debug, Error, Diagnostic, Clone)]
@@ -261,9 +306,8 @@ impl resolvo::Interner for &PypiDependencyProvider {
         std::iter::empty()
     }
 
-    fn resolve_condition(&self, _condition: resolvo::ConditionId) -> resolvo::Condition {
-        // For now, we don't use conditional requirements, so we just return a simple requirement condition
-        resolvo::Condition::Requirement(VersionSetId::default())
+    fn resolve_condition(&self, condition: resolvo::ConditionId) -> resolvo::Condition {
+        self.pool.resolve_condition(condition).clone()
     }
 }
 
@@ -334,6 +378,13 @@ impl DependencyProvider for &PypiDependencyProvider {
                     PypiVersion::Version { version: a, .. },
                     PypiVersion::Version { version: b, .. },
                 ) => b.cmp(a),
+
+                // Extras don't need special sorting - they're always unique
+                (PypiVersion::Extra { .. }, PypiVersion::Extra { .. }) => Ordering::Equal,
+
+                // Put extras at the end
+                (PypiVersion::Extra { .. }, _) => Ordering::Less,
+                (_, PypiVersion::Extra { .. }) => Ordering::Greater,
             }
         })
     }
@@ -342,17 +393,36 @@ impl DependencyProvider for &PypiDependencyProvider {
         let package_name = self.pool.resolve_package_name(name);
         tracing::info!("collecting {}", package_name);
 
+        // Handle extra features specially - they are virtual solvables
+        if let PypiPackageName::ExtraFeature(base_name, extra) = package_name {
+            // For extras, we create a single virtual solvable
+            let extra_solvable = self.pool.intern_solvable(
+                name,
+                PypiVersion::Extra {
+                    package: base_name.clone(),
+                    extra: extra.clone(),
+                },
+            );
+            return Some(Candidates {
+                candidates: vec![extra_solvable],
+                favored: None,
+                locked: None,
+                excluded: Vec::new(),
+                hint_dependencies_available: HintDependenciesAvailable::All,
+            });
+        }
+
         // check if we have URL variant for this name
-        let url_version = self.name_to_url.get(package_name.base());
+        let url_version = self.name_to_url.get(package_name.base_package());
 
         let request = if let Some(url) = url_version {
             ArtifactRequest::DirectUrl {
-                name: package_name.base().clone(),
+                name: package_name.base_package().clone(),
                 url: Url::from_str(url).expect("cannot parse back url"),
                 wheel_builder: self.wheel_builder.clone(),
             }
         } else {
-            ArtifactRequest::FromIndex(package_name.base().clone())
+            ArtifactRequest::FromIndex(package_name.base_package().clone())
         };
 
         let lease = self.aquire_lease_to_run().await;
@@ -377,13 +447,19 @@ impl DependencyProvider for &PypiDependencyProvider {
             }
         };
         let mut candidates = Candidates::default();
-        let locked_package = self.options.locked_packages.get(package_name.base());
-        let favored_package = self.options.favored_packages.get(package_name.base());
+        let locked_package = self
+            .options
+            .locked_packages
+            .get(package_name.base_package());
+        let favored_package = self
+            .options
+            .favored_packages
+            .get(package_name.base_package());
 
         let should_package_allow_prerelease = match &self.options.pre_release_resolution {
             PreReleaseResolution::Disallow => false,
             PreReleaseResolution::AllowIfNoOtherVersionsOrEnabled { allow_names } => {
-                if allow_names.contains(&package_name.base().to_string()) {
+                if allow_names.contains(&package_name.base_package().to_string()) {
                     true
                 } else {
                     // check if we _only_ have prereleases for this name (if yes, also allow them)
@@ -413,6 +489,10 @@ impl DependencyProvider for &PypiDependencyProvider {
                     {
                         continue;
                     }
+                }
+                PypiVersion::Extra { .. } => {
+                    // Extra versions shouldn't appear in artifacts list
+                    unreachable!("extras should not appear in artifact list");
                 }
             }
 
@@ -445,7 +525,11 @@ impl DependencyProvider for &PypiDependencyProvider {
         }
 
         // Add a locked dependency
-        if let Some(locked) = self.options.locked_packages.get(package_name.base()) {
+        if let Some(locked) = self
+            .options
+            .locked_packages
+            .get(package_name.base_package())
+        {
             let version = if let Some(url) = &locked.url {
                 PypiVersion::Url(url.clone())
             } else {
@@ -462,7 +546,11 @@ impl DependencyProvider for &PypiDependencyProvider {
         }
 
         // Add a favored dependency
-        if let Some(favored) = self.options.favored_packages.get(package_name.base()) {
+        if let Some(favored) = self
+            .options
+            .favored_packages
+            .get(package_name.base_package())
+        {
             let version = if let Some(url) = &favored.url {
                 PypiVersion::Url(url.clone())
             } else {
@@ -496,30 +584,25 @@ impl DependencyProvider for &PypiDependencyProvider {
 
         // Add a dependency to the base dependency when we have an extra
         // So that we have a connection to the base package
-        if let PypiPackageName::Extra(package_name, _) = package_name {
+        if let PypiPackageName::ExtraFeature(base_package, _) = package_name {
+            // Intern the base package name (creates it if it doesn't exist)
             let base_name_id = self
                 .pool
-                .lookup_package_name(&PypiPackageName::Base(package_name.clone()))
-                .expect("base package not found while resolving extra");
-            let specifiers = match package_version {
-                PypiVersion::Version { version, .. } => {
-                    VersionOrUrl::VersionSpecifier(VersionSpecifiers::from_iter([
-                        VersionSpecifier::equals_version(version.clone()),
-                    ]))
-                }
-                PypiVersion::Url(url_version) => {
-                    VersionOrUrl::Url(VerbatimUrl::from_url(url_version.clone()))
-                }
-            };
+                .intern_package_name(PypiPackageName::package(base_package.clone()));
 
+            // Extra feature solvables depend on the base package with ANY version
+            // The actual version constraint comes from the requirement that selected this extra
             let version_set_id = self.pool.intern_version_set(
                 base_name_id,
-                PypiVersionSet::from_spec(Some(specifiers), &self.options.pre_release_resolution),
+                PypiVersionSet::from_spec(None, &self.options.pre_release_resolution),
             );
             dependencies.requirements.push(ConditionalRequirement {
                 condition: None,
                 requirement: ResolvoRequirement::Single(version_set_id),
             });
+
+            // Extra features are virtual solvables with no other dependencies
+            return Dependencies::Known(dependencies);
         }
 
         // Retrieve the artifacts that are applicable for this version
@@ -533,7 +616,10 @@ impl DependencyProvider for &PypiDependencyProvider {
             // TODO: rework this so it makes more sense from an API perspective later, I think we should add the concept of installed_and_locked or something
             // It is locked the package data may be available externally
             // So it's fine if there are no artifacts, we can just assume this has been taken care of
-            let locked_package = self.options.locked_packages.get(package_name.base());
+            let locked_package = self
+                .options
+                .locked_packages
+                .get(package_name.base_package());
             match package_version {
                 PypiVersion::Url(url) => {
                     if locked_package.map(|p| &p.url) == Some(&Some(url.clone())) {
@@ -545,6 +631,11 @@ impl DependencyProvider for &PypiDependencyProvider {
                     if locked_package.map(|p| &p.version) == Some(version) {
                         return Dependencies::Known(dependencies);
                     }
+                }
+
+                PypiVersion::Extra { .. } => {
+                    // Extras don't have artifacts, this should have been handled earlier
+                    unreachable!("extras should have been handled earlier");
                 }
             }
 
@@ -609,46 +700,37 @@ impl DependencyProvider for &PypiDependencyProvider {
             }
         };
 
-        // Add constraints that restrict that the extra packages are set to the same version.
-        if let PypiPackageName::Base(package_name) = package_name {
-            // Add constraints on the extras of a package
-            for extra in metadata.extras {
-                let extra_name_id = self
-                    .pool
-                    .intern_package_name(PypiPackageName::Extra(package_name.clone(), extra));
+        // Note: In the old implementation, we added constraints here to ensure that
+        // extras matched the same version as their base package. However, with the new
+        // virtual solvable model for extras, this is no longer needed or valid.
+        // Extra feature solvables are virtual (they don't have real versions) and they
+        // automatically depend on their base package, which provides the version constraint.
+        // Therefore, we skip this constraint generation for now.
+        //
+        // In the future, if we need to model "provides_extras" (packages declaring which
+        // extras they provide), we could potentially use this logic differently.
 
-                let specifiers = match package_version {
-                    PypiVersion::Version { version, .. } => {
-                        VersionOrUrl::VersionSpecifier(VersionSpecifiers::from_iter([
-                            VersionSpecifier::equals_version(version.clone()),
-                        ]))
-                    }
-                    PypiVersion::Url(url_version) => {
-                        VersionOrUrl::Url(VerbatimUrl::from_url(url_version.clone()))
-                    }
-                };
-                let version_set_id = self.pool.intern_version_set(
-                    extra_name_id,
-                    PypiVersionSet::from_spec(
-                        Some(specifiers),
-                        &self.options.pre_release_resolution,
-                    ),
-                );
-                dependencies.constrains.push(version_set_id);
+        let extras: Vec<ExtraName> = match package_name {
+            PypiPackageName::ExtraFeature(_, extra) => {
+                vec![ExtraName::new(extra.as_str().to_string()).unwrap()]
             }
-        }
-
-        let extras: Vec<ExtraName> = package_name
-            .extra()
-            .into_iter()
-            .map(|e| ExtraName::new(e.as_str().to_string()).unwrap())
-            .collect();
+            PypiPackageName::Package(_) => Vec::new(),
+        };
         for requirement in metadata.requires_dist {
-            // Evaluate environment markers
-            if !requirement
-                .marker
-                .evaluate(&self.markers, extras.as_slice())
-            {
+            // Extract marker and check if it's conditional on an extra
+            let marker = &requirement.marker;
+
+            // Check if this dependency is conditional on a specific extra
+            let extra_marker = marker.top_level_extra();
+
+            // Evaluate environment markers (but not extra markers)
+            // For base packages with extra-specific dependencies, we DON'T evaluate the marker
+            // because we'll add them as conditional requirements instead
+            let is_extra_conditional =
+                extra_marker.is_some() && matches!(package_name, PypiPackageName::Package(_));
+
+            if !is_extra_conditional && !marker.evaluate(&self.markers, extras.as_slice()) {
+                // Non-extra markers that don't match the environment
                 continue;
             }
 
@@ -659,10 +741,11 @@ impl DependencyProvider for &PypiDependencyProvider {
                 extras: req_extras,
                 ..
             } = requirement;
-            let package_name = PackageName::from_str(name.as_ref()).expect("invalid package name");
+            let dep_package_name =
+                PackageName::from_str(name.as_ref()).expect("invalid package name");
             let dependency_name_id = self
                 .pool
-                .intern_package_name(PypiPackageName::Base(package_name.clone().into()));
+                .intern_package_name(PypiPackageName::package(dep_package_name.clone().into()));
 
             let version_set_id = self.pool.intern_version_set(
                 dependency_name_id,
@@ -676,31 +759,58 @@ impl DependencyProvider for &PypiDependencyProvider {
                 && let Some(given) = url.given()
             {
                 self.name_to_url
-                    .insert(package_name.clone().into(), given.to_owned());
+                    .insert(dep_package_name.clone().into(), given.to_owned());
             }
 
+            // Determine if this requirement should be conditional on an extra
+            let condition = if let Some(pep508_rs::MarkerExpression::Extra {
+                name: extra_value,
+                ..
+            }) = extra_marker
+            {
+                // Extract the extra name
+                // and get the base package that owns this dependency
+                // (package_name here refers to the outer package being processed, e.g., cachecontrol)
+                if let pep508_rs::MarkerValueExtra::Extra(extra_name) = extra_value
+                    && let PypiPackageName::Package(owner_pkg) = package_name
+                {
+                    // Convert ExtraName to Extra
+                    let extra = Extra::from_str(extra_name.as_ref()).expect("invalid extra");
+                    // Create a condition for this extra
+                    Some(self.extra_condition(owner_pkg, &extra))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Add requirement (conditional if it depends on an extra)
             dependencies.requirements.push(ConditionalRequirement {
-                condition: None,
+                condition,
                 requirement: ResolvoRequirement::Single(version_set_id),
             });
 
-            // Add a unique package for each extra/optional dependency
-            for extra in req_extras {
-                let extra = Extra::from_str(extra.as_ref()).expect("invalid extra name");
-                let dependency_name_id = self.pool.intern_package_name(PypiPackageName::Extra(
-                    package_name.clone().into(),
-                    extra,
-                ));
-                let version_set_id = self.pool.intern_version_set(
-                    dependency_name_id,
-                    PypiVersionSet::from_spec(
-                        version_or_url.clone(),
-                        &self.options.pre_release_resolution,
-                    ),
+            // Add unconditional requirements for each extra feature requested
+            // When a package depends on foo[bar], we require both foo and foo[bar]
+            for extra_name in req_extras {
+                let extra = Extra::from_str(extra_name.as_ref()).expect("invalid extra name");
+
+                // Require the extra feature solvable (for the DEPENDENCY, not the owner)
+                let extra_feature_name =
+                    PypiPackageName::extra_feature(dep_package_name.clone().into(), extra);
+                let extra_name_id = self.pool.intern_package_name(extra_feature_name);
+                // Extra features are virtual solvables, so we use None (any version)
+                // The actual version constraint is on the base package
+                let extra_version_set_id = self.pool.intern_version_set(
+                    extra_name_id,
+                    PypiVersionSet::from_spec(None, &self.options.pre_release_resolution),
                 );
+
+                // This requirement is unconditional - we always need the extra when requested
                 dependencies.requirements.push(ConditionalRequirement {
                     condition: None,
-                    requirement: ResolvoRequirement::Single(version_set_id),
+                    requirement: ResolvoRequirement::Single(extra_version_set_id),
                 });
             }
         }

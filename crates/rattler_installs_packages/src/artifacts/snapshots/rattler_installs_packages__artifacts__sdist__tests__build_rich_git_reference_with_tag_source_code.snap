@@ -7,14 +7,14 @@ WheelCoreMetadata {
         source: "rich",
         normalized: "rich",
     },
-    version: "1.0.0",
+    version: "14.2.0",
     metadata_version: MetadataVersion(
-        "2.4",
+        "2.3",
     ),
     requires_dist: [
         Requirement {
             name: PackageName(
-                "colorama",
+                "ipywidgets",
             ),
             extras: [],
             version_or_url: Some(
@@ -23,22 +23,22 @@ WheelCoreMetadata {
                         [
                             VersionSpecifier {
                                 operator: GreaterThanEqual,
-                                version: "0.4.3",
+                                version: "7.5.1",
                             },
                             VersionSpecifier {
                                 operator: LessThan,
-                                version: "0.5.0",
+                                version: "9",
                             },
                         ],
                     ),
                 ),
             ),
-            marker: true,
+            marker: extra == 'jupyter',
             origin: None,
         },
         Requirement {
             name: PackageName(
-                "commonmark",
+                "markdown-it-py",
             ),
             extras: [],
             version_or_url: Some(
@@ -47,59 +47,7 @@ WheelCoreMetadata {
                         [
                             VersionSpecifier {
                                 operator: GreaterThanEqual,
-                                version: "0.9.0",
-                            },
-                            VersionSpecifier {
-                                operator: LessThan,
-                                version: "0.10.0",
-                            },
-                        ],
-                    ),
-                ),
-            ),
-            marker: true,
-            origin: None,
-        },
-        Requirement {
-            name: PackageName(
-                "dataclasses",
-            ),
-            extras: [],
-            version_or_url: Some(
-                VersionSpecifier(
-                    VersionSpecifiers(
-                        [
-                            VersionSpecifier {
-                                operator: GreaterThanEqual,
-                                version: "0.7",
-                            },
-                            VersionSpecifier {
-                                operator: LessThan,
-                                version: "0.8",
-                            },
-                        ],
-                    ),
-                ),
-            ),
-            marker: python_full_version == '3.6.*',
-            origin: None,
-        },
-        Requirement {
-            name: PackageName(
-                "pprintpp",
-            ),
-            extras: [],
-            version_or_url: Some(
-                VersionSpecifier(
-                    VersionSpecifiers(
-                        [
-                            VersionSpecifier {
-                                operator: GreaterThanEqual,
-                                version: "0.4.0",
-                            },
-                            VersionSpecifier {
-                                operator: LessThan,
-                                version: "0.5.0",
+                                version: "2.2.0",
                             },
                         ],
                     ),
@@ -119,35 +67,11 @@ WheelCoreMetadata {
                         [
                             VersionSpecifier {
                                 operator: GreaterThanEqual,
-                                version: "2.6.1",
+                                version: "2.13.0",
                             },
                             VersionSpecifier {
                                 operator: LessThan,
                                 version: "3.0.0",
-                            },
-                        ],
-                    ),
-                ),
-            ),
-            marker: true,
-            origin: None,
-        },
-        Requirement {
-            name: PackageName(
-                "typing-extensions",
-            ),
-            extras: [],
-            version_or_url: Some(
-                VersionSpecifier(
-                    VersionSpecifiers(
-                        [
-                            VersionSpecifier {
-                                operator: GreaterThanEqual,
-                                version: "3.7.4",
-                            },
-                            VersionSpecifier {
-                                operator: LessThan,
-                                version: "4.0.0",
                             },
                         ],
                     ),
@@ -162,14 +86,15 @@ WheelCoreMetadata {
             [
                 VersionSpecifier {
                     operator: GreaterThanEqual,
-                    version: "3.6",
-                },
-                VersionSpecifier {
-                    operator: LessThan,
-                    version: "4.0",
+                    version: "3.8.0",
                 },
             ],
         ),
     ),
-    extras: {},
+    extras: {
+        Extra {
+            source: "jupyter",
+            normalized: "jupyter",
+        },
+    },
 }
