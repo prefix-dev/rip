@@ -19,7 +19,6 @@ use url::Url;
 use crate::resolve::pypi_version_types::{PypiPackageName, PypiVersionSet};
 use crate::resolve::solve_options::ResolveOptions;
 use std::collections::HashSet;
-use std::convert::identity;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -75,13 +74,10 @@ pub async fn resolve(
         )
     })
     .await
-    .map_or_else(
-        |e| match e.try_into_panic() {
-            Ok(panic) => std::panic::resume_unwind(panic),
-            Err(_) => Err(miette::miette!("the operation was cancelled")),
-        },
-        identity,
-    )
+    .unwrap_or_else(|e| match e.try_into_panic() {
+        Ok(panic) => std::panic::resume_unwind(panic),
+        Err(_) => Err(miette::miette!("the operation was cancelled")),
+    })
 }
 
 fn resolve_inner<'r>(

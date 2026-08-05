@@ -4,7 +4,6 @@
 use crate::types::ArtifactHashes;
 use crate::utils::retry_interrupted;
 use fs_err as fs;
-use fs4::fs_std::FileExt;
 use std::{
     io,
     io::{Read, Seek, SeekFrom, Write},
@@ -281,7 +280,7 @@ async fn lock(path: &Path, mode: LockMode) -> io::Result<fs::File> {
     // properly handle EINTR so we keep retrying when that happens.
 
     let lock = task::spawn_blocking(move || {
-        retry_interrupted(|| lock.file().lock_exclusive()).unwrap();
+        retry_interrupted(|| lock.file().lock()).unwrap();
         lock
     })
     .await

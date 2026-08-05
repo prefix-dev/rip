@@ -113,7 +113,7 @@ mod test {
         let site_packages_dir = temp_dir.path().join("site-packages");
         fs::create_dir(&site_packages_dir).unwrap();
         let dist_info_dir = Path::new("test-1.0.0.dist-info");
-        fs::create_dir(&site_packages_dir.join(dist_info_dir)).unwrap();
+        fs::create_dir(site_packages_dir.join(dist_info_dir)).unwrap();
 
         let files = [
             "test-1.0.0.dist-info/RECORD",

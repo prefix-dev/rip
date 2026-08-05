@@ -110,13 +110,13 @@ async fn main() {
 /// Constructs a default [`EnvFilter`] that is used when the user did not specify a custom RUST_LOG.
 pub fn get_default_env_filter(verbose: clap_verbosity_flag::Verbosity) -> EnvFilter {
     // Always log info for rattler_installs_packages
-    let (rip, rest) = match verbose.log_level_filter() {
-        clap_verbosity_flag::LevelFilter::Off => (LevelFilter::OFF, LevelFilter::OFF),
-        clap_verbosity_flag::LevelFilter::Error => (LevelFilter::INFO, LevelFilter::ERROR),
-        clap_verbosity_flag::LevelFilter::Warn => (LevelFilter::INFO, LevelFilter::WARN),
-        clap_verbosity_flag::LevelFilter::Info => (LevelFilter::INFO, LevelFilter::INFO),
-        clap_verbosity_flag::LevelFilter::Debug => (LevelFilter::DEBUG, LevelFilter::DEBUG),
-        clap_verbosity_flag::LevelFilter::Trace => (LevelFilter::TRACE, LevelFilter::TRACE),
+    let (rip, rest) = match verbose.filter() {
+        clap_verbosity_flag::VerbosityFilter::Off => (LevelFilter::OFF, LevelFilter::OFF),
+        clap_verbosity_flag::VerbosityFilter::Error => (LevelFilter::INFO, LevelFilter::ERROR),
+        clap_verbosity_flag::VerbosityFilter::Warn => (LevelFilter::INFO, LevelFilter::WARN),
+        clap_verbosity_flag::VerbosityFilter::Info => (LevelFilter::INFO, LevelFilter::INFO),
+        clap_verbosity_flag::VerbosityFilter::Debug => (LevelFilter::DEBUG, LevelFilter::DEBUG),
+        clap_verbosity_flag::VerbosityFilter::Trace => (LevelFilter::TRACE, LevelFilter::TRACE),
     };
 
     EnvFilter::builder()

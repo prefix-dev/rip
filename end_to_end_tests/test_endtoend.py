@@ -89,7 +89,9 @@ class Rip:
 
     def __call__(self, *args: Any, **kwds: Any) -> Any:
         try:
-            return check_output([str(self.path), "resolve", *args], **kwds).decode("utf-8")
+            return check_output([str(self.path), "resolve", *args], **kwds).decode(
+                "utf-8"
+            )
         except CalledProcessError as e:
             print(e.output)
             print(e.stderr)

@@ -1,4 +1,4 @@
-[project]
+[workspace]
 name = "rip"
 version = "0.1.0"
 description = "Add a short description here"
@@ -12,8 +12,9 @@ fmt = "ruff format ./end_to_end_tests"
 end_to_end_tests = "pytest ./end_to_end_tests"
 
 [dependencies]
-pytest = ">=7.4.4,<7.5"
-pytest-xprocess = ">=0.23.0,<0.24"
-poetry = ">=1.7.1,<1.8"
-ruff = ">=0.1.13,<0.2"
+python = ">=3.12,<3.13"
+pytest = ">=9.1.1,<10"
+pytest-xprocess = ">=1.0.2,<2"
+poetry = ">=1.8.5,<2"
+ruff = ">=0.16.1,<0.17"
 

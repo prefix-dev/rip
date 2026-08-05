@@ -33,6 +33,7 @@ impl Display for GitUrl {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// A git revision (branch, tag or commit)
+#[derive(Default)]
 pub enum GitRev {
     /// A git branch
     Branch(String),
@@ -41,6 +42,7 @@ pub enum GitRev {
     /// A specific git commit hash
     Commit(String),
     /// The default revision (HEAD)
+    #[default]
     Head,
 }
 
@@ -87,11 +89,6 @@ impl FromStr for GitRev {
     }
 }
 
-impl Default for GitRev {
-    fn default() -> Self {
-        Self::Head
-    }
-}
 /// A struct which store
 /// cleaned url with revision and subdirectory
 /// parsed from

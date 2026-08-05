@@ -63,11 +63,11 @@ pub(crate) async fn get_artifacts_and_metadata<P: Into<NormalizedPackageName>>(
         assert_eq!(hash, artifact_hash);
     };
 
-    let hash_str = format!(
-        "{:x}",
+    let hash_str = data_encoding::HEXLOWER.encode(
         artifact_hash
             .sha256
             .expect("hash should be already calculated")
+            .as_slice(),
     );
 
     let (metadata_bytes, metadata, artifact) = if str_name.ends_with(".whl") {

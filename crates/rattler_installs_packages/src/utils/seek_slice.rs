@@ -78,8 +78,10 @@ mod test {
         // starts at offset zero
         assert_eq!(slice.stream_position().unwrap(), 0);
         // reading advances position as expected
-        fn next_byte<T: Read>(value: T) -> u8 {
-            value.bytes().next().unwrap().unwrap()
+        fn next_byte<T: Read>(mut value: T) -> u8 {
+            let mut byte = [0];
+            value.read_exact(&mut byte).unwrap();
+            byte[0]
         }
         assert_eq!(next_byte(&mut slice), 2u8);
         assert_eq!(next_byte(&mut slice), 3u8);
@@ -96,6 +98,7 @@ mod test {
 
         assert_eq!(slice.seek(SeekFrom::End(-1)).unwrap(), 5);
         assert_eq!(next_byte(&mut slice), 7u8);
-        assert!(slice.bytes().next().is_none());
+        let mut byte = [0];
+        assert_eq!(slice.read(&mut byte).unwrap(), 0);
     }
 }

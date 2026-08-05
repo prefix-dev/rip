@@ -80,7 +80,7 @@ impl FromStr for WheelTag {
 
 impl Display for WheelTag {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-{}-{}", &self.interpreter, &self.abi, &self.platform)
+        write!(f, "{}-{}-{}", self.interpreter, self.abi, self.platform)
     }
 }
 

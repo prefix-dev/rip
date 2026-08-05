@@ -223,6 +223,9 @@ pub(crate) enum MetadataError {
 }
 
 impl resolvo::Interner for &PypiDependencyProvider {
+    type NameId = NameId;
+    type SolvableId = SolvableId;
+
     fn display_solvable(&self, solvable: SolvableId) -> impl std::fmt::Display + '_ {
         let solvable = self.pool.resolve_solvable(solvable);
         let name = self.pool.resolve_package_name(solvable.name);
